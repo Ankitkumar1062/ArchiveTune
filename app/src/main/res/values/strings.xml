@@ -1485,4 +1485,11 @@
     <string name="telegram_unavailable">Telegram support is unavailable in this build</string>
     <string name="telegram_error">Telegram error: %1$s</string>
     <string name="telegram_error_generic">Couldn\'t open this Telegram channel</string>
+    <!-- Deezer sign-in. Deliberately in THIS file and not fork_strings.xml: upstream merged this
+         fork's Deezer support and defines both of these in their own strings.xml, so once a
+         mirrored tag contains that merge their copy supplies them and this block disappears with
+         the file. Putting them in fork_strings.xml would survive the mirror and then collide with
+         theirs as a duplicate resource. -->
+    <string name="deezer_login">Sign in to Deezer</string>
+    <string name="deezer_login_success">Signed in to Deezer as %1$s</string>
 </resources>

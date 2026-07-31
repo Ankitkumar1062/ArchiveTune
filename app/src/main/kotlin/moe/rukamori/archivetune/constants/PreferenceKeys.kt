@@ -1137,3 +1137,27 @@ enum class UpdateChannel {
             }
     }
 }
+
+// Fork-only preference keys.
+//
+// These live at the end of the file, rather than beside the related upstream keys, purely so that
+// upstream syncs do not conflict here: 4nx3b edits the body of this file often, and keeping the
+// fork's additions in one contiguous block at the tail keeps merges mechanical.
+//
+// The mirror workflow overwrote this file with upstream's copy, which silently dropped these and
+// left DeezerLoginScreen referencing symbols that no longer existed. They are kept here rather than
+// in ForkPreferenceKeys.kt because upstream has since merged this fork's Deezer support and now
+// declares these same four itself -- so once a mirrored tag contains that merge, their copy of this
+// file supplies them and this block goes away on its own. Declaring them in the fork-only file
+// instead would then be a redeclaration error.
+//
+// String values must stay exactly as they are -- they are the on-disk DataStore names, so renaming
+// one would orphan the stored setting on every existing install.
+
+val DeezerEnabledKey = booleanPreferencesKey("deezerEnabled")
+
+val DeezerArlKey = stringPreferencesKey("deezerArl")
+
+val DeezerAccountNameKey = stringPreferencesKey("deezerAccountName")
+
+val DeezerAccountPremiumKey = booleanPreferencesKey("deezerAccountPremium")
