@@ -17,7 +17,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.jaudiotagger.audio.AudioFileIO
 import org.jaudiotagger.tag.FieldKey
-import org.jaudiotagger.tag.images.AndroidArtwork
+import org.jaudiotagger.tag.images.ArtworkFactory
+import org.jaudiotagger.tag.reference.PictureTypes
 import timber.log.Timber
 import java.io.File
 import java.util.concurrent.TimeUnit
@@ -81,7 +82,7 @@ internal object AudioFileTagger {
 
             request.artworkUrl?.let { url ->
                 // Best-effort: never fail the whole tagging pass because artwork could not be fetched.
-                runCatching { embedArtwork(tag, url, context) }
+                runCatching { embedArtwork(tag, url) }
                     .onFailure { Timber.tag(TAG).w(it, "artwork embed failed") }
             }
 
@@ -101,7 +102,6 @@ internal object AudioFileTagger {
     private fun embedArtwork(
         tag: org.jaudiotagger.tag.Tag,
         url: String,
-        context: Context,
     ) {
         val response =
             artworkClient.newCall(Request.Builder().url(url).get().build()).execute()
@@ -112,15 +112,26 @@ internal object AudioFileTagger {
             }
         if (bytes.isEmpty()) return
 
-        // AndroidArtwork (from the Android fork) avoids the java.awt ImageIO path that would crash.
-        val artworkFile = File.createTempFile("cover_", ".jpg", context.cacheDir)
-        try {
-            artworkFile.writeBytes(bytes)
-            val artwork = AndroidArtwork.createArtworkFromFile(artworkFile)
-            tag.deleteArtworkField()
-            tag.setField(artwork)
-        } finally {
-            if (!artworkFile.delete()) artworkFile.deleteOnExit()
-        }
+        // Build the artwork from bytes rather than from a file. createArtworkFromFile() infers the
+        // image dimensions, which on the stock library means javax.imageio -- absent on Android. The
+        // fork previously dodged that with AndroidArtwork, but that class only exists in the Adonai
+        // Android fork, and the mirror switched this project to RouHim's pure-Java build where it is
+        // gone. Setting the binary data directly is what upstream's own AudioTagger does, so it works
+        // against whichever of those two builds is on the classpath and survives future mirrors.
+        val mime =
+            when {
+                bytes.size >= 8 && bytes[0] == 0x89.toByte() && bytes[1] == 'P'.code.toByte() ->
+                    "image/png"
+                else -> "image/jpeg"
+            }
+        val artwork =
+            ArtworkFactory.getNew().apply {
+                setBinaryData(bytes)
+                setMimeType(mime)
+                setPictureType(PictureTypes.DEFAULT_ID)
+                setDescription("")
+            }
+        tag.deleteArtworkField()
+        tag.setField(artwork)
     }
 }

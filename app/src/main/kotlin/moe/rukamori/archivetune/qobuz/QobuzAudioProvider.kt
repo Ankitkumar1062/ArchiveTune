@@ -442,6 +442,28 @@ object QobuzAudioProvider {
             else -> "FLAC"
         }
 
+    /**
+     * Drops any cached stream/failure entry for [query], forcing the next [resolve] to hit the
+     * network.
+     *
+     * Needed by the download path: proxy URLs are signed with a short `etsp` expiry, so a cached URL
+     * can be syntactically fine but already dead. Without this, retrying a download would keep
+     * replaying the same expired link until the cache aged out on its own.
+     *
+     * This is fork-only and cannot move to a fork-only file, because [streamCache] and
+     * [failureCache] are private to this object. That makes it a known casualty of the next mirror,
+     * which reverts this file wholesale -- it is exactly what the sync at 21247770f did, stripping
+     * 136 lines from here and breaking LosslessDownloader. .mirror-keep documents the pattern.
+     */
+    fun invalidate(
+        query: Query,
+        formatId: Int,
+    ) {
+        val key = query.cacheKey() + ":" + formatId
+        streamCache.remove(key)
+        failureCache.remove(key)
+    }
+
     // -------------------------------------------------------------------------
     // Search + download
     // -------------------------------------------------------------------------
