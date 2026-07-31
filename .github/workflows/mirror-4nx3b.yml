@@ -30,12 +30,36 @@ name: Mirror 4nx3b stable releases
 # code and build config, then restores this fork's .github/. Everything a user can install is
 # identical; only the automation differs.
 #
+# FORK-ONLY CODE
+# --------------
+# A mirror replaces the tree, so anything this fork has that they do not is deleted. That is not
+# hypothetical: commit 21247770f mirrored their v14.0.5362 tag, which was cut BEFORE they merged
+# this fork's Deezer support, so it overwrote this repo with a snapshot predating our own feature
+# and took DeezerCrypto.kt, DeezerDecryptingDataSource.kt and DeezerLoginScreen.kt with it -- along
+# with 8399 lines across 125 files in app/.
+#
+# So the sync now preserves the paths listed in .mirror-keep, the same way it preserves .github/.
+# Two rules keep that workable:
+#   1. Fork-only code goes in fork-only FILES, never as edits to a file they also ship. An edit to
+#      their strings.xml or PreferenceKeys.kt is silently reverted by the next mirror. Use
+#      res/values/fork_strings.xml and constants/ForkPreferenceKeys.kt, both on the keep list.
+#   2. A path that disappears from .mirror-keep's targets is skipped, so when they adopt one of
+#      these upstream their copy simply wins and no edit here is needed.
+# A check after the restore fails the run if preserved code references a string that the mirror
+# removed, so this surfaces at sync time instead of in a release build.
+#
 # VERSION PARITY
 # --------------
 # release.yml normally derives the version from `git rev-list --count HEAD`, so matching their
 # version would require byte-identical history -- impossible while this fork carries any commit of
-# its own, including this file. Instead the sync records their exact tag in .mirror-release.json
-# and release.yml prefers that over the commit count, so the version matches by construction.
+# its own, including this file. Passing inherit_version=true records their exact tag in
+# .mirror-release.json, which release.yml prefers over the commit count, so the version matches by
+# construction.
+#
+# That is now OFF by default: adopting their number pins this fork to whatever they last released
+# (it sat on 14.0.5362), and it is the mirror's most confusing side effect, since the code changes
+# and the version does not move independently of it. By default the code is mirrored and this fork
+# keeps versioning itself from its own history.
 
 on:
   # SCHEDULE INTENTIONALLY DISABLED.
@@ -62,6 +86,11 @@ on:
         type: string
       dry_run:
         description: 'Resolve and diff only -- do not push anything'
+        required: false
+        type: boolean
+        default: false
+      inherit_version:
+        description: 'Also adopt their version number and release notes (off: mirror code only)'
         required: false
         type: boolean
         default: false
@@ -210,6 +239,27 @@ jobs:
           # Preserve this fork's automation. See the header comment for why this is not mirrored.
           rm -rf /tmp/keep_github && cp -a .github /tmp/keep_github
 
+          # Preserve this fork's own features. See FORK-ONLY CODE in the header.
+          #
+          # Every path here is code that exists only in this fork. Because the mirror lays down
+          # their tree wholesale, anything of ours they do not carry is deleted -- which is exactly
+          # what happened at 21247770f: it mirrored their v14.0.5362 tag, which was cut BEFORE they
+          # merged this fork's Deezer support, so the mirror replaced our tree with a snapshot that
+          # predated our own feature and the Deezer files vanished.
+          #
+          # Paths that no longer exist are skipped, so upstreaming one of these (they merge it and
+          # their tree starts carrying it) needs no change here -- their copy simply wins.
+          rm -rf /tmp/keep_fork && mkdir -p /tmp/keep_fork
+          while IFS= read -r p; do
+            [ -n "$p" ] || continue
+            case "$p" in \#*) continue;; esac
+            if [ -e "$p" ]; then
+              mkdir -p "/tmp/keep_fork/$(dirname "$p")"
+              cp -a "$p" "/tmp/keep_fork/$p"
+              echo "  keeping ${p}"
+            fi
+          done < .mirror-keep
+
           # Clear the working tree, then lay theirs down. Dropping tracked paths through git keeps
           # the index honest; the find pass clears anything untracked a previous build left behind.
           git rm -rq --cached . >/dev/null
@@ -246,6 +296,39 @@ jobs:
 
           rm -rf .github
           cp -a /tmp/keep_github .github
+
+          # Lay this fork's own features back down over their tree. Copied after theirs so that if
+          # they have since adopted one of these files, ours is what ships -- consistent with how
+          # .github/ is handled, and it keeps this fork's behaviour stable across a mirror.
+          if [ -d /tmp/keep_fork ] && [ -n "$(ls -A /tmp/keep_fork 2>/dev/null)" ]; then
+            cp -a /tmp/keep_fork/. .
+            echo "Restored this fork's own files."
+          fi
+
+          # Fork-only code must not reference anything that lives in a file the mirror overwrites,
+          # or it compiles here and fails after the next sync. Resources belong in
+          # res/values/fork_strings.xml and preference keys in constants/ForkPreferenceKeys.kt,
+          # both of which are on the keep list. This catches a regression at mirror time rather
+          # than in a release build.
+          MISSING=0
+          while IFS= read -r p; do
+            [ -n "$p" ] || continue
+            case "$p" in \#*) continue;; esac
+            case "$p" in *.kt) ;; *) continue;; esac
+            [ -f "$p" ] || continue
+            for ref in $(grep -oE 'R\.string\.[a-z_0-9]+' "$p" 2>/dev/null | sort -u); do
+              name="${ref##*.}"
+              if ! grep -rqs "name=\"${name}\"" app/src/main/res/values/; then
+                echo "::error::${p} references R.string.${name}, which no longer exists after the mirror."
+                MISSING=1
+              fi
+            done
+          done < .mirror-keep
+          if [ "$MISSING" -ne 0 ]; then
+            echo "::error::Refusing to push a tree where preserved fork code cannot resolve its resources."
+            exit 1
+          fi
+          echo "Preserved fork code resolves its string resources."
 
           # Repoint the in-app updater at this fork.
           #
@@ -287,6 +370,7 @@ jobs:
           echo "Staged $(git diff --cached --name-only | wc -l) changed paths."
 
       - name: Record their release for release.yml
+        if: ${{ inputs.inherit_version }}
         env:
           TAG: ${{ needs.resolve.outputs.tag }}
           VERSION: ${{ needs.resolve.outputs.version }}
@@ -321,6 +405,21 @@ jobs:
 
           git add .mirror-release.json
           echo "Recorded ${TAG}."
+
+      - name: Keep this fork's own version
+        if: ${{ !inputs.inherit_version }}
+        run: |
+          set -euo pipefail
+          # release.yml prefers .mirror-release.json over `git rev-list --count HEAD` when it is
+          # present, so leaving a stale marker in place would keep publishing under their old
+          # version number long after this mirror ran. Removing it hands versioning back to this
+          # fork. Run with inherit_version=true to deliberately match their release instead.
+          if [ -f .mirror-release.json ]; then
+            git rm -q --ignore-unmatch .mirror-release.json
+            echo "Removed .mirror-release.json -- this fork versions itself from its own history."
+          else
+            echo "No release marker present; nothing to remove."
+          fi
 
       - name: Show what changed
         run: |

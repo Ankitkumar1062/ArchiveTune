@@ -1,0 +1,47 @@
+# Paths preserved across a mirror of 4nx3b/ArchiveTune.
+#
+# .github/workflows/mirror-4nx3b.yml lays their tree down wholesale, so anything this fork has
+# that they do not is deleted. Every path listed here is copied aside before the swap and put
+# back afterwards, exactly as .github/ is.
+#
+# Read the FORK-ONLY CODE section of mirror-4nx3b.yml before adding to this file. The short
+# version: only whole files that exist ONLY in this fork belong here. Listing a file they also
+# ship pins this fork to our copy forever and silently discards their fixes to it.
+#
+# Fork-only additions to a SHARED file cannot be protected this way -- the next mirror reverts
+# them. Put strings in res/values/fork_strings.xml and preference keys in
+# constants/ForkPreferenceKeys.kt instead; both are listed below.
+#
+# Missing paths are skipped, so when upstream adopts one of these, delete the line (or leave it;
+# their copy wins once ours is gone).
+
+# --- Resources and preferences for everything below ---
+app/src/main/res/values/fork_strings.xml
+app/src/main/kotlin/moe/rukamori/archivetune/constants/ForkPreferenceKeys.kt
+
+# --- Lossless / quality download pipeline ---
+app/src/main/kotlin/moe/rukamori/archivetune/download/AudioContainer.kt
+app/src/main/kotlin/moe/rukamori/archivetune/download/AudioFileTagger.kt
+app/src/main/kotlin/moe/rukamori/archivetune/download/CacheExporter.kt
+app/src/main/kotlin/moe/rukamori/archivetune/download/LosslessDownloader.kt
+app/src/main/kotlin/moe/rukamori/archivetune/ui/component/AudioQualityDialogs.kt
+
+# --- Cross-provider track matching ---
+app/src/main/kotlin/moe/rukamori/archivetune/audiosource/TrackMatching.kt
+
+# --- Player chrome ---
+app/src/main/kotlin/moe/rukamori/archivetune/ui/player/AppleMusicSlider.kt
+
+# --- Settings deep links ---
+app/src/main/kotlin/moe/rukamori/archivetune/ui/screens/settings/SettingsAnchors.kt
+
+# --- Proxy support ---
+app/src/main/kotlin/moe/rukamori/archivetune/utils/WebViewProxyController.kt
+
+# NOT LISTED, deliberately:
+#
+# deezer/ and ui/screens/settings/DeezerLoginScreen.kt -- upstream merged this fork's Deezer work
+# (their PR #81) and has since pushed three follow-up fixes on top of it. Their copy is now newer
+# than ours, so pinning ours here would revert their fixes on every sync. Mirroring theirs is
+# correct. This is only safe as long as we mirror a tag that CONTAINS that merge: v14.0.5362 was
+# cut before it, which is why the Deezer files vanished at 21247770f.

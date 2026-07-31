@@ -1485,33 +1485,11 @@
     <string name="telegram_unavailable">Telegram support is unavailable in this build</string>
     <string name="telegram_error">Telegram error: %1$s</string>
     <string name="telegram_error_generic">Couldn\'t open this Telegram channel</string>
-
-    <!-- Fork-only resources. The mirror workflow overwrote this file with upstream's copy and
-         dropped every one of these, which is why the restored Kotlin failed to compile. -->
-    <string name="download_quality_title">Download quality</string>
-    <string name="download_quality_max">Max</string>
-    <string name="download_quality_max_description">Best the source offers, up to 24-bit/192 kHz</string>
-    <string name="download_quality_hi_res">Hi-Res</string>
-    <string name="download_quality_hi_res_description">24-bit, usually 96 kHz</string>
-    <string name="download_quality_lossless">Lossless</string>
-    <string name="download_quality_lossless_description">CD quality, 16-bit/44.1 kHz</string>
-    <string name="download_quality_remember">Remember this choice and stop asking</string>
-    <string name="export_format_title">Export format</string>
-    <string name="export_format_flac">FLAC</string>
-    <string name="export_format_wav">WAV</string>
-    <string name="export_format_m4a">M4A (AAC)</string>
-    <string name="export_format_webm">WebM (Opus)</string>
-    <string name="export_format_ogg">Ogg</string>
-    <string name="export_format_mp3">MP3</string>
-    <string name="export_format_unavailable_lossy_source">Source is lossy — exporting as FLAC would not add quality</string>
-    <string name="export_format_redownload_lossless">Re-download as lossless, then export</string>
-    <string name="export_format_redownload_lossless_description">Fetches a real lossless file from Qobuz or Tidal first</string>
+    <!-- Deezer sign-in. Deliberately in THIS file and not fork_strings.xml: upstream merged this
+         fork's Deezer support and defines both of these in their own strings.xml, so once a
+         mirrored tag contains that merge their copy supplies them and this block disappears with
+         the file. Putting them in fork_strings.xml would survive the mirror and then collide with
+         theirs as a duplicate resource. -->
     <string name="deezer_login">Sign in to Deezer</string>
     <string name="deezer_login_success">Signed in to Deezer as %1$s</string>
-    <plurals name="export_result_exported">
-        <item quantity="one">Exported %1$d song</item>
-        <item quantity="other">Exported %1$d songs</item>
-    </plurals>
-    <string name="export_result_skipped">%1$d not downloaded</string>
-    <string name="export_result_failed">%1$d failed</string>
 </resources>
