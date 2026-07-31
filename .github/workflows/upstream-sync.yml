@@ -4,8 +4,11 @@ name: Upstream Sync
 # - Runs hourly, but does real work ONLY when upstream has new commits
 #   (a no-change run is just a fetch + compare: ~30 seconds, no build).
 # - Clean merges are pushed straight to dev (after a green debug-APK build).
-# - Conflict-heavy merges are resolved by AI (see scripts/ai_resolve.py), gated on
-#   a green build, then delivered as a PR that merges itself once CI passes.
+# - Conflicts stop the run and report which files need a human; nothing is pushed.
+#
+# AI conflict resolution was removed: both providers it used are gone (NVIDIA NIM 401s without a
+# key, GitHub Models returns 410 Gone), so every conflicted run failed at the resolver and this
+# workflow had never once completed. See scripts/upstream_sync.sh for the details.
 # Docs: docs/UPSTREAM_SYNC.md
 
 on:
@@ -15,29 +18,15 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
   issues: write
-  models: read
+  # `models: read` dropped along with the AI resolver -- it existed only for the GitHub Models
+  # fallback, and `pull-requests: write` went with the sync-PR step that no longer exists.
 
 concurrency:
   group: upstream-sync
   cancel-in-progress: false
 
 env:
-  # Conflict resolver. NVIDIA NIM is OpenAI-compatible, so scripts/ai_resolve.py posts to
-  # ${AI_BASE_URL}/chat/completions unchanged.
-  #
-  # kimi-k2.6 is the strongest coder available on NIM (80.2% SWE-bench Verified, vs 71.9%
-  # for nemotron-3-ultra), which is what matters here: resolving a conflict hunk is a
-  # mechanical code edit. It is free on NIM's developer tier, rate-limited at roughly
-  # 40 req/min with no daily cap -- the resolver issues one request PER CONFLICT HUNK, so a
-  # daily-capped free tier (OpenRouter allows 50/day) would spill mid-merge into the
-  # GitHub Models fallback on any sizeable conflict.
-  #
-  # Replaces opencode zen kimi-k3, which cost $3.00/$15.00 per 1M tokens.
-  # Both values are overridable by repo variables if this provider ever degrades.
-  AI_BASE_URL: ${{ vars.AI_BASE_URL || 'https://integrate.api.nvidia.com/v1' }}
-  AI_MODEL: ${{ vars.AI_MODEL || 'moonshotai/kimi-k2.6' }}
   # This job adds an `upstream` remote pointing at rukamori/ArchiveTune, and gh resolves
   # an unqualified `gh pr`/`gh issue` against `upstream` in PREFERENCE to `origin`. That
   # silently opened PRs and "sync FAILED" issues on the UPSTREAM maintainer's repo instead
@@ -120,42 +109,19 @@ jobs:
         env:
           SYNC_PAT: ${{ secrets.SYNC_PAT }}
           GH_TOKEN: ${{ secrets.SYNC_PAT }}
-          AI_API_KEY: ${{ secrets.AI_API_KEY }}
-          AI_BASE_URL: ${{ env.AI_BASE_URL }}
-          AI_MODEL: ${{ env.AI_MODEL }}
-          MODELS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
           LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
           API_BEARER_TOKEN: ${{ secrets.API_BEARER_TOKEN }}
           CANVAS_BEARER_TOKEN: ${{ secrets.CANVAS_BEARER_TOKEN }}
           EXTRACTOR_BEARER: ${{ secrets.EXTRACTOR_BEARER }}
 
-      # `raced` is a clean merge that passed the build gate but could not fast-forward dev
-      # because dev advanced during the run. It ships down the same self-merging PR path.
-      - name: Open sync PR (AI-resolved or raced sync)
-        if: steps.sync.outputs.result == 'ai' || steps.sync.outputs.result == 'raced'
-        env:
-          GH_TOKEN: ${{ secrets.SYNC_PAT }}
-          SYNC_BRANCH: ${{ steps.sync.outputs.branch }}
-          BEHIND: ${{ steps.sync.outputs.behind }}
-          RESULT: ${{ steps.sync.outputs.result }}
-        run: |
-          if [ "$RESULT" = "raced" ]; then
-            TITLE="chore(sync): merge upstream/dev ($BEHIND commits, dev moved mid-run)"
-          else
-            TITLE="chore(sync): merge upstream/dev ($BEHIND commits, AI-resolved)"
-          fi
-          PR_URL=$(gh pr create \
-            --repo "$GITHUB_REPOSITORY" \
-            --base dev \
-            --head "$SYNC_BRANCH" \
-            --title "$TITLE" \
-            --body-file /tmp/sync_report.md)
-          echo "Opened PR: $PR_URL"
-          gh pr comment --repo "$GITHUB_REPOSITORY" "$PR_URL" --body "This PR will be merged automatically by the 'Upstream Sync Merge' workflow once the Build Pull Request CI passes. No action needed unless CI fails."
+      # The "Open sync PR" step that used to sit here is gone. It fired on result == 'ai' or
+      # 'raced': 'ai' no longer exists, and 'raced' was never emitted by upstream_sync.sh at all,
+      # so it was already unreachable. A genuine race (dev advancing mid-run) now surfaces as a
+      # failed non-fast-forward push, reported by the failure step below.
 
       - name: Report successful sync
-        if: steps.sync.outputs.result == 'clean' || steps.sync.outputs.result == 'ai' || steps.sync.outputs.result == 'raced'
+        if: steps.sync.outputs.result == 'clean'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.SYNC_PAT }}
@@ -180,7 +146,7 @@ jobs:
             echo "The automated sync run failed and **no changes were pushed to dev**."
             echo
             echo "- Run logs: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-            echo "- A backup branch (backup/dev-auto-*) was pushed before any merge attempt."
+            echo "- The rolling backup branch \`backup/dev-rolling\` points at dev as it was before this run."
             echo "- See docs/UPSTREAM_SYNC.md (Troubleshooting) for recovery steps."
           } > /tmp/sync_failure.md
           gh issue create \
