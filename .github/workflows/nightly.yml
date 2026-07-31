@@ -60,15 +60,43 @@ jobs:
           SHORT_SHA="$(git rev-parse --short HEAD)"
           COMMIT_COUNT="$(git rev-list --count HEAD)"
 
+          # Never let the versionCode go backwards, or the in-app updater stops working.
+          #
+          # The commit count alone is not safe. A mirror sync publishes a stable release whose
+          # versionCode was inherited from upstream's, and upstream is ahead of this fork -- v14.0.5362
+          # shipped while this tree's own count was 5343. Anyone who installed that APK is running
+          # versionCode 5362, so every later canary looks *older* to them: the updater compares
+          # "at-build:<n>" against the installed VERSION_CODE, 5343 > 5362 is false, and it reports
+          # "up to date" forever. It fails silently, and it would take 20 more commits to heal.
+          #
+          # So take the highest versionCode this repo has ever published and stay above it. Reads only
+          # the release tag and the at-build marker, both of which this workflow writes itself, rather
+          # than scanning release bodies for anything number-shaped.
+          RELEASES_JSON="$(mktemp)"
+          gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=50" > "$RELEASES_JSON" 2>/dev/null || echo '[]' > "$RELEASES_JSON"
+          PUBLISHED_MAX="$(
+            {
+              jq -r '.[].body // ""' "$RELEASES_JSON" | grep -oE 'at-build:[0-9]+' | cut -d: -f2
+              jq -r '.[].tag_name' "$RELEASES_JSON" | grep -oE '^v?[0-9]+\.[0-9]+\.[0-9]+$' | awk -F. '{print $NF}'
+            } 2>/dev/null | sort -n | tail -1
+          )"
+          rm -f "$RELEASES_JSON"
+
+          VERSION_CODE="$COMMIT_COUNT"
+          if [ -n "${PUBLISHED_MAX:-}" ] && [ "$PUBLISHED_MAX" -ge "$COMMIT_COUNT" ]; then
+            VERSION_CODE="$((PUBLISHED_MAX + 1))"
+            echo "versionCode floor: already published ${PUBLISHED_MAX} >= commit count ${COMMIT_COUNT}, using ${VERSION_CODE}"
+          fi
+
           # Canary builds all share the fixed display versionName from build.gradle.kts (e.g.
-          # "13.7.5"); they are told apart internally by the monotonic versionCode (the commit
-          # count). The in-app updater embeds that versionCode in the release notes ("at-build:<n>")
-          # and compares build numbers, so the fixed versionName never triggers a false "update
-          # available" while genuinely newer builds still do.
+          # "13.7.5"); they are told apart internally by the monotonic versionCode. The in-app updater
+          # embeds that versionCode in the release notes ("at-build:<n>") and compares build numbers,
+          # so the fixed versionName never triggers a false "update available" while genuinely newer
+          # builds still do.
           echo "nightly_tag=${NIGHTLY_TAG}" >> "$GITHUB_OUTPUT"
-          echo "nightly_name=Canary ${MAJOR_MINOR}.${COMMIT_COUNT}-${SHORT_SHA} (${TS})" >> "$GITHUB_OUTPUT"
+          echo "nightly_name=Canary ${MAJOR_MINOR}.${VERSION_CODE}-${SHORT_SHA} (${TS})" >> "$GITHUB_OUTPUT"
           echo "version_name=${BASE_VERSION}" >> "$GITHUB_OUTPUT"
-          echo "version_code=${COMMIT_COUNT}" >> "$GITHUB_OUTPUT"
+          echo "version_code=${VERSION_CODE}" >> "$GITHUB_OUTPUT"
 
           if [ "${FORCE:-false}" = "true" ]; then
             echo "Forced build requested."

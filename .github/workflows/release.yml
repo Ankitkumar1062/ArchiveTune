@@ -26,6 +26,9 @@ jobs:
 
       - name: Compute auto-bumped version
         id: check_version
+        env:
+          # Needed so the versionCode floor below can read this repo's published releases.
+          GH_TOKEN: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           if [ ! -f app/build.gradle.kts ]; then
@@ -74,8 +77,28 @@ jobs:
           MAJOR_MINOR="$(echo "$BASE_VERSION" | cut -d. -f1-2)"
 
           COMMIT_COUNT="$(git rev-list --count HEAD)"
-          NEW_VERSION="${MAJOR_MINOR}.${COMMIT_COUNT}"
+
+          # Same versionCode floor the canary workflow applies, for the same reason: a mirror sync
+          # publishes a stable whose versionCode came from upstream's tag, and upstream is ahead of
+          # this fork (v14.0.5362 shipped while this tree's count was 5343). Without the floor the
+          # next release would carry a *lower* versionCode than one already installed, so Android
+          # refuses it as a downgrade and the in-app updater never offers it.
+          RELEASES_JSON="$(mktemp)"
+          gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=50" > "$RELEASES_JSON" 2>/dev/null || echo '[]' > "$RELEASES_JSON"
+          PUBLISHED_MAX="$(
+            {
+              jq -r '.[].body // ""' "$RELEASES_JSON" | grep -oE 'at-build:[0-9]+' | cut -d: -f2
+              jq -r '.[].tag_name' "$RELEASES_JSON" | grep -oE '^v?[0-9]+\.[0-9]+\.[0-9]+$' | awk -F. '{print $NF}'
+            } 2>/dev/null | sort -n | tail -1
+          )"
+          rm -f "$RELEASES_JSON"
+
           VERSION_CODE="$COMMIT_COUNT"
+          if [ -n "${PUBLISHED_MAX:-}" ] && [ "$PUBLISHED_MAX" -ge "$COMMIT_COUNT" ]; then
+            VERSION_CODE="$((PUBLISHED_MAX + 1))"
+            echo "versionCode floor: already published ${PUBLISHED_MAX} >= commit count ${COMMIT_COUNT}, using ${VERSION_CODE}"
+          fi
+          NEW_VERSION="${MAJOR_MINOR}.${VERSION_CODE}"
 
           echo "Base version: $BASE_VERSION -> new version: $NEW_VERSION (code $VERSION_CODE)"
           echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
