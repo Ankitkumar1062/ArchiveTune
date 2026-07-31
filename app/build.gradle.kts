@@ -444,6 +444,11 @@ dependencies {
     implementation(libs.coil.gif)
     implementation(libs.coil.network.okhttp)
 
+    // Required by utils/WebViewProxyController.kt (ProxyConfig / ProxyController /
+    // WebViewFeature). The mirror workflow overwrote this file with upstream's copy, which
+    // does not carry androidx.webkit, so the restored controller failed to compile.
+    implementation(libs.webkit)
+
     implementation(libs.shimmer)
 
     // Glance Widget support
