@@ -7837,7 +7837,6 @@ class MusicService :
      *    - re-arm the audible-playback watchdog on STATE_READY (it self-cancels while the player
      *      is IDLE mid-switch and was never re-armed before — a dead watchdog let any later
      *      volume dip stick forever).
- 9f70c9018 (fix(playback): deterministic source-switch re-create, captured-volume recovery)
      */
     fun setSongSourceOverride(
         mediaId: String,
@@ -7869,7 +7868,6 @@ class MusicService :
             sourceSwitchPending = true
             sourceSwitchExpectedVolume = expectedVolume
 
- 9f70c9018 (fix(playback): deterministic source-switch re-create, captured-volume recovery)
             playbackUrlCache.remove(mediaId)
             extractorPlaybackUrlCache.remove(mediaId)
             YTPlayerUtils.invalidateCachedStreamUrls(mediaId)
@@ -7948,7 +7946,6 @@ class MusicService :
                 wasPlaying,
                 player.playbackState,
             )
- 9f70c9018 (fix(playback): deterministic source-switch re-create, captured-volume recovery)
         }
     }
 
@@ -8518,6 +8515,8 @@ class MusicService :
                             matchedArtist = resolved.matchedArtist,
                             matchedAlbum = resolved.matchedAlbum,
                             matchedDurationMs = resolved.matchedDurationMs,
+                            sampleRate = resolved.sampleRate,
+                            bitDepth = resolved.bitDepth,
                         )
                     }
             }
