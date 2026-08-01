@@ -129,6 +129,17 @@ fun IntegrationScreen(navController: NavController, scrollTo: String? = null) {
                             },
                         )
                     }
+
+                    item {
+                        PreferenceEntry(
+                            title = { Text(stringResource(R.string.deezer_integration)) },
+                            description = stringResource(R.string.deezer_integration_description),
+                            icon = { Icon(painterResource(R.drawable.provider_deezer), null) },
+                            onClick = {
+                                navController.navigate("settings/deezer")
+                            },
+                        )
+                    }
                 }
             }
 
