@@ -126,30 +126,15 @@ fun PlaybackSourceSections(navController: NavController) {
     val (innerTubeCookie, _) = rememberPreference(InnerTubeCookieKey, defaultValue = "")
     val (poTokenGvs, _) = rememberPreference(PoTokenGvsKey, defaultValue = "")
     val (poTokenPlayer, _) = rememberPreference(PoTokenPlayerKey, defaultValue = "")
-    val isArchiveTuneExtractorEnabled =
-        remember(innerTubeCookie, poTokenGvs, poTokenPlayer) {
-            hasYouTubeLoginCookie(innerTubeCookie) &&
-                poTokenGvs.isNotBlank() &&
-                poTokenPlayer.isNotBlank()
-        }
     val playerStreamClients =
-        remember { listOf(PlayerStreamClient.WEB_REMIX, PlayerStreamClient.ARCHIVETUNE_EXTRACTOR) }
+        remember { PlayerStreamClient.entries }
     val selectedPlayerStreamClient =
         if (playerStreamClient in playerStreamClients) playerStreamClient
         else PlayerStreamClient.WEB_REMIX
-    val ytAudioQualityEnabled = selectedPlayerStreamClient != PlayerStreamClient.ARCHIVETUNE_EXTRACTOR
-    val isPlayerStreamClientEnabled =
-        remember(isArchiveTuneExtractorEnabled) {
-            { client: PlayerStreamClient ->
-                client != PlayerStreamClient.ARCHIVETUNE_EXTRACTOR || isArchiveTuneExtractorEnabled
-            }
-        }
+    val ytAudioQualityEnabled = true
 
-    LaunchedEffect(playerStreamClient, isArchiveTuneExtractorEnabled) {
-        if (
-            playerStreamClient !in playerStreamClients ||
-            (playerStreamClient == PlayerStreamClient.ARCHIVETUNE_EXTRACTOR && !isArchiveTuneExtractorEnabled)
-        ) {
+    LaunchedEffect(playerStreamClient) {
+        if (playerStreamClient !in playerStreamClients) {
             onPlayerStreamClientChange(PlayerStreamClient.WEB_REMIX)
         }
     }
@@ -226,39 +211,27 @@ fun PlaybackSourceSections(navController: NavController) {
                 selectedValue = selectedPlayerStreamClient,
                 values = playerStreamClients,
                 onValueSelected = onPlayerStreamClientChange,
-                isValueEnabled = isPlayerStreamClientEnabled,
                 valueText = {
                     when (it) {
-                        PlayerStreamClient.WEB_REMIX ->
-                            stringResource(R.string.player_stream_client_web_remix)
-                        PlayerStreamClient.ARCHIVETUNE_EXTRACTOR ->
-                            stringResource(R.string.player_stream_client_archivetune_extractor)
-                        else -> stringResource(R.string.player_stream_client_web_remix)
+                        PlayerStreamClient.ANDROID_VR -> stringResource(R.string.player_stream_client_android_vr)
+                        PlayerStreamClient.WEB_REMIX -> stringResource(R.string.player_stream_client_web_remix)
+                        PlayerStreamClient.IOS -> stringResource(R.string.player_stream_client_ios)
+                        PlayerStreamClient.TVHTML5 -> stringResource(R.string.player_stream_client_tvhtml5)
+                        PlayerStreamClient.VISIONOS -> stringResource(R.string.player_stream_client_visionos)
                     }
                 },
                 valueDescription = {
                     when (it) {
-                        PlayerStreamClient.WEB_REMIX ->
-                            stringResource(R.string.player_stream_client_web_remix_desc)
-                        PlayerStreamClient.ARCHIVETUNE_EXTRACTOR ->
-                            if (isArchiveTuneExtractorEnabled)
-                                stringResource(R.string.player_stream_client_archivetune_extractor_desc)
-                            else
-                                stringResource(R.string.player_stream_client_archivetune_extractor_login_required)
-                        else -> stringResource(R.string.player_stream_client_web_remix_desc)
+                        PlayerStreamClient.ANDROID_VR -> null
+                        PlayerStreamClient.WEB_REMIX -> stringResource(R.string.player_stream_client_web_remix_desc)
+                        PlayerStreamClient.IOS -> null
+                        PlayerStreamClient.TVHTML5 -> null
+                        PlayerStreamClient.VISIONOS -> null
                     }
                 },
             )
         }
 
-        item {
-            PreferenceEntry(
-                title = { Text(stringResource(R.string.mori_cipher_settings_title)) },
-                description = stringResource(R.string.mori_cipher_settings_description),
-                icon = { Icon(painterResource(R.drawable.security), null) },
-                onClick = { navController.navigate("settings/player/chiper") },
-            )
-        }
     }
 
     PreferenceGroup(title = stringResource(R.string.tidal_specific)) {
