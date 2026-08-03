@@ -222,11 +222,11 @@ fun PlaybackSourceSections(navController: NavController) {
                 },
                 valueDescription = {
                     when (it) {
-                        PlayerStreamClient.ANDROID_VR -> null
+                        PlayerStreamClient.ANDROID_VR -> ""
                         PlayerStreamClient.WEB_REMIX -> stringResource(R.string.player_stream_client_web_remix_desc)
-                        PlayerStreamClient.IOS -> null
-                        PlayerStreamClient.TVHTML5 -> null
-                        PlayerStreamClient.VISIONOS -> null
+                        PlayerStreamClient.IOS -> ""
+                        PlayerStreamClient.TVHTML5 -> ""
+                        PlayerStreamClient.VISIONOS -> ""
                     }
                 },
             )
