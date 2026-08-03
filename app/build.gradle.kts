@@ -277,13 +277,11 @@ android {
 
     signingConfigs {
         create("release") {
-            val keystoreBase64 = System.getenv("MHSM_KEYSTORE_BASE64")
-            if (!keystoreBase64.isNullOrBlank()) {
-                val keystoreFile = File(System.getenv("RUNNER_TEMP") ?: System.getProperty("java.io.tmpdir"), "mhsm.keystore")
-                keystoreFile.writeBytes(java.util.Base64.getDecoder().decode(keystoreBase64))
-                storeFile = keystoreFile
-            } else {
-                storeFile = file("keystore/release.keystore").takeIf { it.isFile }
+            val runnerTemp = System.getenv("RUNNER_TEMP")
+            val ksPath = if (!runnerTemp.isNullOrBlank()) "$runnerTemp/mhsm.keystore" else "keystore/release.keystore"
+            val ksFile = File(ksPath)
+            if (ksFile.isFile) {
+                storeFile = ksFile
             }
             storePassword = System.getenv("MHSM_KEYSTORE_PASSWORD") ?: System.getenv("STORE_PASSWORD")
             keyAlias = System.getenv("MHSM_KEY_ALIAS") ?: System.getenv("KEY_ALIAS") ?: "mhsm"
@@ -301,7 +299,8 @@ android {
 
     buildTypes {
         release {
-            if (hasReleaseSigningConfig) {
+            val mhsmKsFile = signingConfigs.findByName("release")?.storeFile
+            if (mhsmKsFile != null && mhsmKsFile.isFile) {
                 signingConfig = signingConfigs.getByName("release")
             }
             isMinifyEnabled = true
