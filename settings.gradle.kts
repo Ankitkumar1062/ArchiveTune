@@ -34,6 +34,8 @@ dependencyResolutionManagement {
             filter {
                 includeGroup("com.github.therealbush")
                 includeGroup("com.github.TeamNewPipe")
+                includeGroup("com.github.vossgraves")
+                includeGroup("com.github.vossgraves.MetrolistExtractor")
                 // Prebuilt TDLib (Telegram Database Library) AAR with bundled JNI natives,
                 // used by the Telegram channel streaming integration.
                 includeGroup("com.github.tdlibx")
@@ -70,8 +72,6 @@ include(":lastfm")
 include(":canvas")
 include(":shazamkit")
 include(":spotifycore")
-include(":moriextractor")
-include(":morideobfuscator")
 
 // Use a local copy of NewPipe Extractor by uncommenting the lines below.
 // We assume, that ArchiveTune and NewPipe Extractor have the same parent directory.
