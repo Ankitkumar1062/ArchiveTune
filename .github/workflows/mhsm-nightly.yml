@@ -1,4 +1,5 @@
 name: Mhsm Nightly
+# Build trigger: r8 cipher-ext
 
 # Last updated: 2026-08-03 r7
 # Produces the rolling "mhsm-nightly" pre-release used by the in-app updater's CANARY channel.
