@@ -64,7 +64,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.changedToUp
+import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import kotlin.math.abs
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -79,6 +79,11 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.navigation.NavController
 import coil3.compose.AsyncImage
 import moe.rukamori.archivetune.R
+import moe.rukamori.archivetune.db.entities.FormatEntity
+import moe.rukamori.archivetune.db.entities.containerLabel
+import moe.rukamori.archivetune.db.entities.formattedBitrate
+import moe.rukamori.archivetune.db.entities.formattedFileSize
+import moe.rukamori.archivetune.db.entities.formattedSampleRate
 import moe.rukamori.archivetune.extensions.togglePlayPause
 import moe.rukamori.archivetune.models.MediaMetadata
 import moe.rukamori.archivetune.playback.PlayerConnection
@@ -120,6 +125,8 @@ fun AppleMusicPlayerContent(
     canvasPrimaryUrl: String?,
     canvasFallbackUrl: String?,
     contentBottomPadding: Dp,
+    showCodecOnPlayer: Boolean,
+    currentFormat: FormatEntity?,
     onQueueClick: () -> Unit,
     onLyricsClick: () -> Unit,
     onSliderValueChange: (Long) -> Unit,
@@ -290,6 +297,8 @@ fun AppleMusicPlayerContent(
                     onLyricsClick = onLyricsClick,
                     onSliderValueChange = onSliderValueChange,
                     onSliderValueChangeFinished = onSliderValueChangeFinished,
+                    showCodecOnPlayer = showCodecOnPlayer,
+                    currentFormat = currentFormat,
                     modifier =
                         Modifier
                             .weight(1f)
@@ -335,6 +344,8 @@ fun AppleMusicPlayerContent(
                 onLyricsClick = onLyricsClick,
                 onSliderValueChange = onSliderValueChange,
                 onSliderValueChangeFinished = onSliderValueChangeFinished,
+                showCodecOnPlayer = showCodecOnPlayer,
+                currentFormat = currentFormat,
                 modifier =
                     Modifier
                         .fillMaxWidth()
@@ -419,6 +430,8 @@ private fun AppleMusicControlsColumn(
     onLyricsClick: () -> Unit,
     onSliderValueChange: (Long) -> Unit,
     onSliderValueChangeFinished: () -> Unit,
+    showCodecOnPlayer: Boolean,
+    currentFormat: FormatEntity?,
     modifier: Modifier = Modifier,
 ) {
     var swipeUpAccumulated by remember { mutableFloatStateOf(0f) }
@@ -456,7 +469,16 @@ private fun AppleMusicControlsColumn(
                     while (true) {
                         val event = awaitPointerEvent(PointerEventPass.Main)
                         val change = event.changes.firstOrNull() ?: break
-                        if (change.changedToUp()) break
+                        // Must ignore consumption. A tap on a child button (queue, lyrics, output,
+                        // play/pause) makes `clickable` consume the up-change, so the
+                        // consumption-respecting changedToUp() returns false and this loop never
+                        // terminates. awaitEachGesture then stays suspended in this while-loop
+                        // instead of restarting, and the NEXT gesture's events are fed into this
+                        // stale iteration -- where positionChange().y is the jump from the old
+                        // pointer position to the new down. That large delta can trip the swipe
+                        // branch and start consuming, killing subsequent taps. This is the
+                        // "queue option doesn't work on Apple Music style" regression.
+                        if (change.changedToUpIgnoreConsumed()) break
 
                         val dragDelta = change.positionChange().y
 
@@ -622,6 +644,36 @@ private fun AppleMusicControlsColumn(
                 contentDescription = null,
                 tint = Color.White.copy(alpha = 0.55f),
                 modifier = Modifier.size(18.dp),
+            )
+        }
+
+        // Codec / bitrate / sample-rate readout. The Apple Music style keeps its collapsed
+        // peek bar empty (see Queue.kt), so it never received the CodecInfoRow that the
+        // QueueCollapsedContentV* variants render. Draw it inline here instead so the
+        // "show codec on player" setting works in this style too.
+        if (showCodecOnPlayer && currentFormat != null) {
+            val codec =
+                currentFormat.codecs
+                    .takeIf { it.isNotBlank() }
+                    ?: currentFormat.containerLabel()
+            val container = currentFormat.containerLabel()
+            val codecLabel =
+                if (container.isNotBlank() && !codec.equals(container, ignoreCase = true)) {
+                    "$codec ($container)"
+                } else {
+                    codec
+                }
+            val extraText =
+                listOfNotNull(
+                    currentFormat.formattedSampleRate(),
+                    currentFormat.formattedFileSize().takeIf { it.isNotBlank() },
+                ).joinToString(separator = " \u2022 ")
+
+            CodecInfoRow(
+                codec = codecLabel,
+                bitrate = currentFormat.formattedBitrate(),
+                fileSize = extraText,
+                textColor = Color.White.copy(alpha = 0.7f),
             )
         }
 
