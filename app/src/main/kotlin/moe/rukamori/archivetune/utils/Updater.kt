@@ -59,10 +59,10 @@ object Updater {
     private const val OWNER = "vossgraves/ArchiveTune"
     private const val StableReleaseBaseUrl = "https://github.com/$OWNER/releases"
     private const val CanaryReleaseBaseUrl =
-        "https://github.com/$OWNER/releases"
+        "https://github.com/$OWNER/releases/tag/mhsm-nightly"
     private const val CanaryWorkflowRunsUrl =
-        "https://api.github.com/repos/$OWNER/actions/workflows/nightly.yml/runs" +
-            "?branch=dev&status=success&per_page=1&exclude_pull_requests=true"
+        "https://api.github.com/repos/$OWNER/actions/workflows/mhsm-nightly.yml/runs" +
+            "?branch=Mhsm&status=success&per_page=1&exclude_pull_requests=true"
     var lastCheckTime = -1L
         private set
     private var latestReleaseTag: String? = null
@@ -168,7 +168,7 @@ object Updater {
         Regex("""(?i)\bv?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?\b""")
     // Fork Canary tags include a date and usually an HHmm suffix (NyyyyMMddHHmm).
     // Accept the older date-only form too so workflow fallback remains compatible.
-    private val canaryTagRegex = Regex("""N\d{8}(?:\d{4})?""")
+    private val canaryTagRegex = Regex("""mhsm-nightly""")
 
     private fun parseSemVerOrNull(text: String): SemVer? {
         val match = semVerRegex.find(text) ?: return null
