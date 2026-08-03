@@ -1,22 +1,22 @@
-name: Mhsm Nightly Build
+name: Mhsm Nightly
 
-# Produces the rolling "mhsm-nightly" pre-release used by the in-app updater's
-# CANARY channel.  Runs on every push to the 'Mhsm' branch (and on demand).
-# The updater looks for a GitHub release with tag "mhsm-nightly" and compares
-# the at-build:<n> marker in its body against the installed versionCode.
+# Produces the rolling "mhsm-nightly" pre-release used by the in-app updater's CANARY channel.
+# Runs on every push to the 'Mhsm' branch (and on demand). The updater looks for a GitHub release
+# with tag "mhsm-nightly" and compares the at-build:<n> marker in its body against the installed
+# versionCode to decide whether a newer build is available.
 on:
   push:
     branches:
-      - 'Mhsm'
+      - Mhsm
   workflow_dispatch:
     inputs:
       force:
-        description: 'Build even if there are no new commits since the last build'
+        description: Build even if there are no new commits since the last build
         type: boolean
         default: false
 
 concurrency:
-  group: mhsm-canary
+  group: mhsm-nightly
   cancel-in-progress: true
 
 jobs:
@@ -24,37 +24,37 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
-      version_name:  ${{ steps.decide.outputs.version_name }}
-      version_code:  ${{ steps.decide.outputs.version_code }}
-      build_name:    ${{ steps.decide.outputs.build_name }}
+      nightly_tag: ${{ steps.decide.outputs.nightly_tag }}
+      nightly_name: ${{ steps.decide.outputs.nightly_name }}
+      version_name: ${{ steps.decide.outputs.version_name }}
+      version_code: ${{ steps.decide.outputs.version_code }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Decide whether to build
         id: decide
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          FORCE:    ${{ github.event.inputs.force }}
+          GH_TOKEN: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
+          FORCE: ${{ github.event.inputs.force }}
         run: |
           set -euo pipefail
 
+          NIGHTLY_TAG="mhsm-nightly"
           BASE_VERSION="$(grep -oP 'baseVersionName\s*=\s*"\K[^"]+' app/build.gradle.kts || echo '0.0.0')"
           MAJOR_MINOR="$(echo "$BASE_VERSION" | cut -d. -f1-2)"
           SHORT_SHA="$(git rev-parse --short HEAD)"
           COMMIT_COUNT="$(git rev-list --count HEAD)"
           TS="$(date -u +'%Y%m%d%H%M')"
 
-          # Keep versionCode monotonically increasing even if a rebase drops commits.
           RELEASES_JSON="$(mktemp)"
-          gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=50" \
-            > "$RELEASES_JSON" 2>/dev/null || echo '[]' > "$RELEASES_JSON"
+          gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=50" > "$RELEASES_JSON" 2>/dev/null || echo '[]' > "$RELEASES_JSON"
           PUBLISHED_MAX="$(
-            jq -r '.[].body // ""' "$RELEASES_JSON" \
-              | grep -oE 'at-build:[0-9]+' \
-              | cut -d: -f2 \
-              | sort -n | tail -1
+            {
+              jq -r '.[].body // ""' "$RELEASES_JSON" | grep -oE 'at-build:[0-9]+' | cut -d: -f2
+              jq -r '.[].tag_name' "$RELEASES_JSON" | grep -oE '^v?[0-9]+\.[0-9]+\.[0-9]+$' | awk -F. '{print $NF}'
+            } 2>/dev/null | sort -n | tail -1
           )"
           rm -f "$RELEASES_JSON"
 
@@ -64,9 +64,10 @@ jobs:
             echo "versionCode floor: published ${PUBLISHED_MAX} >= count ${COMMIT_COUNT}, using ${VERSION_CODE}"
           fi
 
+          echo "nightly_tag=${NIGHTLY_TAG}" >> "$GITHUB_OUTPUT"
+          echo "nightly_name=Mhsm Nightly ${MAJOR_MINOR}.${VERSION_CODE}-${SHORT_SHA} (${TS})" >> "$GITHUB_OUTPUT"
           echo "version_name=${BASE_VERSION}" >> "$GITHUB_OUTPUT"
-          echo "version_code=${VERSION_CODE}"  >> "$GITHUB_OUTPUT"
-          echo "build_name=Mhsm Nightly ${MAJOR_MINOR}.${VERSION_CODE}-${SHORT_SHA} (${TS})" >> "$GITHUB_OUTPUT"
+          echo "version_code=${VERSION_CODE}" >> "$GITHUB_OUTPUT"
 
           if [ "${FORCE:-false}" = "true" ]; then
             echo "Forced build requested."
@@ -74,39 +75,38 @@ jobs:
             exit 0
           fi
 
-          # Compare HEAD against the commit the last mhsm-nightly release targeted.
-          LAST_SHA="$(gh release view mhsm-nightly \
+          LAST_NIGHTLY_SHA="$(gh release view mhsm-nightly \
             --repo "$GITHUB_REPOSITORY" \
             --json targetCommitish \
             --jq '.targetCommitish' 2>/dev/null || true)"
 
-          if [ -z "${LAST_SHA:-}" ] || [ "$LAST_SHA" = "null" ]; then
+          if [ -z "${LAST_NIGHTLY_SHA:-}" ] || [ "$LAST_NIGHTLY_SHA" = "null" ]; then
             echo "No previous mhsm-nightly release found; building."
             echo "should_build=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          if git cat-file -e "${LAST_SHA}^{commit}" 2>/dev/null && \
-             [ "$(git rev-parse HEAD)" = "$(git rev-parse "${LAST_SHA}^{commit}")" ]; then
-            echo "No new commits since last mhsm-nightly; skipping."
-            echo "should_build=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "New commits detected; building."
-            echo "should_build=true" >> "$GITHUB_OUTPUT"
+          if git cat-file -e "${LAST_NIGHTLY_SHA}^{commit}" 2>/dev/null; then
+            if [ "$(git rev-parse HEAD)" = "$(git rev-parse "${LAST_NIGHTLY_SHA}^{commit}")" ]; then
+              echo "No new commits since last mhsm-nightly; skipping."
+              echo "should_build=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
           fi
+          echo "New commits since last mhsm-nightly; building."
+          echo "should_build=true" >> "$GITHUB_OUTPUT"
 
   build:
-    name: Build ${{ matrix.distribution }}-${{ matrix.device }}-${{ matrix.abi }}
+    name: Build Mhsm Nightly APKs
     needs: check
     if: needs.check.outputs.should_build == 'true'
     runs-on: ubuntu-latest
     env:
       VERSION_NAME_OVERRIDE: ${{ needs.check.outputs.version_name }}
       VERSION_CODE_OVERRIDE: ${{ needs.check.outputs.version_code }}
-      NIGHTLY_BUILD_HASH:    ${{ github.sha }}
-      IS_NIGHTLY_BUILD:      'true'
+      NIGHTLY_BUILD_HASH: ${{ github.sha }}
+      IS_NIGHTLY_BUILD: 'true'
     strategy:
-      fail-fast: false
       matrix:
         include:
           - device: mobile
@@ -146,18 +146,18 @@ jobs:
             abi: universal
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
-          submodules: recursive
+          submodules: true
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: '21'
-          distribution: 'temurin'
+          distribution: temurin
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+      - name: Set Up Gradle
+        uses: gradle/actions/setup-gradle@v6
         with:
           cache-cleanup: on-success
 
@@ -175,42 +175,14 @@ jobs:
           ABI="${{ matrix.abi }}"
           DEVICE_CAP="${{ matrix.deviceName }}"
           ABI_CAP="$(tr '[:lower:]' '[:upper:]' <<< "${ABI:0:1}")${ABI:1}"
-          echo "distribution=$DISTRIBUTION"     >> "$GITHUB_OUTPUT"
-          echo "device=$DEVICE"                  >> "$GITHUB_OUTPUT"
-          echo "abi=$ABI"                        >> "$GITHUB_OUTPUT"
-          echo "device_cap=$DEVICE_CAP"          >> "$GITHUB_OUTPUT"
-          echo "abi_cap=$ABI_CAP"               >> "$GITHUB_OUTPUT"
+          echo "distribution=$DISTRIBUTION" >> "$GITHUB_OUTPUT"
+          echo "device=$DEVICE" >> "$GITHUB_OUTPUT"
+          echo "abi=$ABI" >> "$GITHUB_OUTPUT"
+          echo "device_cap=$DEVICE_CAP" >> "$GITHUB_OUTPUT"
+          echo "abi_cap=$ABI_CAP" >> "$GITHUB_OUTPUT"
           echo "gradle_task=assemble${DISTRIBUTION_CAP}${DEVICE_CAP}${ABI_CAP}Release" >> "$GITHUB_OUTPUT"
-          echo "artifact_name=app-${DISTRIBUTION}-${DEVICE}-${ABI}-nightly"            >> "$GITHUB_OUTPUT"
-          echo "apk_name=app-${DISTRIBUTION}-${DEVICE}-${ABI}-nightly.apk"             >> "$GITHUB_OUTPUT"
-
-      - name: Prepare MHSM signing key
-        id: signing
-        shell: bash
-        env:
-          MHSM_KEYSTORE_BASE64: ${{ secrets.MHSM_KEYSTORE_BASE64 }}
-        run: |
-          set -euo pipefail
-          if [ -n "${MHSM_KEYSTORE_BASE64:-}" ]; then
-            KS_PATH="${RUNNER_TEMP}/mhsm.keystore"
-            echo "$MHSM_KEYSTORE_BASE64" | base64 -d > "$KS_PATH"
-            echo "mode=secret"                         >> "$GITHUB_OUTPUT"
-            echo "keystore_b64=$MHSM_KEYSTORE_BASE64" >> "$GITHUB_OUTPUT"
-          else
-            FIXED_KS="$GITHUB_WORKSPACE/app/persistent-debug.keystore"
-            if [ ! -f "$FIXED_KS" ]; then
-              echo "::error::No MHSM_KEYSTORE_BASE64 secret and no fallback keystore at $FIXED_KS"
-              exit 1
-            fi
-            echo "::notice::No MHSM_KEYSTORE_BASE64 set — using fixed debug keystore."
-            {
-              echo "mode=debug"
-              echo "keystore_b64=$(base64 -w0 "$FIXED_KS")"
-              echo "key_alias=androiddebugkey"
-              echo "store_pass=android"
-              echo "key_pass=android"
-            } >> "$GITHUB_OUTPUT"
-          fi
+          echo "artifact_name=app-${DISTRIBUTION}-${DEVICE}-${ABI}-nightly" >> "$GITHUB_OUTPUT"
+          echo "apk_name=app-${DISTRIBUTION}-${DEVICE}-${ABI}-nightly.apk" >> "$GITHUB_OUTPUT"
 
       - name: Build Release APK
         shell: bash
@@ -219,24 +191,21 @@ jobs:
           GRADLE_TASK="${{ steps.variant.outputs.gradle_task }}"
           ABI="${{ matrix.abi }}"
           if [ "$ABI" = "armeabi" ] || [ "$ABI" = "x86" ]; then
-            ./gradlew "$GRADLE_TASK" 2>&1 | python3 -c "
-import re,sys
-p=re.compile(r'^(WARNING: )?\[CXX5202\] This app only has 32-bit \[(armeabi-v7a|x86)\] native libraries.*$')
-[sys.stdout.write(l) for l in sys.stdin if not p.match(l.rstrip())]"
+            ./gradlew "$GRADLE_TASK" 2>&1 | python3 -c "import re,sys;p=re.compile(r'^(WARNING: )?\[CXX5202\] This app only has 32-bit \[(armeabi-v7a|x86)\] native libraries\. Beginning August 1, 2019 Google Play store requires that all apps that include native libraries must provide 64-bit versions\. For more information, visit https://g\.co/64-bit-requirement\$');[sys.stdout.write(l) for l in sys.stdin if not p.match(l.rstrip())]"
           else
             ./gradlew "$GRADLE_TASK"
           fi
         env:
-          PULL_REQUEST:           'false'
-          GITHUB_EVENT_NAME:      ${{ github.event_name }}
-          LASTFM_API_KEY:         ${{ secrets.LASTFM_API_KEY }}
-          LASTFM_SECRET:          ${{ secrets.LASTFM_SECRET }}
-          TELEGRAM_API_ID:        ${{ secrets.TELEGRAM_API_ID }}
-          TELEGRAM_API_HASH:      ${{ secrets.TELEGRAM_API_HASH }}
-          MHSM_KEYSTORE_BASE64:   ${{ secrets.MHSM_KEYSTORE_BASE64 }}
+          PULL_REQUEST: 'false'
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
+          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+          MHSM_KEYSTORE_BASE64: ${{ secrets.MHSM_KEYSTORE_BASE64 }}
           MHSM_KEYSTORE_PASSWORD: ${{ secrets.MHSM_KEYSTORE_PASSWORD }}
-          MHSM_KEY_ALIAS:         ${{ secrets.MHSM_KEY_ALIAS }}
-          MHSM_KEY_PASSWORD:      ${{ secrets.MHSM_KEY_PASSWORD }}
+          MHSM_KEY_ALIAS: ${{ secrets.MHSM_KEY_ALIAS }}
+          MHSM_KEY_PASSWORD: ${{ secrets.MHSM_KEY_PASSWORD }}
 
       - name: Resolve APK output directory
         id: release_dir
@@ -254,9 +223,15 @@ p=re.compile(r'^(WARNING: )?\[CXX5202\] This app only has 32-bit \[(armeabi-v7a|
             "app/build/outputs/apk/${DISTRIBUTION}/${DEVICE}/${ABI}/release"
             "app/build/outputs/apk/${DISTRIBUTION}/${DEVICE}${ABI_CAP}/release"
             "app/build/outputs/apk/${DISTRIBUTION}/${DEVICE_CAP}${ABI_CAP}/release"
+            "app/build/outputs/apk/gms${DEVICE_CAP}${ABI_CAP}/release"
+            "app/build/outputs/apk/gms${DEVICE}${ABI_CAP}/release"
+            "app/build/outputs/apk/gms/${DEVICE}/${ABI}/release"
+            "app/build/outputs/apk/gms/${DEVICE}${ABI_CAP}/release"
+            "app/build/outputs/apk/gms/${DEVICE_CAP}${ABI_CAP}/release"
             "app/build/outputs/apk/${DEVICE}/${ABI}/release"
             "app/build/outputs/apk/${DEVICE}${ABI_CAP}/release"
             "app/build/outputs/apk/${DEVICE_CAP}${ABI_CAP}/release"
+            "app/build/outputs/apk/${ABI}/${DEVICE}/release"
           )
           for d in "${CANDIDATES[@]}"; do
             if [ -d "$d" ]; then
@@ -264,81 +239,119 @@ p=re.compile(r'^(WARNING: )?\[CXX5202\] This app only has 32-bit \[(armeabi-v7a|
               exit 0
             fi
           done
-          FOUND="$(find app/build/outputs/apk -type f -name "output-metadata.json" | head -n 1 || true)"
-          if [ -n "${FOUND:-}" ]; then
-            echo "release_dir=$(dirname "$FOUND")" >> "$GITHUB_OUTPUT"
+          FOUND_METADATA="$(
+            find app/build/outputs/apk -type f -name "output-metadata.json" \
+              \( \
+                -path "*/${DISTRIBUTION}/${DEVICE}/${ABI}/release/output-metadata.json" -o \
+                -path "*/${DISTRIBUTION}${DEVICE}${ABI_CAP}/release/output-metadata.json" -o \
+                -path "*/${DISTRIBUTION}${DEVICE_CAP}${ABI_CAP}/release/output-metadata.json" -o \
+                -path "*/${DEVICE}/${ABI}/release/output-metadata.json" -o \
+                -path "*/${DEVICE}${ABI_CAP}/release/output-metadata.json" -o \
+                -path "*/${DEVICE_CAP}${ABI_CAP}/release/output-metadata.json" \
+              \) \
+              | head -n 1 || true
+          )"
+          if [ -n "${FOUND_METADATA:-}" ]; then
+            echo "release_dir=$(dirname "$FOUND_METADATA")" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          echo "Could not resolve APK output directory for $DISTRIBUTION/$DEVICE/$ABI"
+          echo "Could not resolve APK release output directory for DISTRIBUTION=$DISTRIBUTION DEVICE=$DEVICE ABI=$ABI"
           find app/build/outputs/apk -maxdepth 8 -type d -print || true
           exit 1
+
+      - name: Prepare signing key
+        id: signing
+        shell: bash
+        env:
+          MHSM_KEYSTORE_BASE64: ${{ secrets.MHSM_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [ -n "${MHSM_KEYSTORE_BASE64:-}" ]; then
+            echo "mode=secret" >> "$GITHUB_OUTPUT"
+          else
+            FIXED_KEYSTORE="$GITHUB_WORKSPACE/app/persistent-debug.keystore"
+            if [ ! -f "$FIXED_KEYSTORE" ]; then
+              echo "::error::No MHSM_KEYSTORE_BASE64 secret and no fallback keystore at $FIXED_KEYSTORE"
+              exit 1
+            fi
+            echo "::notice::No MHSM_KEYSTORE_BASE64 set — signing with the fixed debug keystore."
+            {
+              echo "mode=test"
+              echo "signing_key=$(base64 -w0 "$FIXED_KEYSTORE")"
+              echo "alias=androiddebugkey"
+              echo "store_pass=android"
+              echo "key_pass=android"
+            } >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Sign APK (MHSM keystore)
         if: steps.signing.outputs.mode == 'secret'
         uses: ilharp/sign-android-release@v2.0.0
         with:
-          releaseDir:        ${{ steps.release_dir.outputs.release_dir }}/
-          signingKey:        ${{ steps.signing.outputs.keystore_b64 }}
-          keyAlias:          ${{ secrets.MHSM_KEY_ALIAS }}
-          keyStorePassword:  ${{ secrets.MHSM_KEYSTORE_PASSWORD }}
-          keyPassword:       ${{ secrets.MHSM_KEY_PASSWORD }}
+          releaseDir: ${{ steps.release_dir.outputs.release_dir }}/
+          signingKey: ${{ secrets.MHSM_KEYSTORE_BASE64 }}
+          keyAlias: ${{ secrets.MHSM_KEY_ALIAS }}
+          keyStorePassword: ${{ secrets.MHSM_KEYSTORE_PASSWORD }}
+          keyPassword: ${{ secrets.MHSM_KEY_PASSWORD }}
           buildToolsVersion: 35.0.0
 
-      - name: Sign APK (debug fallback)
-        if: steps.signing.outputs.mode == 'debug'
+      - name: Sign APK (fixed debug keystore)
+        if: steps.signing.outputs.mode == 'test'
         uses: ilharp/sign-android-release@v2.0.0
         with:
-          releaseDir:        ${{ steps.release_dir.outputs.release_dir }}/
-          signingKey:        ${{ steps.signing.outputs.keystore_b64 }}
-          keyAlias:          ${{ steps.signing.outputs.key_alias }}
-          keyStorePassword:  ${{ steps.signing.outputs.store_pass }}
-          keyPassword:       ${{ steps.signing.outputs.key_pass }}
+          releaseDir: ${{ steps.release_dir.outputs.release_dir }}/
+          signingKey: ${{ steps.signing.outputs.signing_key }}
+          keyAlias: ${{ steps.signing.outputs.alias }}
+          keyStorePassword: ${{ steps.signing.outputs.store_pass }}
+          keyPassword: ${{ steps.signing.outputs.key_pass }}
           buildToolsVersion: 35.0.0
 
-      - name: Rename signed APK
+      - name: Move and rename APK
         shell: bash
         run: |
           set -euo pipefail
           RELEASE_DIR="${{ steps.release_dir.outputs.release_dir }}"
           mkdir -p "$RELEASE_DIR/out"
-          mapfile -t SIGNED < <(find "$RELEASE_DIR" -maxdepth 1 -type f \
-            \( -name "*-signed.apk" -o -name "*-unsigned-signed.apk" \))
-          if [ "${#SIGNED[@]}" -ne 1 ]; then
-            echo "Expected 1 signed APK, found ${#SIGNED[@]}"
+          mapfile -t SIGNED_APKS < <(
+            find "$RELEASE_DIR" -maxdepth 1 -type f \
+              \( -name "*-signed.apk" -o -name "*-unsigned-signed.apk" \)
+          )
+          if [ "${#SIGNED_APKS[@]}" -ne 1 ]; then
+            echo "Expected exactly one signed APK in $RELEASE_DIR, found ${#SIGNED_APKS[@]}"
             find "$RELEASE_DIR" -maxdepth 2 -type f -print || true
             exit 1
           fi
-          mv "${SIGNED[0]}" "$RELEASE_DIR/out/${{ steps.variant.outputs.apk_name }}"
+          APK="${SIGNED_APKS[0]}"
+          mv "$APK" "$RELEASE_DIR/out/${{ steps.variant.outputs.apk_name }}"
 
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
+      - name: Upload APK
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.variant.outputs.artifact_name }}
           path: ${{ steps.release_dir.outputs.release_dir }}/out/${{ steps.variant.outputs.apk_name }}
 
-  publish:
-    name: Publish mhsm-nightly release
+  create-nightly:
     needs: [check, build]
     if: needs.check.outputs.should_build == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Download all APK artifacts
-        uses: actions/download-artifact@v4
+      - name: Download all APKs
+        uses: actions/download-artifact@v8
         with:
           path: downloaded_artifacts/
 
-      - name: Build release notes
-        id: notes
+      - name: Build changelog
+        id: changelog
         shell: bash
         env:
-          GH_TOKEN:     ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
           VERSION_CODE: ${{ needs.check.outputs.version_code }}
         run: |
           set -euo pipefail
@@ -354,19 +367,19 @@ p=re.compile(r'^(WARNING: )?\[CXX5202\] This app only has 32-bit \[(armeabi-v7a|
             echo "<!-- at-build:${VERSION_CODE} -->"
             echo ""
             echo "## Changes"
-          } > release_notes.md
+          } > nightly_notes.md
           if [ -n "${LAST_SHA:-}" ] && [ "$LAST_SHA" != "null" ] && \
              git cat-file -e "${LAST_SHA}^{commit}" 2>/dev/null; then
-            git log --pretty=format:'- %s (%h)' "${LAST_SHA}..HEAD" >> release_notes.md || true
+            git log --pretty=format:'- %s (%h)' "${LAST_SHA}..HEAD" >> nightly_notes.md || true
           else
-            git log --pretty=format:'- %s (%h)' -n 30 >> release_notes.md || true
+            git log --pretty=format:'- %s (%h)' -n 30 >> nightly_notes.md || true
           fi
-          echo "" >> release_notes.md
+          echo "" >> nightly_notes.md
 
-      - name: Delete old mhsm-nightly release (rolling tag)
+      - name: Delete previous mhsm-nightly release
         continue-on-error: true
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
         run: |
           gh release delete mhsm-nightly \
             --repo "$GITHUB_REPOSITORY" \
@@ -375,31 +388,31 @@ p=re.compile(r'^(WARNING: )?\[CXX5202\] This app only has 32-bit \[(armeabi-v7a|
 
       - name: Create rolling mhsm-nightly release
         env:
-          GH_TOKEN:   ${{ secrets.GITHUB_TOKEN }}
-          BUILD_NAME: ${{ needs.check.outputs.build_name }}
+          GH_TOKEN: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
+          NIGHTLY_TAG: ${{ needs.check.outputs.nightly_tag }}
+          NIGHTLY_NAME: ${{ needs.check.outputs.nightly_name }}
         run: |
           set -euo pipefail
-          UNIVERSAL="$(find downloaded_artifacts/app-gms-mobile-universal-nightly -name '*.apk' | head -n 1)"
-          OTHERS="$(find downloaded_artifacts -path '*/app-*-nightly/*.apk' \
-            ! -path '*/app-gms-mobile-universal-nightly/*' | tr '\n' ' ')"
-          gh release create mhsm-nightly \
+          MOBILE_UNIVERSAL_APK="$(find downloaded_artifacts/app-gms-mobile-universal-nightly -name '*.apk' | head -n 1)"
+          OTHER_APKS="$(find downloaded_artifacts -path '*/app-*-nightly/*.apk' ! -path '*/app-gms-mobile-universal-nightly/*')"
+          gh release create "$NIGHTLY_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --target "${{ github.sha }}" \
-            --title "$BUILD_NAME" \
-            --notes-file release_notes.md \
+            --title "$NIGHTLY_NAME" \
+            --notes-file nightly_notes.md \
             --prerelease \
-            "$UNIVERSAL" \
-            $OTHERS
+            "$MOBILE_UNIVERSAL_APK" \
+            $OTHER_APKS
 
       - name: Notify Telegram channel
         continue-on-error: true
         env:
-          API_ID:    ${{ secrets.TELEGRAM_API_ID }}
-          API_HASH:  ${{ secrets.TELEGRAM_API_HASH }}
+          API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
-          TOPIC_ID:  ${{ secrets.TELEGRAM_TOPIC_ID }}
-          APK_PATH:  downloaded_artifacts/app-gms-mobile-universal-nightly
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TOPIC_ID: ${{ secrets.TELEGRAM_TOPIC_ID }}
+          APK_PATH: downloaded_artifacts/app-gms-mobile-universal-nightly
         run: |
           pip install telethon --quiet
           python3 .github/workflows/deploy_artifacts.py || true
@@ -408,8 +421,8 @@ p=re.compile(r'^(WARNING: )?\[CXX5202\] This app only has 32-bit \[(armeabi-v7a|
         continue-on-error: true
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
-          TOPIC_ID:  ${{ secrets.TELEGRAM_TOPIC_ID }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TOPIC_ID: ${{ secrets.TELEGRAM_TOPIC_ID }}
         run: |
           pip install telethon --quiet
           python3 .github/workflows/notify_telegram.py || true
