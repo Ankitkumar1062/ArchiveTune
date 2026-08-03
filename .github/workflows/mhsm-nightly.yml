@@ -1,6 +1,6 @@
 name: Mhsm Nightly
 
-# Last updated: 2026-08-03 r6
+# Last updated: 2026-08-03 r7
 # Produces the rolling "mhsm-nightly" pre-release used by the in-app updater's CANARY channel.
 # Runs on every push to the 'Mhsm' branch (and on demand). The updater looks for a GitHub release
 # with tag "mhsm-nightly" and compares the at-build:<n> marker in its body against the installed
