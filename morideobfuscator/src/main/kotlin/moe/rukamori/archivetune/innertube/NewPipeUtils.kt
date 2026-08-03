@@ -1,8 +1,8 @@
 package moe.rukamori.archivetune.innertube
 
-import moe.rukamori.archivetune.innertube.models.PlayerResponse
+import moe.rukamori.archivetune.innertube.models.response.PlayerResponse
+import moe.rukamori.archivetune.innertube.PlaybackAuthState
 import moe.rukamori.archivetune.innertube.models.YouTubeClient
-import moe.rukamori.archivetune.player.PlaybackAuthState
 
 /**
  * Stub: NewPipeUtils -- provided by morideobfuscator on private builds.
