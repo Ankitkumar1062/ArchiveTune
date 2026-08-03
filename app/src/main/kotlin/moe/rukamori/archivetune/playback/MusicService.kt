@@ -6610,11 +6610,20 @@ class MusicService :
             }
     }
 
+    override fun onTimelineChanged(
+        timeline: Timeline,
+        reason: Int,
+    ) {
+        super.onTimelineChanged(timeline, reason)
+        cacheQueuedMetadata()
+    }
+
     override fun onMediaItemTransition(
         mediaItem: MediaItem?,
         reason: Int,
     ) {
         super.onMediaItemTransition(mediaItem, reason)
+        mediaItem?.metadata?.let { queuedMetadataByMediaId[mediaItem.mediaId] = it }
 
         // Catch-all for user-initiated skips that bypass PlayerConnection (notification, lock
         // screen, Bluetooth, Android Auto): a SEEK transition while a crossfade fade loop is still
@@ -7656,7 +7665,9 @@ class MusicService :
             runCatching {
                 runBlocking(Dispatchers.IO) { database.song(mediaId).first() }
             }.getOrNull()
-        val queuedMetadata = currentMediaMetadata.value?.takeIf { it.id == mediaId }
+        val queuedMetadata =
+            currentMediaMetadata.value?.takeIf { it.id == mediaId }
+                ?: queuedMetadataByMediaId[mediaId]
         val title =
             song?.song?.title
                 ?: queuedMetadata?.title
@@ -7680,6 +7691,29 @@ class MusicService :
     // mediaId -> set of sources known to have this track (passed the metadata match gate during a recent
     // resolution). Used by the player's Source chooser to only offer sources that actually have the
     // song. Process-lived only; YouTube is always available as the fallback and is added implicitly.
+    /**
+     * mediaId -> MediaMetadata for every item currently in the queue.
+     *
+     * The multi-source resolver runs on a loader thread, so it cannot touch [player] to read the
+     * MediaItem tags itself. This cache is filled on the application thread from
+     * [onTimelineChanged] / [onMediaItemTransition] so [buildSourceQuery] can still recover
+     * title/artist/album for tracks that are being resolved *before* they become the current item
+     * and that are not in the local database yet (radio/autoplay continuations). Without it those
+     * tracks were skipped with "missing metadata" and fell straight through to YouTube.
+     */
+    private val queuedMetadataByMediaId = ConcurrentHashMap<String, MediaMetadata>()
+
+    private fun cacheQueuedMetadata() {
+        if (player.mediaItemCount == 0) return
+        val present = HashSet<String>(player.mediaItemCount)
+        for (index in 0 until player.mediaItemCount) {
+            val item = runCatching { player.getMediaItemAt(index) }.getOrNull() ?: continue
+            present.add(item.mediaId)
+            item.metadata?.let { queuedMetadataByMediaId[item.mediaId] = it }
+        }
+        queuedMetadataByMediaId.keys.retainAll(present)
+    }
+
     private val resolvedSourcesByMediaId = ConcurrentHashMap<String, MutableSet<AudioSourceType>>()
 
     private fun recordResolvedSource(
