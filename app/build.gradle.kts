@@ -91,6 +91,16 @@ tasks.configureEach {
 // place (forcing an uninstall + reinstall). Signing every debug build with this committed keystore
 // keeps the signature stable across builds so debug APKs install over one another. Uses the
 // standard Android debug credentials.
+val releaseKeystoreFile = file("keystore/mhsm.keystore")
+val releaseStorePassword =
+    System.getenv("MHSM_KEYSTORE_PASSWORD")?.takeIf { it.isNotBlank() }
+val releaseKeyAlias = System.getenv("MHSM_KEY_ALIAS")?.takeIf { it.isNotBlank() } ?: "mhsm"
+val releaseKeyPassword =
+    System.getenv("MHSM_KEY_PASSWORD")?.takeIf { it.isNotBlank() }
+val hasReleaseSigningConfig =
+    releaseKeystoreFile.isFile &&
+        releaseStorePassword != null &&
+        releaseKeyPassword != null
 val debugKeystoreFile = file("persistent-debug.keystore")
 
 android {
@@ -277,17 +287,14 @@ android {
 
     signingConfigs {
         create("release") {
-            val runnerTemp = System.getenv("RUNNER_TEMP")
-            val ksPath = if (!runnerTemp.isNullOrBlank()) "$runnerTemp/mhsm.keystore" else "keystore/release.keystore"
-            val ksFile = File(ksPath)
-            if (ksFile.isFile) {
-                storeFile = ksFile
+            if (hasReleaseSigningConfig) {
+                storeFile = releaseKeystoreFile
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
             }
-            storePassword = System.getenv("MHSM_KEYSTORE_PASSWORD") ?: System.getenv("STORE_PASSWORD")
-            keyAlias = System.getenv("MHSM_KEY_ALIAS") ?: System.getenv("KEY_ALIAS") ?: "mhsm"
-            keyPassword = System.getenv("MHSM_KEY_PASSWORD") ?: System.getenv("KEY_PASSWORD")
         }
-        create("debug") {
+        getByName("debug") {
             if (debugKeystoreFile.isFile) {
                 storeFile = debugKeystoreFile
                 storePassword = "android"
@@ -299,8 +306,7 @@ android {
 
     buildTypes {
         release {
-            val mhsmKsFile = signingConfigs.findByName("release")?.storeFile
-            if (mhsmKsFile != null && mhsmKsFile.isFile) {
+            if (hasReleaseSigningConfig) {
                 signingConfig = signingConfigs.getByName("release")
             }
             isMinifyEnabled = true
