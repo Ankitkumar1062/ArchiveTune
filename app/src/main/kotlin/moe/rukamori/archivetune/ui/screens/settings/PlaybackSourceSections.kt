@@ -215,7 +215,6 @@ fun PlaybackSourceSections(navController: NavController) {
                     when (it) {
                         PlayerStreamClient.ANDROID_VR -> stringResource(R.string.player_stream_client_android_vr)
                         PlayerStreamClient.WEB_REMIX -> stringResource(R.string.player_stream_client_web_remix)
-                        PlayerStreamClient.HI_RES_LOSSLESS -> stringResource(R.string.player_stream_client_hi_res_lossless)
                         PlayerStreamClient.ANDROID_MUSIC -> stringResource(R.string.player_stream_client_android_music)
                         PlayerStreamClient.IOS -> stringResource(R.string.player_stream_client_ios)
                         PlayerStreamClient.TVHTML5 -> stringResource(R.string.player_stream_client_tvhtml5)
@@ -226,7 +225,6 @@ fun PlaybackSourceSections(navController: NavController) {
                     when (it) {
                         PlayerStreamClient.ANDROID_VR -> stringResource(R.string.player_stream_client_android_vr_desc)
                         PlayerStreamClient.WEB_REMIX -> stringResource(R.string.player_stream_client_web_remix_desc)
-                        PlayerStreamClient.HI_RES_LOSSLESS -> stringResource(R.string.player_stream_client_hi_res_lossless_desc)
                         PlayerStreamClient.ANDROID_MUSIC -> stringResource(R.string.player_stream_client_android_music_desc)
                         PlayerStreamClient.IOS -> stringResource(R.string.player_stream_client_ios_desc)
                         PlayerStreamClient.TVHTML5 -> stringResource(R.string.player_stream_client_tvhtml5_desc)

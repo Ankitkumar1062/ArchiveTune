@@ -34,6 +34,8 @@ import moe.rukamori.archivetune.constants.HISTORY_DURATION_LEGACY_FLOAT_KEY
 import moe.rukamori.archivetune.constants.HISTORY_DURATION_MAX
 import moe.rukamori.archivetune.constants.HISTORY_DURATION_MIN
 import moe.rukamori.archivetune.constants.HistoryDuration
+import moe.rukamori.archivetune.constants.PlayerStreamClient
+import moe.rukamori.archivetune.constants.PlayerStreamClientKey
 import moe.rukamori.archivetune.constants.UpdateChannel
 import moe.rukamori.archivetune.constants.UpdateChannelKey
 import moe.rukamori.archivetune.extensions.toEnum
@@ -72,6 +74,25 @@ val Context.dataStore: DataStore<Preferences> by preferencesDataStore(
                 override suspend fun migrate(currentData: Preferences): Preferences =
                     currentData.toMutablePreferences().apply {
                         this[UpdateChannelKey] = UpdateChannel.CANARY.name
+                    }
+
+                override suspend fun cleanUp() {}
+            },
+            // The removed PlayerStreamClient.HI_RES_LOSSLESS resolved to the very same WEB_REMIX
+            // YouTubeClient, so it never changed which client was used; picking external lossless
+            // sources is the playback-source preference's job, not this setting's. Rewrite the
+            // stale value instead of relying on toEnum()'s fallback, because the two readers
+            // default differently (the settings UI to WEB_REMIX, MusicService to ANDROID_VR),
+            // which would silently disagree about the active client. WEB_REMIX also preserves
+            // prior behaviour exactly, and additionally picks up the extra STREAM_FALLBACK_CLIENTS
+            // pass in buildStreamClientOrder that HI_RES_LOSSLESS was excluded from.
+            object : DataMigration<Preferences> {
+                override suspend fun shouldMigrate(currentData: Preferences): Boolean =
+                    currentData[PlayerStreamClientKey] == "HI_RES_LOSSLESS"
+
+                override suspend fun migrate(currentData: Preferences): Preferences =
+                    currentData.toMutablePreferences().apply {
+                        this[PlayerStreamClientKey] = PlayerStreamClient.WEB_REMIX.name
                     }
 
                 override suspend fun cleanUp() {}

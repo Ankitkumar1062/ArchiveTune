@@ -429,10 +429,6 @@ object YTPlayerUtils {
                 WEB_REMIX
             }
 
-            PlayerStreamClient.HI_RES_LOSSLESS -> {
-                WEB_REMIX
-            }
-
             PlayerStreamClient.IOS -> {
                 IOS
             }
@@ -715,7 +711,6 @@ object YTPlayerUtils {
     private val downloadPreferredStreamClientAttempts: List<PlayerStreamClient> =
         listOf(
             PlayerStreamClient.WEB_REMIX,
-            PlayerStreamClient.HI_RES_LOSSLESS,
             PlayerStreamClient.ANDROID_VR,
             PlayerStreamClient.IOS,
             PlayerStreamClient.TVHTML5,
