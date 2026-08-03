@@ -18,6 +18,7 @@ import moe.rukamori.archivetune.morideobfuscator.CipherRefreshResult
 import moe.rukamori.archivetune.morideobfuscator.CipherSnapshot
 import moe.rukamori.archivetune.morideobfuscator.MoriCipherRuntime
 import moe.rukamori.archivetune.morideobfuscator.refresh
+import moe.rukamori.archivetune.morideobfuscator.snapshot
 import moe.rukamori.archivetune.utils.dataStore
 import javax.inject.Inject
 import javax.inject.Singleton
