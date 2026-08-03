@@ -130,7 +130,6 @@ class PlayerConnection(
     private var dismissedPlaybackError: PlaybackException? = null
     val waitingForNetworkConnection = service.waitingForNetworkConnection
     val queueRestoreCompleted = service.queueRestoreCompleted
-    val extractorAuthenticationEvents = service.extractorAuthenticationEvents
 
     private val canvasArtworkRefetchMutex = Mutex()
     private val _isCanvasArtworkRefetching = MutableStateFlow(false)
@@ -415,9 +414,7 @@ class PlayerConnection(
         error.value = null
     }
 
-    fun updateExtractorBearerToken(token: String) {
-        service.updateExtractorBearerToken(token)
-    }
+
 
     fun seekToNext() {
         val state = service.togetherSessionState.value as? moe.rukamori.archivetune.together.TogetherSessionState.Joined
