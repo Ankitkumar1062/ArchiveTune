@@ -1572,7 +1572,9 @@ fun BottomSheetPlayer(
                             showCodecOnPlayer = showCodecOnPlayer,
                             currentFormat = currentFormat,
                             onQualityChipClick = {
-                                bottomSheetPageState.show { ShowMediaInfo(mediaMetadata.id) }
+                                mediaMetadata?.let { metadata ->
+                                    bottomSheetPageState.show { ShowMediaInfo(metadata.id) }
+                                }
                             },
                             onQueueClick = openQueue,
                             onLyricsClick = { isLyricsScreenVisible = true },
@@ -1883,7 +1885,9 @@ fun BottomSheetPlayer(
                             showCodecOnPlayer = showCodecOnPlayer,
                             currentFormat = currentFormat,
                             onQualityChipClick = {
-                                bottomSheetPageState.show { ShowMediaInfo(mediaMetadata.id) }
+                                mediaMetadata?.let { metadata ->
+                                    bottomSheetPageState.show { ShowMediaInfo(metadata.id) }
+                                }
                             },
                             onQueueClick = openQueue,
                             onLyricsClick = { isLyricsScreenVisible = true },
