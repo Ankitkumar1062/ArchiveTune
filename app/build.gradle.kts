@@ -52,17 +52,6 @@ fun String.asBuildConfigString(): String =
     }\""
 
 val fallbackDataServerUrl = "archive-tune-admin-remote.vercel.app"
-val dataServerUrl =
-    rootProject
-        .file("DataServer.txt")
-        .takeIf { it.isFile }
-        ?.readText()
-        ?.trim()
-        ?.takeIf { it.startsWith("https://") || it.startsWith("http://") }
-        ?: fallbackDataServerUrl
-val apiBearerToken = System.getenv("API_BEARER_TOKEN")?.trim()
-    ?: localProperties.getProperty("API_BEARER_TOKEN")?.trim()
-    ?: ""
 
 val discordApplicationId =
     (
@@ -72,17 +61,6 @@ val discordApplicationId =
         ).trim()
 val discordApplicationIdLong = discordApplicationId.toLongOrNull() ?: 1165706613961789445L
 val discordRedirectScheme = "discord-$discordApplicationId"
-val releaseKeystoreFile = file("keystore/release.keystore")
-val releaseStorePassword =
-    System.getenv("STORE_PASSWORD")?.takeIf { it.isNotBlank() }
-        ?: System.getenv("KEYSTORE_PASSWORD")?.takeIf { it.isNotBlank() }
-val releaseKeyAlias = System.getenv("KEY_ALIAS")?.takeIf { it.isNotBlank() }
-val releaseKeyPassword = System.getenv("KEY_PASSWORD")?.takeIf { it.isNotBlank() }
-val hasReleaseSigningConfig =
-    releaseKeystoreFile.isFile &&
-        releaseStorePassword != null &&
-        releaseKeyAlias != null &&
-        releaseKeyPassword != null
 // Start.io (StartApp) app identifier used to initialize the support-ads SDK in GMS builds.
 // The fork ships a default committed ID so ads work out of the box; an override can still be
 // supplied via local.properties or the START_IO_APP_ID environment variable (e.g. in CI).
@@ -120,7 +98,7 @@ android {
     compileSdk = 37
 
     defaultConfig {
-    applicationId = "moe.rukamori.archivetune"
+    applicationId = "com.mhsm.archivetune"
         minSdk = 26
         targetSdk = 37
         // Version. Locally the committed base values are used. In CI, the release/canary
@@ -219,9 +197,6 @@ android {
                 ).trim()
         buildConfigField("String", "POOL_CLIENT_KEY", "\"$poolClientKey\"")
 
-        // Upstream data server (admin remote) config.
-        buildConfigField("String", "DATA_SERVER_URL", dataServerUrl.asBuildConfigString())
-        buildConfigField("String", "API_BEARER_TOKEN", apiBearerToken.asBuildConfigString())
 
         val nightlyBuildHash =
             (
@@ -302,14 +277,19 @@ android {
 
     signingConfigs {
         create("release") {
-            if (hasReleaseSigningConfig) {
-                storeFile = releaseKeystoreFile
-                storePassword = releaseStorePassword
-                keyAlias = releaseKeyAlias
-                keyPassword = releaseKeyPassword
+            val keystoreBase64 = System.getenv("MHSM_KEYSTORE_BASE64")
+            if (!keystoreBase64.isNullOrBlank()) {
+                val keystoreFile = File(System.getenv("RUNNER_TEMP") ?: System.getProperty("java.io.tmpdir"), "mhsm.keystore")
+                keystoreFile.writeBytes(java.util.Base64.getDecoder().decode(keystoreBase64))
+                storeFile = keystoreFile
+            } else {
+                storeFile = file("keystore/release.keystore").takeIf { it.isFile }
             }
+            storePassword = System.getenv("MHSM_KEYSTORE_PASSWORD") ?: System.getenv("STORE_PASSWORD")
+            keyAlias = System.getenv("MHSM_KEY_ALIAS") ?: System.getenv("KEY_ALIAS") ?: "mhsm"
+            keyPassword = System.getenv("MHSM_KEY_PASSWORD") ?: System.getenv("KEY_PASSWORD")
         }
-        getByName("debug") {
+        create("debug") {
             if (debugKeystoreFile.isFile) {
                 storeFile = debugKeystoreFile
                 storePassword = "android"
@@ -497,8 +477,6 @@ dependencies {
     implementation(project(":canvas"))
     implementation(project(":shazamkit"))
     implementation(project(":spotifycore"))
-    implementation(project(":moriextractor"))
-    implementation(project(":morideobfuscator"))
     implementation("com.materialkolor:material-kolor:5.0.0-alpha07")
 
     implementation(libs.ktor.client.core)
