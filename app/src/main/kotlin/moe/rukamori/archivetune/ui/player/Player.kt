@@ -1571,6 +1571,9 @@ fun BottomSheetPlayer(
                             contentBottomPadding = queueSheetState.collapsedBound,
                             showCodecOnPlayer = showCodecOnPlayer,
                             currentFormat = currentFormat,
+                            onQualityChipClick = {
+                                bottomSheetPageState.show { ShowMediaInfo(mediaMetadata.id) }
+                            },
                             onQueueClick = openQueue,
                             onLyricsClick = { isLyricsScreenVisible = true },
                             onSliderValueChange = onSliderValueChange,
@@ -1879,6 +1882,9 @@ fun BottomSheetPlayer(
                             contentBottomPadding = queueSheetState.collapsedBound,
                             showCodecOnPlayer = showCodecOnPlayer,
                             currentFormat = currentFormat,
+                            onQualityChipClick = {
+                                bottomSheetPageState.show { ShowMediaInfo(mediaMetadata.id) }
+                            },
                             onQueueClick = openQueue,
                             onLyricsClick = { isLyricsScreenVisible = true },
                             onSliderValueChange = onSliderValueChange,

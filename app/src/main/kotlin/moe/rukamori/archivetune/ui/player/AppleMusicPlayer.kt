@@ -19,6 +19,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -36,10 +37,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ripple
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -80,10 +83,8 @@ import androidx.navigation.NavController
 import coil3.compose.AsyncImage
 import moe.rukamori.archivetune.R
 import moe.rukamori.archivetune.db.entities.FormatEntity
-import moe.rukamori.archivetune.db.entities.containerLabel
-import moe.rukamori.archivetune.db.entities.formattedBitrate
-import moe.rukamori.archivetune.db.entities.formattedFileSize
-import moe.rukamori.archivetune.db.entities.formattedSampleRate
+import moe.rukamori.archivetune.db.entities.codecLabel
+import moe.rukamori.archivetune.db.entities.isLossless
 import moe.rukamori.archivetune.extensions.togglePlayPause
 import moe.rukamori.archivetune.models.MediaMetadata
 import moe.rukamori.archivetune.playback.PlayerConnection
@@ -127,6 +128,7 @@ fun AppleMusicPlayerContent(
     contentBottomPadding: Dp,
     showCodecOnPlayer: Boolean,
     currentFormat: FormatEntity?,
+    onQualityChipClick: () -> Unit,
     onQueueClick: () -> Unit,
     onLyricsClick: () -> Unit,
     onSliderValueChange: (Long) -> Unit,
@@ -299,6 +301,7 @@ fun AppleMusicPlayerContent(
                     onSliderValueChangeFinished = onSliderValueChangeFinished,
                     showCodecOnPlayer = showCodecOnPlayer,
                     currentFormat = currentFormat,
+                    onQualityChipClick = onQualityChipClick,
                     modifier =
                         Modifier
                             .weight(1f)
@@ -346,6 +349,7 @@ fun AppleMusicPlayerContent(
                 onSliderValueChangeFinished = onSliderValueChangeFinished,
                 showCodecOnPlayer = showCodecOnPlayer,
                 currentFormat = currentFormat,
+                onQualityChipClick = onQualityChipClick,
                 modifier =
                     Modifier
                         .fillMaxWidth()
@@ -432,6 +436,7 @@ private fun AppleMusicControlsColumn(
     onSliderValueChangeFinished: () -> Unit,
     showCodecOnPlayer: Boolean,
     currentFormat: FormatEntity?,
+    onQualityChipClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var swipeUpAccumulated by remember { mutableFloatStateOf(0f) }
@@ -567,17 +572,28 @@ private fun AppleMusicControlsColumn(
                 onScrubFinished = onSliderValueChangeFinished,
             )
             Spacer(Modifier.height(6.dp))
-            Row(Modifier.fillMaxWidth()) {
+            // Elapsed on the left, quality chip centred, -remaining on the right.
+            // A Box (not a Row) so the chip is centred against the full width rather
+            // than being pushed off-centre by the two timestamps' differing widths.
+            Box(Modifier.fillMaxWidth()) {
                 Text(
                     text = makeTimeString(sliderPosition ?: position),
                     style = MaterialTheme.typography.labelMedium,
                     color = Color.White.copy(alpha = 0.55f),
+                    modifier = Modifier.align(Alignment.CenterStart),
                 )
-                Spacer(Modifier.weight(1f))
+                if (showCodecOnPlayer && currentFormat != null) {
+                    AppleMusicQualityChip(
+                        currentFormat = currentFormat,
+                        onClick = onQualityChipClick,
+                        modifier = Modifier.align(Alignment.Center),
+                    )
+                }
                 Text(
                     text = "-" + makeTimeString((duration - (sliderPosition ?: position)).coerceAtLeast(0L)),
                     style = MaterialTheme.typography.labelMedium,
                     color = Color.White.copy(alpha = 0.55f),
+                    modifier = Modifier.align(Alignment.CenterEnd),
                 )
             }
         }
@@ -644,36 +660,6 @@ private fun AppleMusicControlsColumn(
                 contentDescription = null,
                 tint = Color.White.copy(alpha = 0.55f),
                 modifier = Modifier.size(18.dp),
-            )
-        }
-
-        // Codec / bitrate / sample-rate readout. The Apple Music style keeps its collapsed
-        // peek bar empty (see Queue.kt), so it never received the CodecInfoRow that the
-        // QueueCollapsedContentV* variants render. Draw it inline here instead so the
-        // "show codec on player" setting works in this style too.
-        if (showCodecOnPlayer && currentFormat != null) {
-            val codec =
-                currentFormat.codecs
-                    .takeIf { it.isNotBlank() }
-                    ?: currentFormat.containerLabel()
-            val container = currentFormat.containerLabel()
-            val codecLabel =
-                if (container.isNotBlank() && !codec.equals(container, ignoreCase = true)) {
-                    "$codec ($container)"
-                } else {
-                    codec
-                }
-            val extraText =
-                listOfNotNull(
-                    currentFormat.formattedSampleRate(),
-                    currentFormat.formattedFileSize().takeIf { it.isNotBlank() },
-                ).joinToString(separator = " \u2022 ")
-
-            CodecInfoRow(
-                codec = codecLabel,
-                bitrate = currentFormat.formattedBitrate(),
-                fileSize = extraText,
-                textColor = Color.White.copy(alpha = 0.7f),
             )
         }
 
@@ -891,4 +877,59 @@ private fun AppleMusicVolumeSlider(
                     )
                 },
     )
+}
+
+/**
+ * Quality chip rendered between the elapsed and -remaining timestamps on the Apple Music
+ * player's seek-bar row. Mirrors the Immersive V8 player's V8QualityChip - same pill shape,
+ * same waveform icon, same codecLabel() text - but uses Color.White as the foreground because
+ * this player draws on artwork-over-black rather than a themed surface.
+ *
+ * The Apple Music style leaves its collapsed queue peek bar empty (Queue.kt) and pins the peek
+ * height to 0.dp (Player.kt), so it never received the CodecInfoRow that the
+ * QueueCollapsedContentV* variants render - which is why "show codec on player" appeared to do
+ * nothing in this style. Tapping the chip opens the song-detail sheet, matching stock Apple Music.
+ */
+@Composable
+private fun AppleMusicQualityChip(
+    currentFormat: FormatEntity,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val label =
+        remember(currentFormat.mimeType, currentFormat.codecs) {
+            currentFormat.codecLabel()
+        }
+    val lossless =
+        remember(currentFormat.codecs, currentFormat.mimeType) {
+            currentFormat.isLossless()
+        }
+    Surface(
+        shape = RoundedCornerShape(6.dp),
+        color = Color.White.copy(alpha = 0.1f),
+        border = BorderStroke(width = 1.dp, color = Color.White.copy(alpha = 0.13f)),
+        modifier = modifier.clickable(onClick = onClick),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+        ) {
+            Icon(
+                painter =
+                    painterResource(
+                        if (lossless) R.drawable.ic_mqa else R.drawable.player_graphic_eq,
+                    ),
+                contentDescription = null,
+                tint = Color.White.copy(alpha = 0.72f),
+                modifier = Modifier.size(if (lossless) 18.dp else 15.dp),
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.White.copy(alpha = 0.72f),
+                maxLines = 1,
+            )
+        }
+    }
 }
