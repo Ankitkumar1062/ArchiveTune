@@ -184,6 +184,15 @@ jobs:
           echo "artifact_name=app-${DISTRIBUTION}-${DEVICE}-${ABI}-nightly" >> "$GITHUB_OUTPUT"
           echo "apk_name=app-${DISTRIBUTION}-${DEVICE}-${ABI}-nightly.apk" >> "$GITHUB_OUTPUT"
 
+      - name: Prepare signing keystore
+        if: ${{ secrets.MHSM_KEYSTORE_BASE64 != '' }}
+        shell: bash
+        env:
+          MHSM_KEYSTORE_BASE64: ${{ secrets.MHSM_KEYSTORE_BASE64 }}
+        run: |
+          mkdir -p app/keystore
+          echo "$MHSM_KEYSTORE_BASE64" | base64 -d > app/keystore/mhsm.keystore
+
       - name: Build Release APK
         shell: bash
         run: |
@@ -202,7 +211,6 @@ jobs:
           LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
           TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
           TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
-          MHSM_KEYSTORE_BASE64: ${{ secrets.MHSM_KEYSTORE_BASE64 }}
           MHSM_KEYSTORE_PASSWORD: ${{ secrets.MHSM_KEYSTORE_PASSWORD }}
           MHSM_KEY_ALIAS: ${{ secrets.MHSM_KEY_ALIAS }}
           MHSM_KEY_PASSWORD: ${{ secrets.MHSM_KEY_PASSWORD }}
