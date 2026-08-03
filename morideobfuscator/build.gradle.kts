@@ -6,6 +6,8 @@ kotlin {
     jvmToolchain(21)
 }
 
-// Stub module — the proprietary morideobfuscator is not available on Mhsm.
-// Provides MoriCipherRuntime with no-op implementations so callers fall back
-// to the NewPipe / JavaScript-player path already present in core.
+// Stub module providing compile-time stubs for the proprietary morideobfuscator.
+// All runtime calls return failure / no-op so the app falls back to open-source paths.
+dependencies {
+    implementation(project(":core"))
+}
