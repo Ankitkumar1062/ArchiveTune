@@ -309,9 +309,11 @@ val PlayerStreamClientKey = stringPreferencesKey("playerStreamClient")
 enum class PlayerStreamClient {
     ANDROID_VR,
     WEB_REMIX,
+    HI_RES_LOSSLESS,
     IOS,
     TVHTML5,
     VISIONOS,
+    ANDROID_MUSIC,
 }
 
 val PersistentQueueKey = booleanPreferencesKey("persistentQueue")

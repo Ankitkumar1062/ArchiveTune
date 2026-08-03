@@ -429,6 +429,10 @@ object YTPlayerUtils {
                 WEB_REMIX
             }
 
+            PlayerStreamClient.HI_RES_LOSSLESS -> {
+                WEB_REMIX
+            }
+
             PlayerStreamClient.IOS -> {
                 IOS
             }
@@ -439,6 +443,10 @@ object YTPlayerUtils {
 
             PlayerStreamClient.VISIONOS -> {
                 VISIONOS
+            }
+
+            PlayerStreamClient.ANDROID_MUSIC -> {
+                ANDROID_MUSIC
             }
         }
 
@@ -707,6 +715,7 @@ object YTPlayerUtils {
     private val downloadPreferredStreamClientAttempts: List<PlayerStreamClient> =
         listOf(
             PlayerStreamClient.WEB_REMIX,
+            PlayerStreamClient.HI_RES_LOSSLESS,
             PlayerStreamClient.ANDROID_VR,
             PlayerStreamClient.IOS,
             PlayerStreamClient.TVHTML5,
@@ -1525,7 +1534,7 @@ object YTPlayerUtils {
     ): Result<String> {
         Timber.tag(logTag).i("Finding stream URL for format: ${format.mimeType}, videoId: $videoId")
         return NewPipeUtils
-            .getStreamUrl(format, videoId)
+            .getStreamUrl(format, videoId, client, authState)
             .map { url ->
                 if (client == null) url else StreamClientUtils.patchClientVersion(url, client.clientVersion)
             }.onSuccess { Timber.tag(logTag).i("Stream URL obtained successfully") }
