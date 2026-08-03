@@ -18,6 +18,7 @@ import kotlinx.coroutines.launch
 import moe.rukamori.archivetune.models.NewsItem
 import moe.rukamori.archivetune.repository.NewsRepository
 import javax.inject.Inject
+import moe.rukamori.archivetune.repository.fetchNewsContent
 
 sealed interface ViewNewsUiState {
     data object Loading : ViewNewsUiState
