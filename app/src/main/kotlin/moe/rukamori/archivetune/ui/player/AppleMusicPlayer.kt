@@ -20,6 +20,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -93,6 +94,7 @@ import moe.rukamori.archivetune.ui.component.BottomSheetState
 import moe.rukamori.archivetune.ui.component.LocalMenuState
 import moe.rukamori.archivetune.ui.menu.PlayerMenu
 import moe.rukamori.archivetune.ui.menu.rememberCastPlayerMenuAction
+import moe.rukamori.archivetune.ui.utils.fadingEdge
 import moe.rukamori.archivetune.ui.utils.ShowMediaInfo
 import moe.rukamori.archivetune.ui.utils.highRes
 import moe.rukamori.archivetune.ui.utils.rememberPreBlurredBitmap
@@ -526,11 +528,14 @@ private fun AppleMusicControlsColumn(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier =
-                        Modifier.clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = titleActions.onTitleClick,
-                        ),
+                        Modifier
+                            .basicMarquee()
+                            .fadingEdge(right = 40.dp)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = titleActions.onTitleClick,
+                            ),
                 )
                 Text(
                     text = mediaMetadata.artists.joinToString { it.name },
@@ -539,12 +544,15 @@ private fun AppleMusicControlsColumn(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier =
-                        Modifier.clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                        ) {
-                            mediaMetadata.artists.firstOrNull()?.id?.let(titleActions.onArtistClick)
-                        },
+                        Modifier
+                            .basicMarquee()
+                            .fadingEdge(right = 40.dp)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                            ) {
+                                mediaMetadata.artists.firstOrNull()?.id?.let(titleActions.onArtistClick)
+                            },
                 )
             }
             Spacer(Modifier.width(12.dp))
@@ -664,8 +672,10 @@ private fun AppleMusicControlsColumn(
         }
 
         // Bottom action row: lyrics / media output / queue.
+        // fadingEdge gives the same left/right fade that the playlist screen's scrollable
+        // action row has, so the buttons softly dissolve at both edges.
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().fadingEdge(horizontal = 24.dp),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically,
         ) {

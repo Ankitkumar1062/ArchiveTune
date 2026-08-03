@@ -294,7 +294,10 @@ fun RowScope.MiniPlayerInfo(
         modifier =
             Modifier
                 .weight(1f)
-                .padding(horizontal = 10.dp),
+                .padding(horizontal = 10.dp)
+                // Fade the right edge so the marquee text dissolves before hitting the
+                // transport controls rather than being clipped hard.
+                .fadingEdge(right = 28.dp),
         verticalArrangement = Arrangement.Center,
     ) {
         AnimatedContent(
