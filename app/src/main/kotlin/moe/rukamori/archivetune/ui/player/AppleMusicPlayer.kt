@@ -49,6 +49,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -71,6 +72,7 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import kotlin.math.abs
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -520,40 +522,80 @@ private fun AppleMusicControlsColumn(
         // Title / artist row with star + more chips.
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(
-                    text = mediaMetadata.title,
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                // The fade has to sit OUTSIDE basicMarquee. basicMarquee measures its child
+                // with an unbounded width, so a fadingEdge applied *inside* it sees the full
+                // intrinsic text width and draws the gradient at the far end of the scrolling
+                // string: off-screen for long titles (no fade at all) and inside the visible
+                // text for short ones (a fade on a title that never scrolls). Hosting it on the
+                // wrapping Box makes size.width the real viewport — the same reason the mini
+                // player version looked correct, where the fade is on the wrapping Column.
+                //
+                // titleScrolls mirrors basicMarquee's own activation rule (content strictly wider
+                // than viewport), so the gradient appears only when the text actually moves.
+                var titleTextWidth by remember { mutableIntStateOf(0) }
+                var titleViewportWidth by remember { mutableIntStateOf(0) }
+                val titleScrolls =
+                    titleTextWidth > 0 && titleViewportWidth > 0 && titleTextWidth > titleViewportWidth
+
+                Box(
                     modifier =
                         Modifier
-                            .basicMarquee()
-                            .fadingEdge(right = 40.dp)
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                                onClick = titleActions.onTitleClick,
+                            .fillMaxWidth()
+                            .onSizeChanged { titleViewportWidth = it.width }
+                            .then(
+                                if (titleScrolls) Modifier.fadingEdge(right = 40.dp) else Modifier,
                             ),
-                )
-                Text(
-                    text = mediaMetadata.artists.joinToString { it.name },
-                    style = MaterialTheme.typography.titleMedium,
-                    color = Color.White.copy(alpha = 0.64f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                ) {
+                    Text(
+                        text = mediaMetadata.title,
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        onTextLayout = { titleTextWidth = it.size.width },
+                        modifier =
+                            Modifier
+                                .basicMarquee()
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    onClick = titleActions.onTitleClick,
+                                ),
+                    )
+                }
+                var artistTextWidth by remember { mutableIntStateOf(0) }
+                var artistViewportWidth by remember { mutableIntStateOf(0) }
+                val artistScrolls =
+                    artistTextWidth > 0 && artistViewportWidth > 0 && artistTextWidth > artistViewportWidth
+
+                Box(
                     modifier =
                         Modifier
-                            .basicMarquee()
-                            .fadingEdge(right = 40.dp)
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                            ) {
-                                mediaMetadata.artists.firstOrNull()?.id?.let(titleActions.onArtistClick)
-                            },
-                )
+                            .fillMaxWidth()
+                            .onSizeChanged { artistViewportWidth = it.width }
+                            .then(
+                                if (artistScrolls) Modifier.fadingEdge(right = 40.dp) else Modifier,
+                            ),
+                ) {
+                    Text(
+                        text = mediaMetadata.artists.joinToString { it.name },
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Color.White.copy(alpha = 0.64f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        onTextLayout = { artistTextWidth = it.size.width },
+                        modifier =
+                            Modifier
+                                .basicMarquee()
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                ) {
+                                    mediaMetadata.artists.firstOrNull()?.id?.let(titleActions.onArtistClick)
+                                },
+                    )
+                }
             }
             Spacer(Modifier.width(12.dp))
             AppleMusicChip(
