@@ -190,6 +190,7 @@ import moe.rukamori.archivetune.extensions.metadata
 import moe.rukamori.archivetune.extensions.togglePlayPause
 import moe.rukamori.archivetune.innertube.utils.hasYouTubeLoginCookie
 import moe.rukamori.archivetune.models.MediaMetadata
+import moe.rukamori.archivetune.ui.component.COLLAPSED_ANCHOR
 import moe.rukamori.archivetune.ui.component.BottomSheet
 import moe.rukamori.archivetune.ui.component.BottomSheetState
 import moe.rukamori.archivetune.ui.component.LocalBottomSheetPageState
@@ -836,15 +837,37 @@ fun BottomSheetPlayer(
             QueuePeekHeight
         }
 
-    val dismissedBound = dynamicQueuePeekHeight + WindowInsets.systemBars.asPaddingValues().calculateBottomPadding()
+    val systemBarsBottom = WindowInsets.systemBars.asPaddingValues().calculateBottomPadding()
+
+    // Separate dismissed and collapsed anchors so BottomSheet.kt can distinguish
+    // "fully off-screen" (dismissed) from "showing peek controls" (collapsed).
+    // Previously both were set to the same value (dynamicQueuePeekHeight + systemBarsBottom),
+    // which made isDismissed == isCollapsed == true simultaneously. BottomSheet only renders
+    // collapsedContent when !isExpanded && !isDismissed — so the peek bar was never shown
+    // and expandSoft() appeared to do nothing for Apple Music (the content BoxWithConstraints
+    // requires !isCollapsed to render, but isCollapsed was always true at rest).
+    val dismissedBound = 0.dp
+    val collapsedBound = dynamicQueuePeekHeight + systemBarsBottom
 
     val queueSheetState =
         rememberBottomSheetState(
             dismissedBound = dismissedBound,
             expandedBound = state.expandedBound,
-            collapsedBound = dismissedBound,
-            initialAnchor = 0,
+            collapsedBound = collapsedBound,
+            initialAnchor = COLLAPSED_ANCHOR,
         )
+
+    // Safety net: snap queueSheetState back to COLLAPSED on every player-open transition.
+    // previousAnchor is rememberSaveable, so EXPANDED can survive a player collapse/re-open,
+    // leaving the queue list covering the player controls on re-open. Key on
+    // state.isExpandedOrExpanding so this fires once per open, not every recomposition —
+    // the player content's alpha is still 0 for the first 25% of the expand animation
+    // (BoxWithConstraints uses `alpha = ((progress - 0.25f) * 4)`), so the snap is invisible.
+    LaunchedEffect(state.isExpandedOrExpanding) {
+        if (state.isExpandedOrExpanding && !queueSheetState.isCollapsed) {
+            queueSheetState.collapseSoft()
+        }
+    }
 
     var isLyricsScreenVisible by rememberSaveable {
         mutableStateOf(false)
