@@ -77,6 +77,7 @@ import moe.rukamori.archivetune.qobuz.QobuzAudioProvider
 import moe.rukamori.archivetune.qobuz.QobuzToken
 import moe.rukamori.archivetune.qobuz.SourceInputParsing
 import moe.rukamori.archivetune.tidal.TidalAudioProvider
+import moe.rukamori.archivetune.ui.component.AccountDetailRow
 import moe.rukamori.archivetune.ui.component.DefaultDialog
 import moe.rukamori.archivetune.ui.component.EnumListPreference
 import moe.rukamori.archivetune.ui.component.IconButton
@@ -347,7 +348,7 @@ fun QobuzSettings(navController: NavController, scrollTo: String? = null) {
                 OutlinedTextField(
                     value = editLabel,
                     onValueChange = { editLabel = it },
-                    label = { Text("Account") },
+                    label = { Text(stringResource(R.string.account)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -355,7 +356,7 @@ fun QobuzSettings(navController: NavController, scrollTo: String? = null) {
                 OutlinedTextField(
                     value = editUserId,
                     onValueChange = { editUserId = it },
-                    label = { Text("User ID") },
+                    label = { Text(stringResource(R.string.account_label_user_id)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -363,7 +364,7 @@ fun QobuzSettings(navController: NavController, scrollTo: String? = null) {
                 OutlinedTextField(
                     value = editToken,
                     onValueChange = { editToken = it },
-                    label = { Text("Token (auth)") },
+                    label = { Text(stringResource(R.string.account_label_token_auth)) },
                     textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace),
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -371,7 +372,7 @@ fun QobuzSettings(navController: NavController, scrollTo: String? = null) {
                 OutlinedTextField(
                     value = editAppId,
                     onValueChange = { editAppId = it },
-                    label = { Text("App ID") },
+                    label = { Text(stringResource(R.string.account_label_app_id)) },
                     singleLine = true,
                     textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace),
                     modifier = Modifier.fillMaxWidth(),
@@ -380,20 +381,19 @@ fun QobuzSettings(navController: NavController, scrollTo: String? = null) {
                 OutlinedTextField(
                     value = editAppSecret,
                     onValueChange = { editAppSecret = it },
-                    label = { Text("App Secret") },
+                    label = { Text(stringResource(R.string.account_label_app_secret)) },
                     textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(12.dp))
-                Text("Status", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(2.dp))
-                Text(statusLabel, style = MaterialTheme.typography.bodyMedium, color = statusColor)
-                Spacer(Modifier.height(10.dp))
-                Text("Subscription", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    text = token.subscription.ifBlank { stringResource(R.string.qobuz_token_status_unknown) },
-                    style = MaterialTheme.typography.bodyMedium,
+                AccountDetailRow(
+                    label = stringResource(R.string.account_label_status),
+                    value = statusLabel,
+                    valueColor = statusColor,
+                )
+                AccountDetailRow(
+                    label = stringResource(R.string.account_label_subscription),
+                    value = token.subscription.ifBlank { stringResource(R.string.qobuz_token_status_unknown) },
                 )
             }
         }

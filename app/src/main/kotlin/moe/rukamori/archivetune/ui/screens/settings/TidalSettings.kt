@@ -79,6 +79,7 @@ import moe.rukamori.archivetune.constants.TidalUserIdKey
 import moe.rukamori.archivetune.qobuz.SourceInputParsing
 import moe.rukamori.archivetune.tidal.TidalAudioProvider
 import moe.rukamori.archivetune.tidal.TidalInstanceHealthManager
+import moe.rukamori.archivetune.ui.component.AccountDetailRow
 import moe.rukamori.archivetune.ui.component.DefaultDialog
 import moe.rukamori.archivetune.ui.component.IconButton
 import moe.rukamori.archivetune.ui.component.PreferenceEntry
@@ -239,48 +240,43 @@ fun TidalSettings(navController: NavController, scrollTo: String? = null) {
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
                 if (accountName.isNotBlank()) {
-                    Text("Account", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(2.dp))
-                    Text(accountName, style = MaterialTheme.typography.bodyMedium)
-                    Spacer(Modifier.height(10.dp))
+                    AccountDetailRow(stringResource(R.string.account), accountName)
                 }
                 if (userId != 0L) {
-                    Text("User ID", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(2.dp))
-                    Text(userId.toString(), style = MaterialTheme.typography.bodyMedium)
-                    Spacer(Modifier.height(10.dp))
+                    AccountDetailRow(
+                        label = stringResource(R.string.account_label_user_id),
+                        value = userId.toString(),
+                        monospace = true,
+                    )
                 }
                 if (countryCode.isNotBlank()) {
-                    Text("Country", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(2.dp))
-                    Text(countryCode, style = MaterialTheme.typography.bodyMedium)
-                    Spacer(Modifier.height(10.dp))
+                    AccountDetailRow(stringResource(R.string.account_label_country), countryCode)
                 }
-                Text("Access token", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(2.dp))
-                Text(accessToken, style = MaterialTheme.typography.bodyMedium, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
-                Spacer(Modifier.height(10.dp))
-                Text("Status", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    text =
+                AccountDetailRow(
+                    label = stringResource(R.string.account_label_access_token),
+                    value = accessToken,
+                    monospace = true,
+                )
+                AccountDetailRow(
+                    label = stringResource(R.string.account_label_status),
+                    value =
                         when {
                             needsRelogin -> stringResource(R.string.tidal_account_relogin_required)
                             accountConfigured -> stringResource(R.string.tidal_account_active)
                             else -> stringResource(R.string.tidal_instance_unknown)
                         },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color =
+                    valueColor =
                         when {
                             needsRelogin -> MaterialTheme.colorScheme.error
-                            accountConfigured -> Color(0xFF4FC3F7)
+                            // Was a hardcoded Color(0xFF4FC3F7), which ignored the active theme.
+                            accountConfigured -> MaterialTheme.colorScheme.primary
                             else -> MaterialTheme.colorScheme.onSurfaceVariant
                         },
                 )
-                Spacer(Modifier.height(10.dp))
-                Text("Subscription", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(2.dp))
-                Text(subscription.name.lowercase(), style = MaterialTheme.typography.bodyMedium)
+                AccountDetailRow(
+                    label = stringResource(R.string.account_label_subscription),
+                    value = subscription.name.lowercase(),
+                )
             }
         }
     }

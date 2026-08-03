@@ -470,6 +470,22 @@
     <string name="player_stream_client_web_remix">Web Remix</string>
     <string name="player_stream_client_hi_res_lossless">Hi-Res Lossless</string>
     <string name="player_stream_client_android_music">Android Music</string>
+    <!-- Shared sign-in WebView chrome (AuthWebViewScreen) -->
+    <string name="auth_webview_youtube_subtitle">Sign in with Google to link your YouTube Music account.</string>
+    <string name="auth_webview_tidal_subtitle">Sign in to Tidal below. ArchiveTune saves the session automatically.</string>
+    <string name="auth_webview_qobuz_subtitle">Sign in to Qobuz below. Your credentials are captured automatically.</string>
+    <string name="auth_webview_deezer_subtitle">Sign in to Deezer below. The session cookie is saved automatically.</string>
+
+    <!-- Account detail dialog labels -->
+    <string name="account_label_user_id">User ID</string>
+    <string name="account_label_country">Country</string>
+    <string name="account_label_access_token">Access token</string>
+    <string name="account_label_status">Status</string>
+    <string name="account_label_subscription">Subscription</string>
+    <string name="account_label_token_auth">Token (auth)</string>
+    <string name="account_label_app_id">App ID</string>
+    <string name="account_label_app_secret">App Secret</string>
+
     <string name="player_stream_client_android_vr_desc">Fast startup with no signature decryption. A good default.</string>
     <string name="player_stream_client_web_remix_desc">Widest format support, but JavaScript decryption delays startup.</string>
     <string name="player_stream_client_hi_res_lossless_desc">Prefers Qobuz, Tidal or Deezer sources, falling back to YouTube.</string>
