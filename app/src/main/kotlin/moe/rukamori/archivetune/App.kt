@@ -33,19 +33,14 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import moe.rukamori.archivetune.canvas.ArchiveTuneCanvas
 import moe.rukamori.archivetune.constants.*
 import moe.rukamori.archivetune.deezer.DeezerAudioProvider
 import moe.rukamori.archivetune.extensions.*
-import moe.rukamori.archivetune.gatekeeper.GatekeeperResult
-import moe.rukamori.archivetune.gatekeeper.RunGatekeeperCheckUseCase
 import moe.rukamori.archivetune.innertube.YouTube
 import moe.rukamori.archivetune.innertube.models.YouTubeLocale
 import moe.rukamori.archivetune.kugou.KuGou
 import moe.rukamori.archivetune.lastfm.LastFM
 import moe.rukamori.archivetune.lyrics.JapaneseLanguagePackManager
-import moe.rukamori.archivetune.morideobfuscator.MoriCipherConfig
-import moe.rukamori.archivetune.morideobfuscator.MoriCipherRuntime
 import moe.rukamori.archivetune.paxsenix.PaxsenixLyrics
 import moe.rukamori.archivetune.scrobbling.LastFmServiceConfig
 import moe.rukamori.archivetune.storage.StorageFolderKind
@@ -57,7 +52,6 @@ import moe.rukamori.archivetune.ui.player.CanvasArtworkPlaybackCache
 import moe.rukamori.archivetune.ui.screens.settings.ThemePalettes
 import moe.rukamori.archivetune.ui.theme.ThemeSeedPalette
 import moe.rukamori.archivetune.ui.theme.ThemeSeedPaletteCodec
-import moe.rukamori.archivetune.utils.MoriCipherUpdateScheduler
 import moe.rukamori.archivetune.utils.PoolAccountManager
 import moe.rukamori.archivetune.utils.PreferenceStore
 import moe.rukamori.archivetune.utils.ProxyUtils
@@ -66,7 +60,6 @@ import moe.rukamori.archivetune.utils.clearPlaybackAuthSession
 import moe.rukamori.archivetune.utils.clearPlaybackWebAuthSession
 import moe.rukamori.archivetune.utils.dataStore
 import moe.rukamori.archivetune.utils.get
-import moe.rukamori.archivetune.utils.potoken.BotGuardTokenGenerator
 import moe.rukamori.archivetune.utils.reportException
 import moe.rukamori.archivetune.utils.toPlaybackAuthState
 import okhttp3.Dns
@@ -84,9 +77,6 @@ import kotlin.system.exitProcess
 class App :
     Application(),
     SingletonImageLoader.Factory {
-    @Inject
-    lateinit var runGatekeeperCheckUseCase: RunGatekeeperCheckUseCase
-
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     @Volatile private var isInitialized = false
@@ -112,7 +102,6 @@ class App :
             Timber.plant(Timber.DebugTree())
             return
         }
-        BotGuardTokenGenerator.initialize(this)
         PreferenceStore.start(this)
         JapaneseLanguagePackManager.initialize(this)
         Timber.plant(Timber.DebugTree())
@@ -124,23 +113,8 @@ class App :
         } catch (_: Exception) {
         }
 
-        initializeGatekeeper()
         initializeCriticalSync()
         initializeDeferredAsync()
-    }
-
-    private fun initializeGatekeeper() {
-        applicationScope.launch(Dispatchers.IO) {
-            while (isActive) {
-                val result = runGatekeeperCheckUseCase()
-                when (result) {
-                    GatekeeperResult.Allowed -> return@launch
-                    GatekeeperResult.Unavailable -> Unit
-                    is GatekeeperResult.Blocked -> if (!result.retryable) return@launch
-                }
-                delay(GATEKEEPER_RETRY_INTERVAL_MILLIS)
-            }
-        }
     }
 
     override fun onTrimMemory(level: Int) {
@@ -149,13 +123,6 @@ class App :
     }
 
     private fun initializeCriticalSync() {
-        MoriCipherRuntime.initialize(
-            MoriCipherConfig(
-                cacheDirectory = File(noBackupFilesDir, "mori_cipher"),
-                proxyProvider = { YouTube.streamProxy },
-            ),
-        )
-        MoriCipherUpdateScheduler.schedule(this)
         // PRDownloader is the file downloader used by PRDownloaderDataSource
         // (the upstream HTTP fetcher inside Media3's download CacheDataSource
         // chain). Initialized once at app start with tuned timeouts so
@@ -178,7 +145,6 @@ class App :
             com.downloader.PRDownloader.initialize(this, config)
         }
         CanvasArtworkPlaybackCache.init(this)
-        ArchiveTuneCanvas.initialize(BuildConfig.CANVAS_BEARER_TOKEN)
         PaxsenixLyrics.setUserAgent("ArchiveTune", BuildConfig.VERSION_NAME)
 
         val locale = Locale.getDefault()
@@ -201,11 +167,6 @@ class App :
     }
 
     private fun initializeDeferredAsync() {
-        applicationScope.launch(Dispatchers.IO) {
-            MoriCipherRuntime
-                .refresh(force = false)
-                .onFailure { Timber.w(it, "Mori cipher background initialization failed") }
-        }
         applicationScope.launch(Dispatchers.IO) {
             try {
                 val prefs = dataStore.data.first()
@@ -376,10 +337,7 @@ class App :
                     YouTube.authState = authState
                     if (previousFingerprint != authState.fingerprint) {
                         YTPlayerUtils.clearPlaybackAuthCaches()
-                        val sessionId = authState.sessionId
-                        if (!sessionId.isNullOrBlank()) {
-                            BotGuardTokenGenerator.preWarm(sessionId)
-                        }
+                        // BotGuard removed — PoTokenGenerator handles pre-warm elsewhere
                     }
                 }
         }
@@ -496,8 +454,6 @@ class App :
     }
 
     companion object {
-        private const val GATEKEEPER_RETRY_INTERVAL_MILLIS = 30_000L
-
         lateinit var instance: App
             private set
 
