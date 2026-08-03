@@ -470,6 +470,7 @@ dependencies {
     ksp(libs.kotlin.metadata.jvm)
 
     implementation(project(":core"))
+    implementation(project(":morideobfuscator"))
     implementation(project(":lyrics:kugou"))
     implementation(project(":lyrics:lrclib"))
     implementation(project(":lyrics:simpmusic"))
