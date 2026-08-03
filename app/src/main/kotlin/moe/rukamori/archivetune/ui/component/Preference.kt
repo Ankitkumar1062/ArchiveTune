@@ -503,7 +503,7 @@ private fun <T> PreferenceSelectionBottomSheet(
                 ) { _, value ->
                     PreferenceSelectionOption(
                         text = valueText(value),
-                        description = valueDescription?.invoke(value),
+                        description = valueDescription?.invoke(value)?.takeIf { it.isNotBlank() },
                         selected = value == selectedValue,
                         enabled = isValueEnabled(value),
                         onClick = { onValueSelected(value) },
