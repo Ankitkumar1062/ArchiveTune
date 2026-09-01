@@ -249,12 +249,18 @@ jobs:
         shell: bash
         env:
           KEYSTORE: ${{ secrets.KEYSTORE }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          if [ -n "$KEYSTORE" ]; then
+          if [ -n "$KEYSTORE" ] && [ -n "$KEY_ALIAS" ] && [ -n "$KEYSTORE_PASSWORD" ] && [ -n "$KEY_PASSWORD" ]; then
             # Real release keystore is configured (e.g. upstream); use it as-is.
             echo "mode=secret" >> "$GITHUB_OUTPUT"
           else
+            if [ -n "$KEYSTORE" ] || [ -n "$KEY_ALIAS" ] || [ -n "$KEYSTORE_PASSWORD" ] || [ -n "$KEY_PASSWORD" ]; then
+              echo "::warning::Incomplete release signing secrets detected; falling back to fixed committed keystore."
+            fi
             # No KEYSTORE secret (expected on forks): sign with the FIXED, committed
             # keystore (app/persistent-debug.keystore) instead of generating a throwaway
             # one. Previously each run - and each ABI variant within a run - generated a
