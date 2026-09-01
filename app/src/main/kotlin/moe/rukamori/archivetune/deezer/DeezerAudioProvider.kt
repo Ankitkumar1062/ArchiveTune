@@ -260,6 +260,7 @@ object DeezerAudioProvider {
         val artists: List<String>,
         val album: String?,
         val durationMs: Long?,
+        val isrc: String? = null,
     )
 
     private fun Query.cacheKey(): String =
@@ -491,6 +492,7 @@ object DeezerAudioProvider {
                     album = obj.optString("ALB_TITLE").takeIf { it.isNotBlank() },
                     // Deezer reports duration in whole seconds.
                     durationMs = obj.optLong("DURATION", 0L).takeIf { it > 0L }?.times(1000L),
+                    isrc = obj.optString("ISRC").takeIf { it.isNotBlank() },
                 )
             }
 
@@ -502,6 +504,7 @@ object DeezerAudioProvider {
                         artists = query.artists,
                         album = query.album,
                         durationMs = query.durationMs,
+                        isrc = query.isrc,
                     ),
                 candidates = candidates,
             )

@@ -8740,6 +8740,7 @@ class MusicService :
         val artists: List<String>,
         val album: String?,
         val durationMs: Long?,
+        val isrc: String? = null,
         /**
          * When non-null, the Qobuz resolver skips its title/artist search and
          * downloads this exact trackId. Set when the user picks a specific
@@ -8851,12 +8852,14 @@ class MusicService :
             runBlocking { dataStore.data.first()[SongSourceQobuzBackupVideoIdKey] }
         }.getOrNull()
         val directQobuzBackupVideoId = SongSourceQobuzBackupVideoId.get(qobuzBackupVideoIdRaw, mediaId)
+        val isrc = moe.rukamori.archivetune.audiosource.IsrcResolver.resolveBlocking(mediaId, title, artists, durationMs)
         return SourceQuery(
             mediaId = mediaId,
             title = title,
             artists = artists,
             album = album,
             durationMs = durationMs,
+            isrc = isrc,
             directQobuzTrackId = directQobuzTrackId,
             directQobuzBackupVideoId = directQobuzBackupVideoId,
         )
@@ -8886,6 +8889,19 @@ class MusicService :
             item.metadata?.let { queuedMetadataByMediaId[item.mediaId] = it }
         }
         queuedMetadataByMediaId.keys.retainAll(present)
+
+        // Asynchronously pre-warm ISRC lookup for the next 3 items in queue
+        scope.launch(Dispatchers.IO) {
+            val currentIdx = player.currentMediaItemIndex
+            for (i in (currentIdx + 1)..minOf(currentIdx + 3, player.mediaItemCount - 1)) {
+                val nextItem = runCatching { player.getMediaItemAt(i) }.getOrNull() ?: continue
+                val meta = nextItem.metadata ?: queuedMetadataByMediaId[nextItem.mediaId] ?: continue
+                val t = meta.title ?: continue
+                val a = meta.artists.map { it.name }
+                val d = meta.duration?.takeIf { it > 0 }?.toLong()?.times(1000L)
+                moe.rukamori.archivetune.audiosource.IsrcResolver.resolve(nextItem.mediaId, t, a, d)
+            }
+        }
     }
 
     private val resolvedSourcesByMediaId = ConcurrentHashMap<String, MutableSet<AudioSourceType>>()
@@ -9899,7 +9915,7 @@ class MusicService :
                             title = query.title,
                             artists = query.artists,
                             album = query.album,
-                            isrc = null,
+                            isrc = query.isrc,
                             durationMs = query.durationMs,
                         ),
                     cacheDir = cacheDir,
@@ -9976,6 +9992,7 @@ class MusicService :
                             artists = query.artists,
                             album = query.album,
                             durationMs = query.durationMs,
+                            isrc = query.isrc,
                             directTrackId = query.directQobuzTrackId,
                         ),
                     formatId = formatId,
@@ -10091,6 +10108,7 @@ class MusicService :
                                 artists = query.artists,
                                 album = query.album,
                                 durationMs = query.durationMs,
+                                isrc = query.isrc,
                             ),
                         format = quality.toFormatName(),
                     )?.let { resolved ->
