@@ -8890,16 +8890,30 @@ class MusicService :
         }
         queuedMetadataByMediaId.keys.retainAll(present)
 
-        // Asynchronously pre-warm ISRC lookup for the next 3 items in queue
-        scope.launch(Dispatchers.IO) {
+        // Safely capture next 3 items on the application thread before dispatching IO resolution
+        val upcoming = buildList {
             val currentIdx = player.currentMediaItemIndex
-            for (i in (currentIdx + 1)..minOf(currentIdx + 3, player.mediaItemCount - 1)) {
+            val count = player.mediaItemCount
+            for (i in (currentIdx + 1)..minOf(currentIdx + 3, count - 1)) {
                 val nextItem = runCatching { player.getMediaItemAt(i) }.getOrNull() ?: continue
                 val meta = nextItem.metadata ?: queuedMetadataByMediaId[nextItem.mediaId] ?: continue
-                val t = meta.title ?: continue
+                val t = meta.title?.takeIf { it.isNotBlank() } ?: continue
                 val a = meta.artists.map { it.name }
                 val d = meta.duration?.takeIf { it > 0 }?.toLong()?.times(1000L)
-                moe.rukamori.archivetune.audiosource.IsrcResolver.resolve(nextItem.mediaId, t, a, d)
+                add(Triple(nextItem.mediaId, Pair(t, a), d))
+            }
+        }
+
+        if (upcoming.isNotEmpty()) {
+            scope.launch(Dispatchers.IO) {
+                for ((mediaId, titleArtists, durationMs) in upcoming) {
+                    moe.rukamori.archivetune.audiosource.IsrcResolver.resolve(
+                        mediaId = mediaId,
+                        title = titleArtists.first,
+                        artists = titleArtists.second,
+                        durationMs = durationMs,
+                    )
+                }
             }
         }
     }
