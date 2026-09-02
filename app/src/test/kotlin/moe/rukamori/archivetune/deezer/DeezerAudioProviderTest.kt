@@ -45,4 +45,12 @@ class DeezerAudioProviderTest {
         assertNotNull(sampleChunk)
         assertEquals(DeezerCrypto.CHUNK_SIZE, sampleChunk.size)
     }
+
+    @Test
+    fun proxyMode_configuration() {
+        DeezerAudioProvider.setProxyMode(moe.rukamori.archivetune.constants.DeezerProxyMode.UK1)
+        assertEquals(moe.rukamori.archivetune.constants.DeezerProxyMode.UK1, DeezerAudioProvider.proxyMode)
+        DeezerAudioProvider.setProxyMode(moe.rukamori.archivetune.constants.DeezerProxyMode.AUTO)
+        assertEquals(moe.rukamori.archivetune.constants.DeezerProxyMode.AUTO, DeezerAudioProvider.proxyMode)
+    }
 }

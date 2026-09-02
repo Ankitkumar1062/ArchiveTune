@@ -8,6 +8,7 @@
 package moe.rukamori.archivetune.deezer
 
 import moe.rukamori.archivetune.audiosource.TrackMatching
+import moe.rukamori.archivetune.constants.DeezerProxyMode
 import moe.rukamori.archivetune.utils.PoolAccountManager
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -17,8 +18,15 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import timber.log.Timber
+import java.net.InetSocketAddress
+import java.net.Proxy
+import java.security.SecureRandom
+import java.security.cert.X509Certificate
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import javax.net.ssl.SSLContext
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
 
 /**
  * Resolves playable Deezer streams for a track, mirroring the shape of
@@ -85,6 +93,43 @@ object DeezerAudioProvider {
             .readTimeout(10, TimeUnit.SECONDS)
             .callTimeout(15, TimeUnit.SECONDS)
             .build()
+
+    @Volatile
+    var proxyMode: DeezerProxyMode = DeezerProxyMode.AUTO
+        private set
+
+    fun setProxyMode(mode: DeezerProxyMode) {
+        proxyMode = mode
+    }
+
+    private val proxyClients = ConcurrentHashMap<String, OkHttpClient>()
+
+    private fun getProxyClient(host: String): OkHttpClient =
+        proxyClients.computeIfAbsent(host) { createProxyClient(it) }
+
+    private fun createProxyClient(host: String): OkHttpClient {
+        val trustAllCerts =
+            arrayOf<TrustManager>(
+                object : X509TrustManager {
+                    override fun checkClientTrusted(chain: Array<X509Certificate>?, authType: String?) {}
+                    override fun checkServerTrusted(chain: Array<X509Certificate>?, authType: String?) {}
+                    override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+                },
+            )
+        val sslContext =
+            SSLContext.getInstance("SSL").apply {
+                init(null, trustAllCerts, SecureRandom())
+            }
+        return OkHttpClient
+            .Builder()
+            .connectTimeout(6, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.SECONDS)
+            .callTimeout(15, TimeUnit.SECONDS)
+            .sslSocketFactory(sslContext.socketFactory, trustAllCerts[0] as X509TrustManager)
+            .hostnameVerifier { _, _ -> true }
+            .proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress.createUnresolved(host, 3128)))
+            .build()
+    }
 
     /**
      * A manually captured ARL, set by the Deezer login screen and mirrored from DataStore on startup.
@@ -503,34 +548,7 @@ object DeezerAudioProvider {
         // 1. Direct ISRC lookup (exact official recording)
         val isrc = query.isrc?.let { moe.rukamori.archivetune.tidal.TidalAudioProvider.normalizeIsrc(it) }
         if (!isrc.isNullOrBlank()) {
-            val isrcCandidate =
-                runCatching {
-                    val req =
-                        Request
-                            .Builder()
-                            .url("https://api.deezer.com/track/isrc:$isrc")
-                            .header("User-Agent", USER_AGENT)
-                            .header("Accept", "application/json")
-                            .build()
-                    client.newCall(req).execute().use { res ->
-                        if (!res.isSuccessful) return@use null
-                        val obj = JSONObject(res.body?.string().orEmpty())
-                        val id = obj.optLong("id", 0L).takeIf { it > 0L }?.toString() ?: return@use null
-                        val title = obj.optString("title").ifBlank { return@use null }
-                        val artistName = obj.optJSONObject("artist")?.optString("name")
-                        val albumTitle = obj.optJSONObject("album")?.optString("title")
-                        val durationMs = obj.optLong("duration", 0L).takeIf { it > 0L }?.times(1000L)
-                        TrackMatching.Candidate(
-                            id = id,
-                            title = title,
-                            artists = listOfNotNull(artistName),
-                            album = albumTitle,
-                            durationMs = durationMs,
-                            isrc = isrc,
-                        )
-                    }
-                }.getOrNull()
-
+            val isrcCandidate = executeIsrcLookup(isrc)
             if (isrcCandidate != null) {
                 searchCache[key] = isrcCandidate to (now + SEARCH_CACHE_MS)
                 return isrcCandidate
@@ -563,39 +581,7 @@ object DeezerAudioProvider {
                     }
                 }.getOrElse { emptyList() }
             } else {
-                runCatching {
-                    val terms = listOf(query.title) + query.artists.take(1)
-                    val q = terms.joinToString(" ").trim()
-                    val req =
-                        Request
-                            .Builder()
-                            .url("https://api.deezer.com/search?q=${java.net.URLEncoder.encode(q, "UTF-8")}&limit=$SEARCH_LIMIT")
-                            .header("User-Agent", USER_AGENT)
-                            .header("Accept", "application/json")
-                            .build()
-                    client.newCall(req).execute().use { res ->
-                        if (!res.isSuccessful) return@use emptyList()
-                        val root = JSONObject(res.body?.string().orEmpty())
-                        val data = root.optJSONArray("data") ?: return@use emptyList()
-                        (0 until data.length()).mapNotNull { i ->
-                            val obj = data.optJSONObject(i) ?: return@mapNotNull null
-                            val id = obj.optLong("id", 0L).takeIf { it > 0L }?.toString() ?: return@mapNotNull null
-                            val title = obj.optString("title").ifBlank { return@mapNotNull null }
-                            val artistName = obj.optJSONObject("artist")?.optString("name")
-                            val albumTitle = obj.optJSONObject("album")?.optString("title")
-                            val durationMs = obj.optLong("duration", 0L).takeIf { it > 0L }?.times(1000L)
-                            val candidateIsrc = obj.optString("isrc").ifBlank { null }
-                            TrackMatching.Candidate(
-                                id = id,
-                                title = title,
-                                artists = listOfNotNull(artistName),
-                                album = albumTitle,
-                                durationMs = durationMs,
-                                isrc = candidateIsrc,
-                            )
-                        }
-                    }
-                }.getOrElse { emptyList() }
+                executePublicSearch(query)
             }
 
         val best =
@@ -612,6 +598,127 @@ object DeezerAudioProvider {
             )
         searchCache[key] = best to (now + SEARCH_CACHE_MS)
         return best
+    }
+
+    private fun parseTrackObject(
+        jsonString: String,
+        fallbackIsrc: String?,
+    ): TrackMatching.Candidate? {
+        val obj = JSONObject(jsonString)
+        val id = obj.optLong("id", 0L).takeIf { it > 0L }?.toString() ?: return null
+        val title = obj.optString("title").ifBlank { return null }
+        val artistName = obj.optJSONObject("artist")?.optString("name")
+        val albumTitle = obj.optJSONObject("album")?.optString("title")
+        val durationMs = obj.optLong("duration", 0L).takeIf { it > 0L }?.times(1000L)
+        val candidateIsrc = obj.optString("isrc").ifBlank { fallbackIsrc }
+        return TrackMatching.Candidate(
+            id = id,
+            title = title,
+            artists = listOfNotNull(artistName),
+            album = albumTitle,
+            durationMs = durationMs,
+            isrc = candidateIsrc,
+        )
+    }
+
+    private fun parseSearchResponse(jsonString: String): List<TrackMatching.Candidate> {
+        val root = JSONObject(jsonString)
+        val data = root.optJSONArray("data") ?: return emptyList()
+        return (0 until data.length()).mapNotNull { i ->
+            val obj = data.optJSONObject(i) ?: return@mapNotNull null
+            val id = obj.optLong("id", 0L).takeIf { it > 0L }?.toString() ?: return@mapNotNull null
+            val title = obj.optString("title").ifBlank { return@mapNotNull null }
+            val artistName = obj.optJSONObject("artist")?.optString("name")
+            val albumTitle = obj.optJSONObject("album")?.optString("title")
+            val durationMs = obj.optLong("duration", 0L).takeIf { it > 0L }?.times(1000L)
+            val candidateIsrc = obj.optString("isrc").ifBlank { null }
+            TrackMatching.Candidate(
+                id = id,
+                title = title,
+                artists = listOfNotNull(artistName),
+                album = albumTitle,
+                durationMs = durationMs,
+                isrc = candidateIsrc,
+            )
+        }
+    }
+
+    private fun executeIsrcLookup(isrc: String): TrackMatching.Candidate? {
+        val req =
+            Request
+                .Builder()
+                .url("https://api.deezer.com/track/isrc:$isrc")
+                .header("User-Agent", USER_AGENT)
+                .header("Accept", "application/json")
+                .build()
+
+        val mode = proxyMode
+        val primaryClient =
+            when (mode) {
+                DeezerProxyMode.DIRECT -> client
+                DeezerProxyMode.AUTO -> client
+                else -> getProxyClient(mode.host)
+            }
+
+        val directCandidate =
+            runCatching {
+                primaryClient.newCall(req).execute().use { res ->
+                    if (!res.isSuccessful) return@use null
+                    parseTrackObject(res.body?.string().orEmpty(), isrc)
+                }
+            }.getOrNull()
+
+        if (directCandidate != null || mode == DeezerProxyMode.DIRECT || mode != DeezerProxyMode.AUTO) {
+            return directCandidate
+        }
+
+        // Auto mode fallback: Try UK proxy
+        return runCatching {
+            getProxyClient(DeezerProxyMode.UK1.host).newCall(req).execute().use { res ->
+                if (!res.isSuccessful) return@use null
+                parseTrackObject(res.body?.string().orEmpty(), isrc)
+            }
+        }.getOrNull()
+    }
+
+    private fun executePublicSearch(query: Query): List<TrackMatching.Candidate> {
+        val terms = listOf(query.title) + query.artists.take(1)
+        val q = terms.joinToString(" ").trim()
+        val req =
+            Request
+                .Builder()
+                .url("https://api.deezer.com/search?q=${java.net.URLEncoder.encode(q, "UTF-8")}&limit=$SEARCH_LIMIT")
+                .header("User-Agent", USER_AGENT)
+                .header("Accept", "application/json")
+                .build()
+
+        val mode = proxyMode
+        val primaryClient =
+            when (mode) {
+                DeezerProxyMode.DIRECT -> client
+                DeezerProxyMode.AUTO -> client
+                else -> getProxyClient(mode.host)
+            }
+
+        val primaryResult =
+            runCatching {
+                primaryClient.newCall(req).execute().use { res ->
+                    if (!res.isSuccessful) return@use emptyList()
+                    parseSearchResponse(res.body?.string().orEmpty())
+                }
+            }.getOrElse { emptyList() }
+
+        if (primaryResult.isNotEmpty() || mode == DeezerProxyMode.DIRECT || mode != DeezerProxyMode.AUTO) {
+            return primaryResult
+        }
+
+        // Auto mode fallback: If direct returned empty or failed due to geo-restrictions, query UK proxy!
+        return runCatching {
+            getProxyClient(DeezerProxyMode.UK1.host).newCall(req).execute().use { res ->
+                if (!res.isSuccessful) return@use emptyList()
+                parseSearchResponse(res.body?.string().orEmpty())
+            }
+        }.getOrElse { emptyList() }
     }
 
     // ---------------------------------------------------------------------------------------------
