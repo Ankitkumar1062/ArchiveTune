@@ -104,6 +104,7 @@ object LosslessStreamResolver {
                 appSecret = it.appSecret,
                 label = "Source Pool",
                 subscription = if (it.premium) "premium" else "",
+                poolId = it.id,
             )
         }
         val mergedTokens = (userTokens + poolTokens).distinctBy { it.token }
@@ -222,9 +223,13 @@ object LosslessStreamResolver {
                                             countryCode = poolCountry,
                                         )
                                     }.onFailure {
-                                        Timber.tag("LosslessResolver").w(
-                                            it, "Tidal pool account resolve failed for %s", mediaId,
-                                        )
+                                        if (TidalAccountManager.isUnauthorized(it)) {
+                                            PoolAccountManager.report("tidal", "account", poolAccount.id, "dead")
+                                        } else {
+                                            Timber.tag("LosslessResolver").w(
+                                                it, "Tidal pool account resolve failed for %s", mediaId,
+                                            )
+                                        }
                                     }.getOrNull()
                                 }
                             }

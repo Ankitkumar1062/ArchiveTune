@@ -9637,19 +9637,7 @@ class MusicService :
      * thread mid-request, surfacing an [InterruptedException] with the real 401 attached only as a
      * suppressed exception — in which case a naive `catch (TidalUnauthorizedException)` misses it.
      */
-    private fun isTidalUnauthorized(root: Throwable?): Boolean {
-        val stack = ArrayDeque<Throwable>()
-        val seen = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Throwable, Boolean>())
-        root?.let { stack.addLast(it) }
-        while (stack.isNotEmpty()) {
-            val t = stack.removeLast()
-            if (!seen.add(t)) continue
-            if (t is TidalAccountManager.TidalUnauthorizedException) return true
-            t.cause?.let { stack.addLast(it) }
-            t.suppressed.forEach { stack.addLast(it) }
-        }
-        return false
-    }
+    private fun isTidalUnauthorized(root: Throwable?) = TidalAccountManager.isUnauthorized(root)
 
     /**
      * Serializes all Tidal token refreshes. Tracks resolve on parallel ExoPlayer loader threads, so
@@ -9816,7 +9804,11 @@ class MusicService :
             f.delete()
         }
         val safeId = mediaId.replace(Regex("[^A-Za-z0-9_-]"), "_")
-        val out = java.io.File(dir, "${safeId}_${quality.name.lowercase()}.m4a")
+        // The v2 marker invalidates files built before the pssh KID fix: those carry an all-zero
+        // Widevine key id, so they are structurally valid (and therefore cached and replayed
+        // forever) but decode to silence. Bumping the name is what makes the fix observable on a
+        // song the user has already played; the size prune above retires the stale v1 files.
+        val out = java.io.File(dir, "${safeId}_${quality.name.lowercase()}_v2.m4a")
         if (out.exists() && out.length() > 0) return out
         out.writeBytes(build())
         return out
@@ -9893,7 +9885,13 @@ class MusicService :
                 val poolCountry = poolAccount.countryCode?.trim()?.ifBlank { null } ?: "US"
                 val poolStream =
                     runCatching { attempt(poolAccount.token, poolCountry) }
-                        .onFailure { Timber.tag("MusicService").w(it, "Tidal pool account resolve failed for %s", query.mediaId) }
+                        .onFailure {
+                            if (TidalAccountManager.isUnauthorized(it)) {
+                                PoolAccountManager.report("tidal", "account", poolAccount.id, "dead")
+                            } else {
+                                Timber.tag("MusicService").w(it, "Tidal pool account resolve failed for %s", query.mediaId)
+                            }
+                        }
                         .getOrNull()
                 if (poolStream != null) {
                     Timber.tag("MusicService").d("Tidal resolved via pool account (premium=%s)", poolAccount.premium)
@@ -9978,6 +9976,7 @@ class MusicService :
                     appSecret = it.appSecret,
                     label = "Source Pool",
                     subscription = if (it.premium) "premium" else "",
+                    poolId = it.id,
                 )
             }
         val configuredTokens =
