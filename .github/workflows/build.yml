@@ -201,39 +201,35 @@ jobs:
           find app/build/outputs/apk -maxdepth 8 -type d -print || true
           exit 1
 
-      - name: Resolve signing credentials
-        id: signing
+      - name: Verify release signing secrets
         shell: bash
         env:
           KEYSTORE: ${{ secrets.KEYSTORE }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-          FALLBACK_KEYSTORE: "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"
         run: |
           set -euo pipefail
-          if [ -n "${KEYSTORE:-}" ]; then
-            echo "Using repository release keystore secret"
-            echo "signing_key=$KEYSTORE" >> "$GITHUB_OUTPUT"
-            echo "key_alias=$KEY_ALIAS" >> "$GITHUB_OUTPUT"
-            echo "keystore_password=$KEYSTORE_PASSWORD" >> "$GITHUB_OUTPUT"
-            echo "key_password=$KEY_PASSWORD" >> "$GITHUB_OUTPUT"
-          else
-            echo "Using original project fallback signing key"
-            echo "signing_key=$FALLBACK_KEYSTORE" >> "$GITHUB_OUTPUT"
-            echo "key_alias=androiddebugkey" >> "$GITHUB_OUTPUT"
-            echo "keystore_password=android" >> "$GITHUB_OUTPUT"
-            echo "key_password=android" >> "$GITHUB_OUTPUT"
+          missing=0
+          for var in KEYSTORE KEY_ALIAS KEYSTORE_PASSWORD KEY_PASSWORD; do
+            if [ -z "${!var:-}" ]; then
+              echo "::error::Missing required secret $var for release signing. Configure KEYSTORE, KEY_ALIAS, KEYSTORE_PASSWORD, and KEY_PASSWORD as GitHub Actions secrets. The committed debug keystore fallback was removed."
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
           fi
+          echo "Release signing secrets present."
 
       - name: Sign APK (release keystore)
         uses: ilharp/sign-android-release@v2.0.0
         with:
           releaseDir: ${{ steps.release_dir.outputs.release_dir }}/
-          signingKey: ${{ steps.signing.outputs.signing_key }}
-          keyAlias: ${{ steps.signing.outputs.key_alias }}
-          keyStorePassword: ${{ steps.signing.outputs.keystore_password }}
-          keyPassword: ${{ steps.signing.outputs.key_password }}
+          signingKey: ${{ secrets.KEYSTORE }}
+          keyAlias: ${{ secrets.KEY_ALIAS }}
+          keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
+          keyPassword: ${{ secrets.KEY_PASSWORD }}
           buildToolsVersion: 35.0.0
 
       - name: Move APK
