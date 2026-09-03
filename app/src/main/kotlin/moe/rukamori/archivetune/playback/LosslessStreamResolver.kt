@@ -405,6 +405,7 @@ object LosslessStreamResolver {
                             matchedArtist = resolved.matchedArtist,
                             matchedAlbum = resolved.matchedAlbum,
                             matchedDurationMs = resolved.matchedDurationMs,
+                            matchedIsExplicit = resolved.matchedIsExplicit,
                             sampleRate = resolved.sampleRate,
                             bitDepth = resolved.bitDepth,
                         )
@@ -436,6 +437,7 @@ object LosslessStreamResolver {
         album: String?,
         durationMs: Long?,
         qualityApiValue: String,
+        isExplicit: Boolean = false,
     ): DirectStream? {
         val artistHint = artists.firstOrNull()?.takeIf { it.isNotBlank() }.orEmpty()
         val albumHint = album?.takeIf { it.isNotBlank() }.orEmpty()
@@ -457,7 +459,7 @@ object LosslessStreamResolver {
                         // download as a truncated file.
                         .filter { !it.isProOnly && it.downloadUrl.isNotEmpty() }
                         .minByOrNull { song ->
-                            saavnMatchPenalty(
+                            var penalty = saavnMatchPenalty(
                                 candidateTitle = song.name,
                                 candidateArtist = song.artists.primary.firstOrNull()?.name,
                                 candidateDurationSec = song.duration?.toLong(),
@@ -465,6 +467,10 @@ object LosslessStreamResolver {
                                 wantedArtist = artistHint,
                                 wantedDurationSec = wantedDurationSec,
                             )
+                            if (moe.rukamori.archivetune.audiosource.TrackMatching.hasExplicitMismatch(isExplicit, song.explicitContent)) {
+                                penalty += 20
+                            }
+                            penalty
                         } ?: return@runBlocking null
                 val streamUrl =
                     SaavnService.selectBestUrl(candidate.downloadUrl, qualityApiValue)
@@ -480,6 +486,7 @@ object LosslessStreamResolver {
                     matchedArtist = candidate.artists.primary.firstOrNull()?.name,
                     matchedAlbum = candidate.album?.name,
                     matchedDurationMs = candidate.duration?.toLong()?.times(1000L),
+                    matchedIsExplicit = candidate.explicitContent,
                 )
             }
         }.onFailure { error ->

@@ -279,6 +279,7 @@ object DeezerAudioProvider {
         val matchedArtist: String?,
         val matchedAlbum: String?,
         val matchedDurationMs: Long?,
+        val matchedIsExplicit: Boolean? = null,
         val sampleRate: Int?,
         val bitDepth: Int?,
     )
@@ -308,10 +309,11 @@ object DeezerAudioProvider {
         val album: String?,
         val durationMs: Long?,
         val isrc: String? = null,
+        val isExplicit: Boolean? = null,
     )
 
     private fun Query.cacheKey(): String =
-        listOf(mediaId, title.lowercase(), artists.joinToString(",").lowercase(), album.orEmpty().lowercase(), isrc.orEmpty().lowercase())
+        listOf(mediaId, title.lowercase(), artists.joinToString(",").lowercase(), album.orEmpty().lowercase(), isrc.orEmpty().lowercase(), isExplicit?.toString() ?: "unknown")
             .joinToString("|")
 
     /** True when at least one Deezer backend (accounts or public gateway) is available. */
@@ -436,6 +438,7 @@ object DeezerAudioProvider {
                 matchedArtist = resolvedMatch.artists.firstOrNull(),
                 matchedAlbum = resolvedMatch.album,
                 matchedDurationMs = resolvedMatch.durationMs,
+                matchedIsExplicit = resolvedMatch.isExplicit,
                 // Deezer's gateway does not report either, and FLAC here is always CD-quality, so
                 // report the known 16/44.1 for FLAC and leave MP3 to the consumer's tier heuristic.
                 sampleRate = if (resolvedMedia.flac) 44_100 else null,
@@ -570,6 +573,7 @@ object DeezerAudioProvider {
                     (0 until data.length()).mapNotNull { i ->
                         val obj = data.optJSONObject(i) ?: return@mapNotNull null
                         val id = obj.optString("SNG_ID").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                        val isExplicit = obj.optString("EXPLICIT_LYRICS") == "1" || obj.optInt("EXPLICIT_TRACK_CONTENT", 0) == 1
                         TrackMatching.Candidate(
                             id = id,
                             title = obj.optString("SNG_TITLE"),
@@ -577,6 +581,7 @@ object DeezerAudioProvider {
                             album = obj.optString("ALB_TITLE").takeIf { it.isNotBlank() },
                             durationMs = obj.optLong("DURATION", 0L).takeIf { it > 0L }?.times(1000L),
                             isrc = obj.optString("ISRC").takeIf { it.isNotBlank() },
+                            isExplicit = isExplicit,
                         )
                     }
                 }.getOrElse { emptyList() }
@@ -593,6 +598,7 @@ object DeezerAudioProvider {
                         album = query.album,
                         durationMs = query.durationMs,
                         isrc = query.isrc,
+                        isExplicit = query.isExplicit,
                     ),
                 candidates = candidates,
             )
@@ -611,6 +617,14 @@ object DeezerAudioProvider {
         val albumTitle = obj.optJSONObject("album")?.optString("title")
         val durationMs = obj.optLong("duration", 0L).takeIf { it > 0L }?.times(1000L)
         val candidateIsrc = obj.optString("isrc").ifBlank { fallbackIsrc }
+        val explicitContentLyrics = obj.optInt("explicit_content_lyrics", 0)
+        val explicitLyrics = obj.optBoolean("explicit_lyrics", false)
+        val isExplicit = when {
+            explicitContentLyrics == 3 -> false
+            explicitContentLyrics == 1 || explicitContentLyrics == 6 -> true
+            explicitLyrics -> true
+            else -> false
+        }
         return TrackMatching.Candidate(
             id = id,
             title = title,
@@ -618,6 +632,7 @@ object DeezerAudioProvider {
             album = albumTitle,
             durationMs = durationMs,
             isrc = candidateIsrc,
+            isExplicit = isExplicit,
         )
     }
 
@@ -632,6 +647,14 @@ object DeezerAudioProvider {
             val albumTitle = obj.optJSONObject("album")?.optString("title")
             val durationMs = obj.optLong("duration", 0L).takeIf { it > 0L }?.times(1000L)
             val candidateIsrc = obj.optString("isrc").ifBlank { null }
+            val explicitContentLyrics = obj.optInt("explicit_content_lyrics", 0)
+            val explicitLyrics = obj.optBoolean("explicit_lyrics", false)
+            val isExplicit = when {
+                explicitContentLyrics == 3 -> false
+                explicitContentLyrics == 1 || explicitContentLyrics == 6 -> true
+                explicitLyrics -> true
+                else -> false
+            }
             TrackMatching.Candidate(
                 id = id,
                 title = title,
@@ -639,6 +662,7 @@ object DeezerAudioProvider {
                 album = albumTitle,
                 durationMs = durationMs,
                 isrc = candidateIsrc,
+                isExplicit = isExplicit,
             )
         }
     }

@@ -38,8 +38,23 @@ internal object TrackMatching {
     private val VERSION_TOKENS =
         setOf("remix", "acoustic", "live", "instrumental", "demo", "edit", "mix", "version")
 
-    /** Runtimes this far apart are still considered the same recording. */
-    private const val DURATION_TOLERANCE_MS = 45_000L
+    /**
+     * Runtimes this far apart are considered distinct recordings (e.g. live takes, skits, TV edits).
+     * 3 seconds tolerance accommodates encoder padding and pre-gap silence differences between CD/lossless masters.
+     */
+    const val DURATION_TOLERANCE_MS = 3_000L
+
+    /**
+     * Checks whether two explicit states contradict each other.
+     * If either state is unknown (null), we allow the match to proceed.
+     */
+    fun hasExplicitMismatch(
+        wantedIsExplicit: Boolean?,
+        candidateIsExplicit: Boolean?,
+    ): Boolean {
+        if (wantedIsExplicit == null || candidateIsExplicit == null) return false
+        return wantedIsExplicit != candidateIsExplicit
+    }
 
     /**
      * Scores [candidateTitle]/[candidateArtist] against what we wanted. Returns [Int.MIN_VALUE] for a
@@ -52,8 +67,11 @@ internal object TrackMatching {
         candidateArtist: String,
         wantedDurationMs: Long?,
         candidateDurationMs: Long?,
+        wantedIsExplicit: Boolean? = null,
+        candidateIsExplicit: Boolean? = null,
     ): Int {
         if (wantedTitle.isBlank() || candidateTitle.isBlank()) return Int.MIN_VALUE
+        if (hasExplicitMismatch(wantedIsExplicit, candidateIsExplicit)) return Int.MIN_VALUE
         if (hasVersionMismatch(" $wantedTitle ", " $candidateTitle ")) return Int.MIN_VALUE
         val titleOverlap = tokenOverlap(significantTokens(wantedTitle), significantTokens(candidateTitle))
         if (titleOverlap < 0.5) return Int.MIN_VALUE
@@ -64,9 +82,12 @@ internal object TrackMatching {
             score += (artistOverlap * 60).toInt()
         }
         if (wantedDurationMs != null && candidateDurationMs != null) {
-            // A duration agreement is weak evidence but a disagreement is strong counter-evidence, so
-            // the penalty deliberately outweighs the bonus.
-            if (durationMatches(wantedDurationMs, candidateDurationMs)) score += 30 else score -= 40
+            // Duration agreement is verified with the strict 3-second physical window.
+            if (durationMatches(wantedDurationMs, candidateDurationMs)) {
+                score += 30
+            } else {
+                return Int.MIN_VALUE // Hard reject if duration is outside physical tolerance
+            }
         }
         return score
     }
@@ -78,6 +99,7 @@ internal object TrackMatching {
         val album: String?,
         val durationMs: Long?,
         val isrc: String? = null,
+        val isExplicit: Boolean? = null,
     )
 
     /**
@@ -91,6 +113,7 @@ internal object TrackMatching {
         val album: String?,
         val durationMs: Long?,
         val isrc: String? = null,
+        val isExplicit: Boolean? = null,
     )
 
     /**
@@ -109,7 +132,7 @@ internal object TrackMatching {
         if (wantedIsrc != null) {
             val exact = candidates.firstOrNull { cand ->
                 val candIsrc = cand.isrc?.uppercase(Locale.US)?.replace(Regex("[^A-Z0-9]"), "")
-                candIsrc == wantedIsrc
+                candIsrc == wantedIsrc && !hasExplicitMismatch(target.isExplicit, cand.isExplicit)
             }
             if (exact != null) return exact
         }
@@ -125,6 +148,8 @@ internal object TrackMatching {
                         candidateArtist = normalize(candidate.artists.firstOrNull()),
                         wantedDurationMs = target.durationMs,
                         candidateDurationMs = candidate.durationMs,
+                        wantedIsExplicit = target.isExplicit,
+                        candidateIsExplicit = candidate.isExplicit,
                     )
             }.filter { (_, score) -> score >= MIN_MATCH_SCORE }
             .maxByOrNull { (_, score) -> score }
@@ -176,7 +201,7 @@ internal object TrackMatching {
     fun normalizeTitle(value: String): String =
         normalize(value)
             .replace(Regex("""\b(feat|ft|featuring)\b.*$"""), "")
-            .replace(Regex("""\b(explicit|clean|remaster|remastered|version|audio|official)\b"""), " ")
+            .replace(Regex("""\b(remaster|remastered|version|audio|official)\b"""), " ")
             .replace(Regex("\\s+"), " ")
             .trim()
 

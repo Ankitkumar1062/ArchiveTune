@@ -2707,7 +2707,7 @@ object TidalAudioProvider {
     private fun String.titleMatchNormalized(): String =
         normalized()
             .replace(Regex("""\b(feat|ft|featuring)\b.*$"""), "")
-            .replace(Regex("""\b(explicit|clean|remaster|remastered|version|audio|official)\b"""), " ")
+            .replace(Regex("""\b(remaster|remastered|version|audio|official)\b"""), " ")
             .replace(Regex("\\s+"), " ")
             .trim()
 
@@ -2745,7 +2745,7 @@ object TidalAudioProvider {
         candidateDurationMs: Long?,
     ): Boolean {
         if (wantedDurationMs == null || candidateDurationMs == null) return true
-        return abs(wantedDurationMs - candidateDurationMs) <= 45_000L
+        return abs(wantedDurationMs - candidateDurationMs) <= 3_000L
     }
 
     private fun hasVersionMismatch(

@@ -40,7 +40,7 @@ import kotlin.math.abs
 object IsrcResolver {
     private const val TAG = "IsrcResolver"
     private const val CACHE_TTL_MS = 24 * 60 * 60 * 1000L // 24 hours
-    private const val DURATION_GATE_MS = 5_000L // 5 seconds
+    private const val DURATION_GATE_MS = 3_000L // 3 seconds physical gate
     private const val MIN_ARTIST_OVERLAP = 0.70
 
     private val STOP_WORDS =
@@ -93,7 +93,7 @@ object IsrcResolver {
     private val cache = ConcurrentHashMap<String, CachedIsrc>()
 
     /**
-     * Resolves the verified ISRC for [title] + [artists] + [durationMs].
+     * Resolves the verified ISRC for [title] + [artists] + [durationMs] + [isExplicit].
      * Returns null if no candidate passes the 4-rule sanity gate.
      */
     suspend fun resolve(
@@ -101,9 +101,10 @@ object IsrcResolver {
         title: String,
         artists: List<String>,
         durationMs: Long?,
+        isExplicit: Boolean? = null,
     ): String? {
         if (title.isBlank()) return null
-        val cacheKey = cacheKey(mediaId, title, artists)
+        val cacheKey = cacheKey(mediaId, title, artists, isExplicit)
         val now = System.currentTimeMillis()
         cache[cacheKey]?.let { cached ->
             if (cached.expiresAt > now) return cached.isrc
@@ -112,14 +113,14 @@ object IsrcResolver {
 
         val resolved = withContext(Dispatchers.IO) {
             // 1. Primary: Spotify Search
-            resolveFromSpotify(title, artists, durationMs)
-                // 2. Secondary: Apple Music AMP Search (Zero-login fallback)
-                ?: resolveFromAppleMusic(title, artists, durationMs)
+            resolveFromSpotify(title, artists, durationMs, isExplicit)
+                // 2. Secondary: Apple Music AMP Search (Zero-login fallback with official label localization)
+                ?: resolveFromAppleMusic(title, artists, durationMs, isExplicit)
         }
 
         cache[cacheKey] = CachedIsrc(resolved, now + CACHE_TTL_MS)
         if (resolved != null) {
-            Timber.tag(TAG).i("Resolved ISRC \"%s\" for \"%s - %s\"", resolved, artists.firstOrNull(), title)
+            Timber.tag(TAG).i("Resolved ISRC \"%s\" for \"%s - %s\" (explicit=%s)", resolved, artists.firstOrNull(), title, isExplicit)
         } else {
             Timber.tag(TAG).d("No verified ISRC found for \"%s - %s\"", artists.firstOrNull(), title)
         }
@@ -132,9 +133,10 @@ object IsrcResolver {
         title: String,
         artists: List<String>,
         durationMs: Long?,
+        isExplicit: Boolean? = null,
     ): String? =
         runBlocking(Dispatchers.IO) {
-            resolve(mediaId, title, artists, durationMs)
+            resolve(mediaId, title, artists, durationMs, isExplicit)
         }
 
     /** Manually primes the cache with a known ISRC (e.g., from DB). */
@@ -143,9 +145,10 @@ object IsrcResolver {
         title: String,
         artists: List<String>,
         isrc: String,
+        isExplicit: Boolean? = null,
     ) {
         val normalized = normalizeIsrc(isrc) ?: return
-        val key = cacheKey(mediaId, title, artists)
+        val key = cacheKey(mediaId, title, artists, isExplicit)
         cache[key] = CachedIsrc(normalized, System.currentTimeMillis() + CACHE_TTL_MS)
     }
 
@@ -157,6 +160,7 @@ object IsrcResolver {
         title: String,
         artists: List<String>,
         durationMs: Long?,
+        isExplicit: Boolean?,
     ): String? =
         runCatching {
             val cleanTitle = cleanSearchTitle(title)
@@ -174,17 +178,20 @@ object IsrcResolver {
                 val candidateIsrc = normalizeIsrc(track.isrc) ?: continue
                 val candidateArtist = track.artists.joinToString(", ") { it.name }
                 val candidateDurationMs = track.durationMs.toLong().takeIf { it > 0 }
+                val candidateExplicit = track.explicit
 
                 if (verifySanityGate(
                         wantedTitle = title,
                         wantedArtists = artists,
                         wantedDurationMs = durationMs,
+                        wantedIsExplicit = isExplicit,
                         candidateTitle = track.name,
                         candidateArtist = candidateArtist,
                         candidateDurationMs = candidateDurationMs,
+                        candidateIsExplicit = candidateExplicit,
                     )
                 ) {
-                    Timber.tag(TAG).d("Spotify match verified: %s (ISRC: %s)", track.name, candidateIsrc)
+                    Timber.tag(TAG).d("Spotify match verified: %s (ISRC: %s, explicit=%s)", track.name, candidateIsrc, candidateExplicit)
                     return@runCatching candidateIsrc
                 }
             }
@@ -201,40 +208,40 @@ object IsrcResolver {
         title: String,
         artists: List<String>,
         durationMs: Long?,
+        isExplicit: Boolean?,
     ): String? =
         runCatching {
             val devToken = AppleMusicProvider.getDevToken()
             if (devToken.isBlank()) return@runCatching null
 
             val cleanTitle = cleanSearchTitle(title)
-            val primaryArtist = artists.firstOrNull()?.let { cleanArtist(it) }.orEmpty()
-            val query = if (primaryArtist.isNotBlank()) "$cleanTitle $primaryArtist" else cleanTitle
+            val artistQuery = artists.take(2).map { cleanArtist(it) }.filter { it.isNotBlank() }.joinToString(" ")
+            val query = if (artistQuery.isNotBlank()) "$cleanTitle $artistQuery" else cleanTitle
 
             val url = "https://amp-api.music.apple.com/v1/catalog/us/search"
                 .toHttpUrl()
                 .newBuilder()
                 .addQueryParameter("types", "songs")
                 .addQueryParameter("term", query)
-                .addQueryParameter("limit", "5")
+                .addQueryParameter("limit", "15")
+                .addQueryParameter("l", "en-US")
                 .build()
 
             val request = Request.Builder()
                 .url(url)
                 .header("Authorization", "Bearer $devToken")
                 .header("Origin", "https://music.apple.com")
+                .header("Accept-Language", "en-US,en;q=0.9")
                 .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
                 .get()
                 .build()
 
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return@runCatching null
-                val body = response.body?.string().orEmpty()
-                if (body.isBlank()) return@runCatching null
-
+                val body = response.body?.string() ?: return@runCatching null
                 val root = JSONObject(body)
-                val songs = root.optJSONObject("results")
-                    ?.optJSONObject("songs")
-                    ?.optJSONArray("data") ?: return@runCatching null
+                val results = root.optJSONObject("results") ?: return@runCatching null
+                val songs = results.optJSONObject("songs")?.optJSONArray("data") ?: return@runCatching null
 
                 for (i in 0 until songs.length()) {
                     val song = songs.optJSONObject(i) ?: continue
@@ -244,17 +251,20 @@ object IsrcResolver {
                     val candidateName = attributes.optString("name")
                     val candidateArtist = attributes.optString("artistName")
                     val candidateDurationMs = attributes.optLong("durationInMillis").takeIf { it > 0 }
+                    val candidateExplicit = (attributes.optString("contentRating") == "explicit")
 
                     if (verifySanityGate(
                             wantedTitle = title,
                             wantedArtists = artists,
                             wantedDurationMs = durationMs,
+                            wantedIsExplicit = isExplicit,
                             candidateTitle = candidateName,
                             candidateArtist = candidateArtist,
                             candidateDurationMs = candidateDurationMs,
+                            candidateIsExplicit = candidateExplicit,
                         )
                     ) {
-                        Timber.tag(TAG).d("Apple Music match verified: %s (ISRC: %s)", candidateName, candidateIsrc)
+                        Timber.tag(TAG).d("Apple Music match verified: %s (ISRC: %s, explicit=%s)", candidateName, candidateIsrc, candidateExplicit)
                         return@runCatching candidateIsrc
                     }
                 }
@@ -275,13 +285,21 @@ object IsrcResolver {
         wantedTitle: String,
         wantedArtists: List<String>,
         wantedDurationMs: Long?,
+        wantedIsExplicit: Boolean? = null,
         candidateTitle: String,
         candidateArtist: String,
         candidateDurationMs: Long?,
+        candidateIsExplicit: Boolean? = null,
     ): Boolean {
         if (candidateTitle.isBlank()) return false
 
-        // 1. Blacklist check (tribute bands, karaoke, cover bands)
+        // 1. Symmetrical Explicit Guard
+        if (TrackMatching.hasExplicitMismatch(wantedIsExplicit, candidateIsExplicit)) {
+            Timber.tag(TAG).v("Rejected candidate \"%s\": Explicit mismatch (wanted=%s, candidate=%s)", candidateTitle, wantedIsExplicit, candidateIsExplicit)
+            return false
+        }
+
+        // 2. Blacklist check (tribute bands, karaoke, cover bands)
         val candidateArtistNorm = normalize(candidateArtist)
         val candidateTitleNorm = normalize(candidateTitle)
         if (BLACKLIST_TOKENS.any { candidateArtistNorm.contains(it) || candidateTitleNorm.contains(it) }) {
@@ -289,16 +307,16 @@ object IsrcResolver {
             return false
         }
 
-        // 2. 5-Second Duration Gate
+        // 3. 3-Second Physical Duration Gate
         if (wantedDurationMs != null && candidateDurationMs != null) {
             val diff = abs(wantedDurationMs - candidateDurationMs)
             if (diff > DURATION_GATE_MS) {
-                Timber.tag(TAG).v("Rejected candidate \"%s\": Duration diff %d ms > 5s gate", candidateTitle, diff)
+                Timber.tag(TAG).v("Rejected candidate \"%s\": Duration diff %d ms > 3s gate", candidateTitle, diff)
                 return false
             }
         }
 
-        // 3. Strict Version Mismatch Guard
+        // 4. Strict Version Mismatch Guard
         val wantedPadded = " ${normalize(wantedTitle)} "
         val candidatePadded = " $candidateTitleNorm "
         if (hasVersionMismatch(wantedPadded, candidatePadded)) {
@@ -306,7 +324,7 @@ object IsrcResolver {
             return false
         }
 
-        // 4. Artist Similarity Overlap
+        // 5. Artist Similarity Overlap
         if (wantedArtists.isNotEmpty() && candidateArtist.isNotBlank()) {
             val candidateTokens = significantTokens(candidateArtistNorm)
             val wantedAllTokens = wantedArtists.flatMap { significantTokens(normalize(it)) }.toSet()
@@ -338,9 +356,10 @@ object IsrcResolver {
         mediaId: String?,
         title: String,
         artists: List<String>,
+        isExplicit: Boolean? = null,
     ): String =
         mediaId?.takeIf { it.isNotBlank() }
-            ?: (normalize(title) + "|" + artists.joinToString(",") { normalize(it) })
+            ?: (normalize(title) + "|" + artists.joinToString(",") { normalize(it) } + "|" + (isExplicit?.toString() ?: "unknown"))
 
     private fun cleanSearchTitle(title: String): String =
         title

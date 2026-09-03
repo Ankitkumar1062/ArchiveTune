@@ -32,6 +32,7 @@ data class DirectStream(
     val matchedArtist: String? = null,
     val matchedAlbum: String? = null,
     val matchedDurationMs: Long? = null,
+    val matchedIsExplicit: Boolean? = null,
     /** True only when the provider resolved a catalog id that is already authoritative. */
     val trustedDirectId: Boolean = false,
     /**
@@ -45,17 +46,19 @@ data class DirectStream(
     val bitDepth: Int? = null,
 )
 
-/**
- * Uncompressed PCM bitrate in bits/sec, or null when either input is unknown.
- *
- * For FLAC this is the pre-compression ceiling, not the true average rate (real FLAC typically lands
- * 40-60% lower), but it is the figure streaming services quote for a tier, so it matches what users
- * see elsewhere. Assumes stereo, which holds for effectively the whole catalog.
- */
 fun DirectStream.pcmBitrateOrNull(channels: Int = 2): Int? {
     val rate = sampleRate?.takeIf { it > 0 } ?: return null
     val depth = bitDepth?.takeIf { it > 0 } ?: return null
     return rate * depth * channels
+}
+
+fun uncompressedPcmBitrate(
+    sampleRate: Int?,
+    bitDepth: Int?,
+): Long? {
+    if (sampleRate == null || bitDepth == null) return null
+    if (sampleRate <= 0 || bitDepth <= 0) return null
+    return sampleRate.toLong() * bitDepth.toLong() * 2L
 }
 
 /**
@@ -69,7 +72,7 @@ object TitleMatch {
     private const val TITLE_ONLY_THRESHOLD = 0.95
     private const val MIN_TITLE_WITH_METADATA = 0.84
     private const val MIN_ARTIST = 0.72
-    private const val DURATION_HARD_GATE_MS = 15_000L
+    private const val DURATION_HARD_GATE_MS = 3_000L
 
     data class Result(
         val accepted: Boolean,
@@ -92,7 +95,7 @@ object TitleMatch {
             .replace(Regex("\\p{Mn}+"), "")
             .replace(Regex("[^\\p{L}\\p{N}]+"), " ")
             .replace(Regex("""\b(feat|ft|featuring)\b.*$"""), "")
-            .replace(Regex("""\b(explicit|clean|remaster|remastered|version|audio|official)\b"""), " ")
+            .replace(Regex("""\b(remaster|remastered|version|audio|official)\b"""), " ")
             .replace(Regex("\\s+"), " ")
             .trim()
 
@@ -117,16 +120,6 @@ object TitleMatch {
         if (a.isEmpty() || b.isEmpty()) return 0.0
         if (a == b) return 1.0
         val direct = jaroWinkler(a, b)
-        // Split the RAW wanted / candidate titles on separator characters BEFORE
-        // normalization (normalize() collapses - / | : into spaces, so splitting after
-        // normalization would lose the boundary between "忘れてください" and "forget it").
-        // The best score across:
-        //   - direct (full wanted vs full candidate)
-        //   - each wanted segment vs full candidate
-        //   - full wanted vs each candidate segment
-        //   - each wanted segment vs each candidate segment
-        // wins. This makes the match symmetric: "Forget it" matches
-        // "忘れてください - Forget it" just as well as the reverse.
         val wantedSegments = splitRawTitleSegments(wanted)
         val candidateSegments = splitRawTitleSegments(candidate)
         val wantedNormalized = wantedSegments.map(::normalize).filter { it.length >= 3 }
@@ -163,8 +156,12 @@ object TitleMatch {
         wantedAlbum: String?,
         wantedDurationMs: Long?,
         stream: DirectStream,
+        wantedIsExplicit: Boolean? = null,
     ): Result {
         if (stream.trustedDirectId) return Result(true, 1.0, 1.0, 1.0, 1.0, "trusted catalog id")
+        if (TrackMatching.hasExplicitMismatch(wantedIsExplicit, stream.matchedIsExplicit)) {
+            return Result(false, 0.0, 0.0, null, null, "explicit mismatch")
+        }
         val candidateTitle = stream.matchedTitle
             ?: return Result(false, 0.0, 0.0, null, null, "provider returned no matched metadata")
         if (hasVersionMismatch(wantedTitle, candidateTitle)) {

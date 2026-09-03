@@ -238,6 +238,7 @@ import moe.rukamori.archivetune.audiosource.SongSourceOverride
 import moe.rukamori.archivetune.audiosource.SongSourceQobuzBackupVideoId
 import moe.rukamori.archivetune.audiosource.SongSourceQobuzTrackId
 import moe.rukamori.archivetune.audiosource.TitleMatch
+import moe.rukamori.archivetune.audiosource.TrackMatching
 import moe.rukamori.archivetune.audiosource.pcmBitrateOrNull
 import moe.rukamori.archivetune.applemusic.AppleMusicAudioProvider
 import moe.rukamori.archivetune.applemusic.AppleMusicVirtualStream
@@ -8741,6 +8742,7 @@ class MusicService :
         val album: String?,
         val durationMs: Long?,
         val isrc: String? = null,
+        val isExplicit: Boolean = false,
         /**
          * When non-null, the Qobuz resolver skips its title/artist search and
          * downloads this exact trackId. Set when the user picks a specific
@@ -8831,6 +8833,7 @@ class MusicService :
                 ?.toLong()
                 ?.times(1000L)
                 ?: queuedMetadata?.duration?.takeIf { it > 0 }?.toLong()?.times(1000L)
+        val isExplicit = song?.song?.explicit ?: queuedMetadata?.explicit ?: false
         // Read the per-song Qobuz trackId override (set when the user picked a
         // specific Qobuz track from the "Play from" source-search popup). When
         // set, the Qobuz resolver downloads the exact track instead of
@@ -8852,7 +8855,7 @@ class MusicService :
             runBlocking { dataStore.data.first()[SongSourceQobuzBackupVideoIdKey] }
         }.getOrNull()
         val directQobuzBackupVideoId = SongSourceQobuzBackupVideoId.get(qobuzBackupVideoIdRaw, mediaId)
-        val isrc = moe.rukamori.archivetune.audiosource.IsrcResolver.resolveBlocking(mediaId, title, artists, durationMs)
+        val isrc = moe.rukamori.archivetune.audiosource.IsrcResolver.resolveBlocking(mediaId, title, artists, durationMs, isExplicit)
         return SourceQuery(
             mediaId = mediaId,
             title = title,
@@ -8860,6 +8863,7 @@ class MusicService :
             album = album,
             durationMs = durationMs,
             isrc = isrc,
+            isExplicit = isExplicit,
             directQobuzTrackId = directQobuzTrackId,
             directQobuzBackupVideoId = directQobuzBackupVideoId,
         )
@@ -9492,6 +9496,7 @@ class MusicService :
                         wantedAlbum = query.album,
                         wantedDurationMs = query.durationMs,
                         stream = stream,
+                        wantedIsExplicit = query.isExplicit,
                     )
                 }
             if (!match.accepted) {
@@ -9738,6 +9743,7 @@ class MusicService :
                         wantedAlbum = query.album,
                         wantedDurationMs = query.durationMs,
                         stream = stream,
+                        wantedIsExplicit = query.isExplicit,
                     )
                 }
             if (match.accepted && match.score > bestScore) {
@@ -10128,6 +10134,7 @@ class MusicService :
                                 album = query.album,
                                 durationMs = query.durationMs,
                                 isrc = query.isrc,
+                                isExplicit = query.isExplicit,
                             ),
                         format = quality.toFormatName(),
                     )?.let { resolved ->
@@ -10144,6 +10151,7 @@ class MusicService :
                             matchedArtist = resolved.matchedArtist,
                             matchedAlbum = resolved.matchedAlbum,
                             matchedDurationMs = resolved.matchedDurationMs,
+                            matchedIsExplicit = resolved.matchedIsExplicit,
                             sampleRate = resolved.sampleRate,
                             bitDepth = resolved.bitDepth,
                         )
@@ -10223,6 +10231,10 @@ class MusicService :
                                     else -> 6
                                 }
                             }
+                            // Explicit match
+                            if (TrackMatching.hasExplicitMismatch(query.isExplicit, song.explicitContent)) {
+                                penalty += 20
+                            }
                             penalty
                         } ?: return@runBlocking null
 
@@ -10240,6 +10252,7 @@ class MusicService :
                     matchedArtist = candidate.artists.primary.firstOrNull()?.name,
                     matchedAlbum = candidate.album?.name,
                     matchedDurationMs = durationMs,
+                    matchedIsExplicit = candidate.explicitContent,
                 )
             }
         }.onFailure { error ->

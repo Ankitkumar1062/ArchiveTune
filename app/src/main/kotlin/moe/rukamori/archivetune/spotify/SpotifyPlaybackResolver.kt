@@ -96,40 +96,35 @@ object SpotifyPlaybackResolver {
             if (score < MIN_MATCH_THRESHOLD) return@withContext null
 
             val bestMetadata = best.toMediaMetadata()
-            val useSpotifyMetadata = metadataSource == MetadataSource.SPOTIFY
             val metadata =
                 bestMetadata.copy(
-                    title = if (useSpotifyMetadata) track.name.takeIf(String::isNotBlank) ?: best.title else best.title,
+                    title = track.name.takeIf(String::isNotBlank) ?: best.title,
                     artists =
-                        if (useSpotifyMetadata) {
-                            track.artists
-                                .filter { it.name.isNotBlank() }
-                                .map { artist ->
-                                    MediaMetadata.Artist(
-                                        id = artist.id,
-                                        name = artist.name,
-                                    )
-                                }.ifEmpty { bestMetadata.artists }
-                        } else {
-                            bestMetadata.artists
-                        },
-                    thumbnailUrl =
-                        if (useSpotifyMetadata) {
-                            SpotifyMapper.getTrackThumbnail(track) ?: best.thumbnail
-                        } else {
-                            best.thumbnail
-                        },
-                    duration = if (useSpotifyMetadata && track.durationMs > 0) track.durationMs / 1000 else best.duration ?: -1,
+                        track.artists
+                            .filter { it.name.isNotBlank() }
+                            .map { artist ->
+                                MediaMetadata.Artist(
+                                    id = artist.id,
+                                    name = artist.name,
+                                )
+                            }.ifEmpty { bestMetadata.artists },
+                    thumbnailUrl = SpotifyMapper.getTrackThumbnail(track) ?: best.thumbnail,
+                    duration = if (track.durationMs > 0) track.durationMs / 1000 else best.duration ?: -1,
                     explicit = track.explicit || best.explicit,
-                    album =
-                        if (useSpotifyMetadata) {
-                            track.album?.let { MediaMetadata.Album(id = it.id, title = it.name) }
-                                ?: bestMetadata.album
-                        } else {
-                            bestMetadata.album
-                        },
+                    album = track.album?.let { MediaMetadata.Album(id = it.id, title = it.name) } ?: bestMetadata.album,
                     spotifyTrackId = track.id.takeIf(String::isNotBlank),
                 )
+
+            // Direct 0ms fast-path: Prime IsrcResolver so lossless chain has the verified ISRC instantly
+            track.isrc?.takeIf { it.isNotBlank() }?.let { isrc ->
+                moe.rukamori.archivetune.audiosource.IsrcResolver.cacheIsrc(
+                    mediaId = best.id,
+                    title = metadata.title,
+                    artists = metadata.artists.map { it.name },
+                    isrc = isrc,
+                    isExplicit = metadata.explicit,
+                )
+            }
 
             mutex.withLock {
                 cache[cacheKey] = metadata
