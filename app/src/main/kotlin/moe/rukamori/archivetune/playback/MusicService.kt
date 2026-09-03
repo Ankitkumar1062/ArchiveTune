@@ -8935,9 +8935,12 @@ class MusicService :
 
         if (upcoming.isNotEmpty()) {
             scope.launch(Dispatchers.IO) {
-                // Defer background queue preloading until the current song is actively playing or ready,
-                // preventing network & thread starvation that triggers the 15-second buffer stall.
-                while (isActive && player.playbackState == Player.STATE_BUFFERING && !player.isPlaying) {
+                while (isActive) {
+                    val isBuffering =
+                        withContext(Dispatchers.Main) {
+                            player.playbackState == Player.STATE_BUFFERING && !player.isPlaying
+                        }
+                    if (!isBuffering) break
                     delay(300)
                 }
                 for ((mediaId, titleArtists, durationMs) in upcoming) {
