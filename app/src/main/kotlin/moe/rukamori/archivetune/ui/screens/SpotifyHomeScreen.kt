@@ -284,7 +284,7 @@ fun SpotifyHomeScreen(
                                         SpotifyArtistSectionRow(
                                             artists = section.artists,
                                             metrics = metrics,
-                                            onArtistClick = { artist -> viewModel.onAction(SpotifyHomeAction.ArtistClick(artist)) },
+                                            onArtistClick = { artist -> navController.navigate("artist/${artist.id}") },
                                             modifier = Modifier.animateItem()
                                         )
                                     }
@@ -292,7 +292,7 @@ fun SpotifyHomeScreen(
                                         SpotifyAlbumSectionRow(
                                             albums = section.albums,
                                             metrics = metrics,
-                                            onAlbumClick = { album -> viewModel.onAction(SpotifyHomeAction.AlbumClick(album)) },
+                                            onAlbumClick = { album -> navController.navigate("album/${album.id}") },
                                             modifier = Modifier.animateItem()
                                         )
                                     }

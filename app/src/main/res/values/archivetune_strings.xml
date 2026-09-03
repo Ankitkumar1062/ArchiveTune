@@ -508,6 +508,8 @@
     <string name="playlist_not_found_desc">The requested playlist could not be loaded</string>
     <string name="album_not_found">Album not found</string>
     <string name="album_not_found_desc">The requested album could not be loaded</string>
+    <string name="artist_not_found">Artist not found</string>
+    <string name="artist_not_found_desc">The requested artist profile could not be loaded</string>
     <string name="new_releases">New releases</string>
     <string name="latest_release">Latest Release</string>
     <string name="release_type_album">Album</string>

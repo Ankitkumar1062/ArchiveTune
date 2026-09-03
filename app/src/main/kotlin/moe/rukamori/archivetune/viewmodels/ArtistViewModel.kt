@@ -13,6 +13,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -23,9 +24,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flatMapLatest
@@ -46,9 +51,16 @@ import moe.rukamori.archivetune.extensions.filterExplicit
 import moe.rukamori.archivetune.extensions.filterExplicitAlbums
 import moe.rukamori.archivetune.extensions.filterVideo
 import moe.rukamori.archivetune.innertube.YouTube
+import moe.rukamori.archivetune.innertube.models.Album
+import moe.rukamori.archivetune.innertube.models.Artist
+import moe.rukamori.archivetune.innertube.models.ArtistItem
+import moe.rukamori.archivetune.innertube.models.SongItem
 import moe.rukamori.archivetune.innertube.models.filterExplicit
 import moe.rukamori.archivetune.innertube.models.filterVideo
 import moe.rukamori.archivetune.innertube.pages.ArtistPage
+import moe.rukamori.archivetune.innertube.pages.ArtistSection
+import moe.rukamori.archivetune.innertube.pages.ArtistSectionLayout
+import moe.rukamori.archivetune.spotify.Spotify
 import moe.rukamori.archivetune.utils.dataStore
 import moe.rukamori.archivetune.utils.get
 import moe.rukamori.archivetune.utils.reportException
@@ -68,6 +80,22 @@ sealed interface ArtistBlockState {
     data class Error(
         @StringRes val messageRes: Int,
     ) : ArtistBlockState
+}
+
+sealed interface ArtistFetchState {
+    data object Pending : ArtistFetchState
+
+    data object Success : ArtistFetchState
+
+    data class Failed(val isNotFound: Boolean = false) : ArtistFetchState
+}
+
+sealed interface ArtistUiState {
+    data object Loading : ArtistUiState
+
+    data object Content : ArtistUiState
+
+    data class Error(val isNotFound: Boolean = false) : ArtistUiState
 }
 
 sealed interface ArtistAction {
@@ -108,6 +136,9 @@ class ArtistViewModel
     ) : ViewModel() {
         val artistId = savedStateHandle.get<String>("artistId")!!
         var artistPage by mutableStateOf<ArtistPage?>(null)
+        private val _fetchState = MutableStateFlow<ArtistFetchState>(ArtistFetchState.Pending)
+        val fetchState: StateFlow<ArtistFetchState> = _fetchState.asStateFlow()
+
         private val eventChannel = Channel<ArtistEvent>(capacity = Channel.BUFFERED)
         val events = eventChannel.receiveAsFlow()
         private var blockJob: Job? = null
@@ -146,6 +177,21 @@ class ArtistViewModel
                     database.artistAlbumsPreview(artistId).map { it.filterExplicitAlbums(hideExplicit) }
                 }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
+        val uiState: StateFlow<ArtistUiState> =
+            combine(
+                snapshotFlow { artistPage },
+                librarySongs,
+                libraryAlbums,
+                _fetchState,
+            ) { page, songs, albums, fetch ->
+                when {
+                    page != null || songs.isNotEmpty() || albums.isNotEmpty() -> ArtistUiState.Content
+                    fetch is ArtistFetchState.Pending -> ArtistUiState.Loading
+                    fetch is ArtistFetchState.Failed -> ArtistUiState.Error(fetch.isNotFound)
+                    else -> ArtistUiState.Loading
+                }
+            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ArtistUiState.Loading)
+
         init {
             viewModelScope.launch {
                 context.dataStore.data
@@ -159,36 +205,194 @@ class ArtistViewModel
             }
         }
 
+        private fun isSpotifyArtistId(id: String): Boolean {
+            val clean = id.removePrefix("spotify:artist:")
+            return id.startsWith("spotify:artist:") ||
+                (clean.length == 22 && clean.all { it.isLetterOrDigit() } && !id.startsWith("UC") && !id.startsWith("FE"))
+        }
+
+        fun retry() {
+            fetchArtistsFromYTM()
+        }
+
         fun fetchArtistsFromYTM() {
             viewModelScope.launch {
+                _fetchState.value = ArtistFetchState.Pending
                 val hideExplicit = context.dataStore.get(HideExplicitKey, false)
                 val hideVideo = context.dataStore.get(HideVideoKey, false)
                 val blockedArtistIds = database.getBlockedArtistIds().toSet()
-                YouTube
-                    .artist(artistId)
-                    .onSuccess { page ->
-                        val filteredSections =
-                            page.sections
-                                .map { section ->
-                                    section.copy(
-                                        items =
-                                            section.items
-                                                .filterExplicit(hideExplicit)
-                                                .filterVideo(hideVideo)
-                                                .filterBlockedArtists(blockedArtistIds),
-                                    )
-                                }
 
-                        artistPage = page.copy(sections = filteredSections)
-
+                // 1. Direct Spotify artist resolution
+                if (isSpotifyArtistId(artistId)) {
+                    val cleanId = artistId.removePrefix("spotify:artist:")
+                    val spotifyPage =
                         withContext(Dispatchers.IO) {
-                            database.artist(artistId).firstOrNull()?.artist?.let { artistEntity ->
-                                database.update(artistEntity, page)
-                            }
+                            runCatching {
+                                val spotifyArtist = Spotify.artist(cleanId).getOrThrow()
+                                val topTracks =
+                                    runCatching { Spotify.artistTopTracks(cleanId).getOrNull()?.tracks }
+                                        .getOrNull().orEmpty()
+                                val related =
+                                    runCatching { Spotify.artistRelatedArtists(cleanId).getOrNull() }
+                                        .getOrNull().orEmpty()
+
+                                val artistItem =
+                                    ArtistItem(
+                                        id = artistId,
+                                        title = spotifyArtist.name,
+                                        thumbnail = spotifyArtist.images.firstOrNull()?.url,
+                                        shuffleEndpoint = null,
+                                        radioEndpoint = null,
+                                    )
+                                val songItems =
+                                    topTracks.map { track ->
+                                        SongItem(
+                                            id = track.id,
+                                            title = track.name,
+                                            artists = track.artists.map { Artist(name = it.name, id = it.id) },
+                                            album = track.album?.let { Album(name = it.name, id = it.id) },
+                                            duration = if (track.durationMs > 0) track.durationMs / 1000 else null,
+                                            thumbnail = track.album?.images?.firstOrNull()?.url.orEmpty(),
+                                            explicit = track.explicit,
+                                        )
+                                    }
+                                val sections = mutableListOf<ArtistSection>()
+                                if (songItems.isNotEmpty()) {
+                                    sections +=
+                                        ArtistSection(
+                                            title = context.getString(R.string.songs),
+                                            items = songItems,
+                                            moreEndpoint = null,
+                                            layout = ArtistSectionLayout.LIST,
+                                        )
+                                }
+                                if (related.isNotEmpty()) {
+                                    sections +=
+                                        ArtistSection(
+                                            title = context.getString(R.string.similar_to),
+                                            items =
+                                                related.map { rel ->
+                                                    ArtistItem(
+                                                        id = rel.id,
+                                                        title = rel.name,
+                                                        thumbnail = rel.images.firstOrNull()?.url,
+                                                        shuffleEndpoint = null,
+                                                        radioEndpoint = null,
+                                                    )
+                                                },
+                                            moreEndpoint = null,
+                                            layout = ArtistSectionLayout.GRID,
+                                        )
+                                }
+                                ArtistPage(
+                                    artist = artistItem,
+                                    sections = sections,
+                                    description = null,
+                                )
+                            }.getOrNull()
                         }
-                    }.onFailure {
-                        reportException(it)
+
+                    if (spotifyPage != null) {
+                        val filteredSections =
+                            spotifyPage.sections.map { section ->
+                                section.copy(
+                                    items =
+                                        section.items
+                                            .filterExplicit(hideExplicit)
+                                            .filterVideo(hideVideo)
+                                            .filterBlockedArtists(blockedArtistIds),
+                                )
+                            }
+                        artistPage = spotifyPage.copy(sections = filteredSections)
+                        _fetchState.value = ArtistFetchState.Success
+                        return@launch
                     }
+                }
+
+                // 2. Direct YouTube channel fetch
+                var ytResult: Result<ArtistPage>? = null
+                if (artistId.startsWith("UC") || artistId.startsWith("FE")) {
+                    ytResult = withContext(Dispatchers.IO) { YouTube.artist(artistId) }
+                }
+
+                if (ytResult?.isSuccess == true) {
+                    val page = ytResult.getOrThrow()
+                    val filteredSections =
+                        page.sections.map { section ->
+                            section.copy(
+                                items =
+                                    section.items
+                                        .filterExplicit(hideExplicit)
+                                        .filterVideo(hideVideo)
+                                        .filterBlockedArtists(blockedArtistIds),
+                            )
+                        }
+
+                    artistPage = page.copy(sections = filteredSections)
+                    _fetchState.value = ArtistFetchState.Success
+
+                    withContext(Dispatchers.IO) {
+                        database.artist(artistId).firstOrNull()?.artist?.let { artistEntity ->
+                            database.update(artistEntity, page)
+                        }
+                    }
+                    return@launch
+                }
+
+                // 3. Fallback: Search YouTube Music by artist name if direct browse failed or ID is a raw name
+                val lookupName =
+                    withContext(Dispatchers.IO) {
+                        database.artist(artistId).firstOrNull()?.artist?.name
+                            ?: libraryArtist.value?.artist?.name
+                            ?: artistId.takeIf {
+                                !it.startsWith("UC") && !it.startsWith("FE") && it.isNotBlank() && !isSpotifyArtistId(it)
+                            }
+                    }
+
+                if (!lookupName.isNullOrBlank()) {
+                    val searchPage =
+                        withContext(Dispatchers.IO) {
+                            runCatching {
+                                val search = YouTube.search(lookupName, YouTube.SearchFilter.FILTER_ARTIST).getOrNull()
+                                val candidate = search?.items?.filterIsInstance<ArtistItem>()?.firstOrNull()
+                                if (candidate != null && candidate.id.startsWith("UC") && candidate.id != artistId) {
+                                    YouTube.artist(candidate.id).getOrNull()
+                                } else {
+                                    null
+                                }
+                            }.getOrNull()
+                        }
+
+                    if (searchPage != null) {
+                        val filteredSections =
+                            searchPage.sections.map { section ->
+                                section.copy(
+                                    items =
+                                        section.items
+                                            .filterExplicit(hideExplicit)
+                                            .filterVideo(hideVideo)
+                                            .filterBlockedArtists(blockedArtistIds),
+                                )
+                            }
+
+                        artistPage = searchPage.copy(sections = filteredSections)
+                        _fetchState.value = ArtistFetchState.Success
+                        return@launch
+                    }
+                }
+
+                // 4. Local Library Fallback: If local library has songs/albums for this artist, mark Success
+                val hasLocalContent =
+                    withContext(Dispatchers.IO) {
+                        database.artistSongsByCreateDateAsc(artistId).firstOrNull()?.isNotEmpty() == true ||
+                            database.artistAlbumsPreview(artistId).firstOrNull()?.isNotEmpty() == true
+                    }
+
+                if (hasLocalContent) {
+                    _fetchState.value = ArtistFetchState.Success
+                } else {
+                    _fetchState.value = ArtistFetchState.Failed(isNotFound = true)
+                }
             }
         }
 

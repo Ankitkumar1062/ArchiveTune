@@ -23,6 +23,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import moe.rukamori.archivetune.canvas.AppleMusicProvider
 import moe.rukamori.archivetune.canvas.models.CanvasArtwork
 import moe.rukamori.archivetune.constants.AlbumCanvasEnabledKey
@@ -31,7 +33,12 @@ import moe.rukamori.archivetune.db.MusicDatabase
 import moe.rukamori.archivetune.extensions.filterBlockedArtists
 import moe.rukamori.archivetune.extensions.filterVideo
 import moe.rukamori.archivetune.innertube.YouTube
+import moe.rukamori.archivetune.innertube.models.Album
 import moe.rukamori.archivetune.innertube.models.AlbumItem
+import moe.rukamori.archivetune.innertube.models.Artist
+import moe.rukamori.archivetune.innertube.models.SongItem
+import moe.rukamori.archivetune.innertube.pages.AlbumPage
+import moe.rukamori.archivetune.spotify.Spotify
 import moe.rukamori.archivetune.utils.dataStore
 import moe.rukamori.archivetune.utils.get
 import moe.rukamori.archivetune.utils.isLowDataModeActive
@@ -122,37 +129,147 @@ class AlbumViewModel
             fetchAlbumCanvas(context)
         }
 
+        private fun isSpotifyAlbumId(id: String): Boolean {
+            val clean = id.removePrefix("spotify:album:")
+            return id.startsWith("spotify:album:") ||
+                (clean.length == 22 && clean.all { it.isLetterOrDigit() } && !id.startsWith("MPRE") && !id.startsWith("OLAK"))
+        }
+
         fun retry() {
             viewModelScope.launch {
                 _fetchState.value = FetchState.Pending
                 val album = database.album(albumId).first()
-                YouTube
-                    .album(albumId)
-                    .onSuccess {
-                        playlistId.value = it.album.playlistId
-                        val blockedArtistIds = database.getBlockedArtistIds().toSet()
-                        otherVersions.value =
-                            it.otherVersions.filter { version ->
-                                version.artists.orEmpty().none { artist -> artist.id in blockedArtistIds }
+
+                // 1. Spotify direct album resolution
+                if (isSpotifyAlbumId(albumId)) {
+                    val cleanId = albumId.removePrefix("spotify:album:")
+                    val spotifyAlbumResult =
+                        withContext(Dispatchers.IO) {
+                            runCatching { Spotify.album(cleanId).getOrThrow() }
+                        }
+
+                    if (spotifyAlbumResult.isSuccess) {
+                        val spotifyAlbum = spotifyAlbumResult.getOrThrow()
+                        val releaseYear = spotifyAlbum.releaseDate?.take(4)?.toIntOrNull()
+                        val albumArtists =
+                            spotifyAlbum.artists.map { Artist(name = it.name, id = it.id) }
+                        val trackItems = spotifyAlbum.tracks?.items.orEmpty()
+                        val albumItem =
+                            AlbumItem(
+                                browseId = albumId,
+                                playlistId = albumId,
+                                title = spotifyAlbum.name,
+                                artists = albumArtists,
+                                year = releaseYear,
+                                thumbnail = spotifyAlbum.images.firstOrNull()?.url.orEmpty(),
+                                explicit = trackItems.any { it.explicit },
+                            )
+                        val songItems =
+                            trackItems.map { track ->
+                                SongItem(
+                                    id = track.id,
+                                    title = track.name,
+                                    artists =
+                                        track.artists
+                                            .map { Artist(name = it.name, id = it.id) }
+                                            .ifEmpty { albumArtists },
+                                    album = Album(name = spotifyAlbum.name, id = albumId),
+                                    duration = if (track.durationMs > 0) track.durationMs / 1000 else null,
+                                    thumbnail = spotifyAlbum.images.firstOrNull()?.url.orEmpty(),
+                                    explicit = track.explicit,
+                                )
                             }
+                        val albumPage =
+                            AlbumPage(
+                                album = albumItem,
+                                songs = songItems,
+                                otherVersions = emptyList(),
+                            )
+
+                        playlistId.value = albumId
                         database.withTransaction {
                             if (album == null) {
-                                insert(it)
+                                insert(albumPage)
                             } else {
-                                update(album.album, it, album.artists)
+                                update(album.album, albumPage, album.artists)
                             }
                         }
                         _fetchState.value = FetchState.Success
-                    }.onFailure {
-                        reportException(it)
-                        val isNotFound = it.message?.contains("NOT_FOUND") == true
-                        if (isNotFound) {
-                            database.query {
-                                album?.album?.let(::delete)
+                        return@launch
+                    }
+                }
+
+                // 2. Direct YouTube album fetch
+                val ytResult =
+                    withContext(Dispatchers.IO) {
+                        YouTube.album(albumId)
+                    }
+
+                if (ytResult.isSuccess) {
+                    val page = ytResult.getOrThrow()
+                    playlistId.value = page.album.playlistId
+                    val blockedArtistIds = database.getBlockedArtistIds().toSet()
+                    otherVersions.value =
+                        page.otherVersions.filter { version ->
+                            version.artists.orEmpty().none { artist -> artist.id in blockedArtistIds }
+                        }
+                    database.withTransaction {
+                        if (album == null) {
+                            insert(page)
+                        } else {
+                            update(album.album, page, album.artists)
+                        }
+                    }
+                    _fetchState.value = FetchState.Success
+                    return@launch
+                }
+
+                // 3. Fallback: Search YouTube Music by album name if direct fetch failed
+                val lookupTitle =
+                    album?.album?.title ?: albumId.takeIf { !it.startsWith("MPRE") && !it.startsWith("OLAK") && !isSpotifyAlbumId(it) }
+
+                if (!lookupTitle.isNullOrBlank()) {
+                    val searchPage =
+                        withContext(Dispatchers.IO) {
+                            runCatching {
+                                val search = YouTube.search(lookupTitle, YouTube.SearchFilter.FILTER_ALBUM).getOrNull()
+                                val candidate = search?.items?.filterIsInstance<AlbumItem>()?.firstOrNull()
+                                if (candidate != null && candidate.browseId != albumId) {
+                                    YouTube.album(candidate.browseId).getOrNull()
+                                } else {
+                                    null
+                                }
+                            }.getOrNull()
+                        }
+
+                    if (searchPage != null) {
+                        playlistId.value = searchPage.album.playlistId
+                        database.withTransaction {
+                            if (album == null) {
+                                insert(searchPage)
+                            } else {
+                                update(album.album, searchPage, album.artists)
                             }
                         }
-                        _fetchState.value = FetchState.Failed(isNotFound = isNotFound)
+                        _fetchState.value = FetchState.Success
+                        return@launch
                     }
+                }
+
+                // 4. Local Database check
+                if (album != null && database.albumWithSongs(albumId).first()?.songs?.isNotEmpty() == true) {
+                    _fetchState.value = FetchState.Success
+                } else {
+                    val error = ytResult.exceptionOrNull()
+                    reportException(error ?: Exception("Album not found: $albumId"))
+                    val isNotFound = error?.message?.contains("NOT_FOUND") == true || isSpotifyAlbumId(albumId)
+                    if (isNotFound && album != null) {
+                        database.query {
+                            delete(album.album)
+                        }
+                    }
+                    _fetchState.value = FetchState.Failed(isNotFound = isNotFound)
+                }
             }
         }
 

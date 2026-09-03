@@ -324,7 +324,15 @@ fun SearchScreen(
                                         navController = navController,
                                         modifier = Modifier.animateItem(),
                                     ) { artist ->
-                                        YouTubeGridItem(item = artist, modifier = Modifier.animateItem())
+                                        YouTubeGridItem(
+                                            item = artist,
+                                            modifier =
+                                                Modifier
+                                                    .animateItem()
+                                                    .clickable {
+                                                        navController.navigate("artist/${artist.id}")
+                                                    },
+                                        )
                                     }
                                 }
                             }
@@ -340,7 +348,15 @@ fun SearchScreen(
                                         navController = navController,
                                         modifier = Modifier.animateItem(),
                                     ) { album ->
-                                        YouTubeGridItem(item = album, modifier = Modifier.animateItem())
+                                        YouTubeGridItem(
+                                            item = album,
+                                            modifier =
+                                                Modifier
+                                                    .animateItem()
+                                                    .clickable {
+                                                        navController.navigate("album/${album.id}")
+                                                    },
+                                        )
                                     }
                                 }
                             }

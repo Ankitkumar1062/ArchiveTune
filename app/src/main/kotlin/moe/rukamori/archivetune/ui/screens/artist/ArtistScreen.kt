@@ -48,6 +48,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -160,6 +161,7 @@ import moe.rukamori.archivetune.utils.rememberPreference
 import moe.rukamori.archivetune.viewmodels.ArtistAction
 import moe.rukamori.archivetune.viewmodels.ArtistBlockState
 import moe.rukamori.archivetune.viewmodels.ArtistEvent
+import moe.rukamori.archivetune.viewmodels.ArtistUiState
 import moe.rukamori.archivetune.viewmodels.ArtistViewModel
 import java.util.Locale
 
@@ -178,6 +180,7 @@ fun ArtistScreen(
     val playerConnection = LocalPlayerConnection.current ?: return
     val isPlaying by playerConnection.isPlaying.collectAsStateWithLifecycle()
     val mediaMetadata by playerConnection.mediaMetadata.collectAsStateWithLifecycle()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val loadedArtistPage = viewModel.artistPage
     val libraryArtist by viewModel.libraryArtist.collectAsStateWithLifecycle()
     val loadedLibrarySongs by viewModel.librarySongs.collectAsStateWithLifecycle()
@@ -365,42 +368,93 @@ fun ArtistScreen(
                     bottom = LocalPlayerAwareWindowInsets.current.asPaddingValues().calculateBottomPadding(),
                 ),
         ) {
-            if (artistPage == null && !showLocal) {
-                item(key = "shimmer") {
-                    ShimmerHost {
-                        Box(
-                            modifier =
-                                Modifier
-                                    .fillMaxWidth()
-                                    .heightIn(min = ArtistHeroMinHeight)
-                                    .shimmer()
-                                    .background(MaterialTheme.colorScheme.surfaceContainerLow),
-                        ) {
+            val isContentReady = artistPage != null || showLocal || librarySongs.isNotEmpty() || libraryAlbums.isNotEmpty()
+            if (!isContentReady) {
+                when (val state = uiState) {
+                    is ArtistUiState.Error -> {
+                        item(key = "error") {
                             Column(
                                 modifier =
                                     Modifier
-                                        .align(Alignment.BottomCenter)
                                         .fillMaxWidth()
-                                        .padding(horizontal = ArtistHorizontalPadding, vertical = 24.dp),
+                                        .padding(top = systemBarsTopPadding + AppBarHeight)
+                                        .padding(32.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally,
                             ) {
-                                TextPlaceholder(height = 36.dp, modifier = Modifier.fillMaxWidth(0.55f))
-                                Spacer(modifier = Modifier.height(12.dp))
-                                TextPlaceholder(height = 16.dp, modifier = Modifier.fillMaxWidth(0.72f))
-                                Spacer(modifier = Modifier.height(20.dp))
-                                TextPlaceholder(height = 14.dp, modifier = Modifier.fillMaxWidth(0.82f))
-                                Spacer(modifier = Modifier.height(12.dp))
-                                ButtonPlaceholder(
+                                Text(
+                                    text =
+                                        if (state.isNotFound) {
+                                            stringResource(R.string.artist_not_found)
+                                        } else {
+                                            stringResource(R.string.error_unknown)
+                                        },
+                                    style = MaterialTheme.typography.titleLarge,
+                                    color = if (state.isNotFound) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error,
+                                    textAlign = TextAlign.Center,
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text =
+                                        if (state.isNotFound) {
+                                            stringResource(R.string.artist_not_found_desc)
+                                        } else {
+                                            stringResource(R.string.error_unknown)
+                                        },
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center,
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Button(
+                                    onClick = { viewModel.retry() },
+                                    shapes = ButtonDefaults.shapes(),
+                                ) {
+                                    Text(stringResource(R.string.retry))
+                                }
+                            }
+                        }
+                    }
+
+                    ArtistUiState.Loading,
+                    ArtistUiState.Content,
+                    -> {
+                        item(key = "shimmer") {
+                            ShimmerHost {
+                                Box(
                                     modifier =
                                         Modifier
                                             .fillMaxWidth()
-                                            .height(ButtonDefaults.MediumContainerHeight),
-                                )
-                            }
-                        }
+                                            .heightIn(min = ArtistHeroMinHeight)
+                                            .shimmer()
+                                            .background(MaterialTheme.colorScheme.surfaceContainerLow),
+                                ) {
+                                    Column(
+                                        modifier =
+                                            Modifier
+                                                .align(Alignment.BottomCenter)
+                                                .fillMaxWidth()
+                                                .padding(horizontal = ArtistHorizontalPadding, vertical = 24.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                    ) {
+                                        TextPlaceholder(height = 36.dp, modifier = Modifier.fillMaxWidth(0.55f))
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        TextPlaceholder(height = 16.dp, modifier = Modifier.fillMaxWidth(0.72f))
+                                        Spacer(modifier = Modifier.height(20.dp))
+                                        TextPlaceholder(height = 14.dp, modifier = Modifier.fillMaxWidth(0.82f))
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        ButtonPlaceholder(
+                                            modifier =
+                                                Modifier
+                                                    .fillMaxWidth()
+                                                    .height(ButtonDefaults.MediumContainerHeight),
+                                        )
+                                    }
+                                }
 
-                        repeat(5) {
-                            ListItemPlaceHolder()
+                                repeat(5) {
+                                    ListItemPlaceHolder()
+                                }
+                            }
                         }
                     }
                 }

@@ -773,6 +773,21 @@ fun SimilarRecommendationsSection(
     scope: CoroutineScope,
     modifier: Modifier = Modifier,
 ) {
+    val songsInSection = remember(recommendation) { recommendation.items.filterIsInstance<SongItem>() }
+    val sectionTitle = remember(recommendation) { recommendation.title.title }
+
+    fun playFromSection(songId: String) {
+        val index = songsInSection.indexOfFirst { it.id == songId }
+        if (index < 0 || songsInSection.isEmpty()) return
+        playerConnection.playQueue(
+            ListQueue(
+                title = sectionTitle,
+                items = songsInSection.map { it.toMediaItem() },
+                startIndex = index,
+            ),
+        )
+    }
+
     LazyRow(
         contentPadding = PaddingValues(horizontal = HomeFeedGutter),
         horizontalArrangement = Arrangement.spacedBy(HomeShelfCardSpacing),
@@ -791,6 +806,7 @@ fun SimilarRecommendationsSection(
                 menuState = menuState,
                 haptic = haptic,
                 scope = scope,
+                onPlaySongFromSection = ::playFromSection,
             )
         }
     }
@@ -940,20 +956,26 @@ fun SimilarRecommendationsTitle(
         // image. Keeps these headers visually consistent with the other
         // text-only section headers on the home page.
         onClick = {
-            when (recommendation.title) {
+            when (val title = recommendation.title) {
                 is Song -> {
-                    navController.navigate("album/${recommendation.title.album!!.id}")
+                    title.album?.id?.let { albumId ->
+                        navController.navigate("album/$albumId")
+                    } ?: title.artists.firstOrNull()?.id?.let { artistId ->
+                        navController.navigate("artist/$artistId")
+                    }
                 }
 
                 is Album -> {
-                    navController.navigate("album/${recommendation.title.id}")
+                    navController.navigate("album/${title.id}")
                 }
 
                 is Artist -> {
-                    navController.navigate("artist/${recommendation.title.id}")
+                    navController.navigate("artist/${title.id}")
                 }
 
-                is Playlist -> {}
+                is Playlist -> {
+                    navController.navigate("online_playlist/${title.id}")
+                }
             }
         },
         modifier = modifier,

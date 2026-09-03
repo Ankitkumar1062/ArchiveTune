@@ -285,7 +285,8 @@ private fun SpotifySearchResultRow(
             }
 
             is SpotifySearchItem.Playlist -> navController.navigate("spotify_playlist/${item.id}")
-            is SpotifySearchItem.Album, is SpotifySearchItem.Artist -> openExternal()
+            is SpotifySearchItem.Album -> navController.navigate("album/${item.id}")
+            is SpotifySearchItem.Artist -> navController.navigate("artist/${item.id}")
         }
     }
 
