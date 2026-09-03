@@ -27,10 +27,12 @@ import androidx.navigation.navArgument
 import moe.rukamori.archivetune.BuildConfig
 import moe.rukamori.archivetune.constants.HomeScreenStyle
 import moe.rukamori.archivetune.constants.HomeScreenStyleKey
+import moe.rukamori.archivetune.constants.SpotifySpDcKey
 import moe.rukamori.archivetune.constants.UpdateChannel
 import moe.rukamori.archivetune.defaultUpdateChannel
 import moe.rukamori.archivetune.musicrecognition.MusicRecognitionRoute
 import moe.rukamori.archivetune.utils.rememberEnumPreference
+import moe.rukamori.archivetune.utils.rememberPreference
 import moe.rukamori.archivetune.musicrecognition.MusicRecognitionDetailsRoute
 import moe.rukamori.archivetune.ui.screens.BrowseScreen
 import moe.rukamori.archivetune.ui.screens.artist.ArtistAlbumsScreen
@@ -92,6 +94,8 @@ import moe.rukamori.archivetune.ui.screens.settings.LASTFM_LIBREFM_LOGIN_ROUTE
 import moe.rukamori.archivetune.ui.screens.settings.LibreFmLoginScreen
 import moe.rukamori.archivetune.ui.screens.settings.TELEGRAM_LOGIN_ROUTE
 import moe.rukamori.archivetune.ui.screens.settings.TelegramLoginScreen
+import moe.rukamori.archivetune.ui.screens.settings.YOUTUBE_OAUTH_ROUTE
+import moe.rukamori.archivetune.ui.screens.settings.YouTubeOAuthLoginScreen
 import moe.rukamori.archivetune.ui.screens.settings.TelegramSettings
 import moe.rukamori.archivetune.ui.screens.settings.LastFMSettings
 import moe.rukamori.archivetune.ui.screens.settings.LastFmDashboardScreen
@@ -139,6 +143,22 @@ fun NavGraphBuilder.navigationBuilder(
                     headerScrollConnection = homeScrollConnection,
                     listState = homeListState,
                 )
+            }
+
+            // Falls through to the normal home when there is no Spotify session: picking this
+            // style without signing in would otherwise strand the user on an empty home with no
+            // obvious way back.
+            HomeScreenStyle.SPOTIFY -> {
+                val spDc by rememberPreference(SpotifySpDcKey, defaultValue = "")
+                if (spDc.isNotBlank()) {
+                    SpotifyHomeScreen(navController, headerScrollConnection = homeScrollConnection)
+                } else {
+                    HomeScreen(
+                        navController,
+                        headerScrollConnection = homeScrollConnection,
+                        listState = homeListState,
+                    )
+                }
             }
 
             HomeScreenStyle.DEFAULT -> {
@@ -712,5 +732,9 @@ fun NavGraphBuilder.navigationBuilder(
             navController,
             startUrl = backStackEntry.arguments?.getString(LOGIN_URL_ARGUMENT)?.let(Uri::decode),
         )
+    }
+    // The other half of YouTube sign-in: no WebView, no cookie — a code typed at google.com/device.
+    composable(YOUTUBE_OAUTH_ROUTE) {
+        YouTubeOAuthLoginScreen(navController)
     }
 }
