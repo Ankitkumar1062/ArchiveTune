@@ -467,7 +467,7 @@ class MusicService :
     private val preferredStreamClient by enumPreference(
         this,
         PlayerStreamClientKey,
-        PlayerStreamClient.ANDROID_VR,
+        PlayerStreamClient.WEB_REMIX,
     )
     private val autoChoosePlaybackClient by preference(
         this,
@@ -8935,7 +8935,13 @@ class MusicService :
 
         if (upcoming.isNotEmpty()) {
             scope.launch(Dispatchers.IO) {
+                // Defer background queue preloading until the current song is actively playing or ready,
+                // preventing network & thread starvation that triggers the 15-second buffer stall.
+                while (isActive && player.playbackState == Player.STATE_BUFFERING && !player.isPlaying) {
+                    delay(300)
+                }
                 for ((mediaId, titleArtists, durationMs) in upcoming) {
+                    if (!isActive) break
                     moe.rukamori.archivetune.audiosource.IsrcResolver.resolve(
                         mediaId = mediaId,
                         title = titleArtists.first,
@@ -9485,8 +9491,11 @@ class MusicService :
         var best: DirectStream? = null
         var bestSource: AudioSourceType? = null
         var bestScore = 0.0
-        for (source in chain) {
-            Timber.tag("MusicService").d("Trying source: %s for \"%s\"", source.name, query.title)
+
+        if (overrideIsSourceOverride && override != null) {
+            // Explicit single-source override: trust the user's intent directly.
+            val source = override
+            Timber.tag("MusicService").d("Trying source: %s for \"%s\" (explicit override)", source.name, query.title)
             val stream: DirectStream? =
                 when (source) {
                     AudioSourceType.TIDAL -> resolveTidalStream(query)
@@ -9496,63 +9505,123 @@ class MusicService :
                     AudioSourceType.APPLE ->
                         resolveAppleStream(
                             query,
-                            trusted = overrideIsSourceOverride && override == AudioSourceType.APPLE,
+                            trusted = true,
                         )
                     AudioSourceType.JIOSAAVN -> resolveJioSaavnStream(query)
                     AudioSourceType.YOUTUBE -> null
                 }
-            if (stream == null) {
-                Timber.tag("MusicService").d("Source %s did not resolve \"%s\"", source.name, query.title)
-                continue
-            }
-            val match =
-                if (overrideIsSourceOverride && source == override) {
-                    // Explicit per-song override: trust the user's choice. Still record the source
-                    // as resolved so the Source chooser remembers it for next time.
-                    Timber.tag("MusicService").i(
-                        "Source %s ACCEPTED for \"%s\" via per-song override (skipping metadata gate) [%s]",
-                        source.name, query.title, stream.label,
-                    )
-                    TitleMatch.Result(true, 1.0, 1.0, 1.0, 1.0, "per-song override bypass")
-                } else {
-                    TitleMatch.evaluate(
-                        wantedTitle = query.title,
-                        wantedArtists = query.artists,
-                        wantedAlbum = query.album,
-                        wantedDurationMs = query.durationMs,
-                        stream = stream,
-                        wantedIsExplicit = query.isExplicit,
-                    )
-                }
-            if (!match.accepted) {
-                Timber.tag("MusicService").i(
-                    "Source %s rejected for \"%s\": %s score=%.1f%% title=%.1f%% artist=%s duration=%s matched=\"%s\"",
-                    source.name,
-                    query.title,
-                    match.reason,
-                    match.score * 100,
-                    match.title * 100,
-                    match.artist?.let { "%.1f%%".format(it * 100) } ?: "?",
-                    match.duration?.let { "%.1f%%".format(it * 100) } ?: "?",
-                    stream.matchedTitle ?: "?",
-                )
-                continue
-            }
-            Timber.tag("MusicService").d(
-                "Source %s candidate for \"%s\": match %.1f%% (%s) [%s]",
-                source.name, query.title, match.score * 100, match.reason, stream.label,
-            )
-            // Remember that this source has this song (title-gate passed) so the player's Source
-            // chooser can list only the sources that actually have the track.
-            recordResolvedSource(mediaId, source)
-            if (match.score > bestScore) {
+            if (stream != null) {
+                recordResolvedSource(mediaId, source)
                 best = stream
                 bestSource = source
-                bestScore = match.score
+                bestScore = 1.0
             }
-            // The list is the user's source preference order. The first valid source wins;
-            // later sources are fallbacks, not competitors selected by metadata score.
-            if (best != null) break
+        } else {
+            // Tier 1: True Lossless sources (Tidal, Deezer, Qobuz, Apple) resolved in parallel
+            val tier1Lossless = chain.filter { it != AudioSourceType.JIOSAAVN && it != AudioSourceType.YOUTUBE }
+            val tier2Lossy = chain.filter { it == AudioSourceType.JIOSAAVN }
+
+            if (tier1Lossless.isNotEmpty()) {
+                val tier1Results =
+                    runBlocking(Dispatchers.IO) {
+                        val deferreds =
+                            tier1Lossless.map { src ->
+                                async {
+                                    Timber.tag("MusicService").d("Trying source: %s for \"%s\" (parallel)", src.name, query.title)
+                                    val stream: DirectStream? =
+                                        when (src) {
+                                            AudioSourceType.TIDAL -> resolveTidalStream(query)
+                                            AudioSourceType.QOBUZ -> resolveQobuzStream(query)
+                                            AudioSourceType.QOBUZ_BACKUP -> resolveQobuzBackupStream(query)
+                                            AudioSourceType.DEEZER -> resolveDeezerStream(query)
+                                            AudioSourceType.APPLE -> resolveAppleStream(query, trusted = false)
+                                            else -> null
+                                        }
+                                    if (stream != null) {
+                                        val match =
+                                            TitleMatch.evaluate(
+                                                wantedTitle = query.title,
+                                                wantedArtists = query.artists,
+                                                wantedAlbum = query.album,
+                                                wantedDurationMs = query.durationMs,
+                                                stream = stream,
+                                                wantedIsExplicit = query.isExplicit,
+                                            )
+                                        if (match.accepted) {
+                                            Timber.tag("MusicService").d(
+                                                "Source %s candidate for \"%s\": match %.1f%% (%s) [%s]",
+                                                src.name, query.title, match.score * 100, match.reason, stream.label,
+                                            )
+                                            recordResolvedSource(mediaId, src)
+                                            src to Pair(stream, match)
+                                        } else {
+                                            Timber.tag("MusicService").i(
+                                                "Source %s rejected for \"%s\": %s score=%.1f%% title=%.1f%% artist=%s duration=%s matched=\"%s\"",
+                                                src.name, query.title, match.reason, match.score * 100, match.title * 100,
+                                                match.artist?.let { "%.1f%%".format(it * 100) } ?: "?",
+                                                match.duration?.let { "%.1f%%".format(it * 100) } ?: "?",
+                                                stream.matchedTitle ?: "?",
+                                            )
+                                            null
+                                        }
+                                    } else {
+                                        Timber.tag("MusicService").d("Source %s did not resolve \"%s\"", src.name, query.title)
+                                        null
+                                    }
+                                }
+                            }
+                        deferreds.mapNotNull { it.await() }.toMap()
+                    }
+
+                // Pick the highest-priority source according to the user's preferred order
+                for (source in tier1Lossless) {
+                    val matchResult = tier1Results[source]
+                    if (matchResult != null) {
+                        best = matchResult.first
+                        bestSource = source
+                        bestScore = matchResult.second.score
+                        break
+                    }
+                }
+            }
+
+            // Tier 2: JioSaavn (only if all lossless sources failed)
+            if (best == null && tier2Lossy.isNotEmpty()) {
+                val source = AudioSourceType.JIOSAAVN
+                Timber.tag("MusicService").d("Trying tier 2 source: %s for \"%s\"", source.name, query.title)
+                val stream = resolveJioSaavnStream(query)
+                if (stream != null) {
+                    val match =
+                        TitleMatch.evaluate(
+                            wantedTitle = query.title,
+                            wantedArtists = query.artists,
+                            wantedAlbum = query.album,
+                            wantedDurationMs = query.durationMs,
+                            stream = stream,
+                            wantedIsExplicit = query.isExplicit,
+                        )
+                    if (match.accepted) {
+                        Timber.tag("MusicService").d(
+                            "Source %s candidate for \"%s\": match %.1f%% (%s) [%s]",
+                            source.name, query.title, match.score * 100, match.reason, stream.label,
+                        )
+                        recordResolvedSource(mediaId, source)
+                        best = stream
+                        bestSource = source
+                        bestScore = match.score
+                    } else {
+                        Timber.tag("MusicService").i(
+                            "Source %s rejected for \"%s\": %s score=%.1f%% title=%.1f%% artist=%s duration=%s matched=\"%s\"",
+                            source.name, query.title, match.reason, match.score * 100, match.title * 100,
+                            match.artist?.let { "%.1f%%".format(it * 100) } ?: "?",
+                            match.duration?.let { "%.1f%%".format(it * 100) } ?: "?",
+                            stream.matchedTitle ?: "?",
+                        )
+                    }
+                } else {
+                    Timber.tag("MusicService").d("Source %s did not resolve \"%s\"", source.name, query.title)
+                }
+            }
         }
 
         val winningStream = best

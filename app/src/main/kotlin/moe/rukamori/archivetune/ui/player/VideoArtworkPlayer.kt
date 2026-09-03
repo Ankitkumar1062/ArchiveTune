@@ -1659,38 +1659,7 @@ fun rememberVideoArtworkState(
                     if (!wasResync) {
                         val mainPos = currentPosition()
                         if (mainPos > 0) {
-                            if (wasAlreadyReady) {
-                                // ── Surface re-attach: restart the renderer ──
-                                //
-                                // The video was already rendering and its
-                                // surface got re-created (fullscreen toggle,
-                                // orientation change, window resize). A fresh
-                                // TextureView can hold a STALE frame while the
-                                // video clock keeps advancing — the video looks
-                                // frozen/laggy while the drift poller sees no
-                                // drift (it compares clocks, not displayed
-                                // frames). This is the "entering/exiting
-                                // fullscreen makes the video laggy, only
-                                // pause/resume fixes it" bug.
-                                //
-                                // We fix it with a video-only pause/resume
-                                // micro-cycle ([state.kickRenderer]) — the SAME
-                                // action as the user's manual pause/resume, but
-                                // without touching the audio and without a
-                                // re-buffer stall. A seekTo here would re-buffer
-                                // the video for 1–2s on every toggle (that was
-                                // the regression: fullscreen ALWAYS lagged).
-                                //
-                                // The pause/resume itself can produce another
-                                // onRenderedFirstFrame; the min-interval guard
-                                // inside kickRenderer (SurfaceReanchorMinIntervalMs)
-                                // breaks that self-triggering loop.
-                                if (state.kickRenderer(now)) {
-                                    Timber
-                                        .tag(VideoPlaybackLogTag)
-                                        .d("Surface re-attached while playing — restarted video renderer")
-                                }
-                            } else {
+                            if (!wasAlreadyReady) {
                                 val videoPos = exoPlayer.currentPosition
                                 val drift = kotlin.math.abs(videoPos - mainPos)
                                 if (drift > VideoInitialSyncToleranceMs) {

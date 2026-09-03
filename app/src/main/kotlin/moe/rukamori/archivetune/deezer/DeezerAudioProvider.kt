@@ -139,6 +139,15 @@ object DeezerAudioProvider {
     @Volatile
     private var manualAccount: PoolAccountManager.DeezerPoolAccount? = null
 
+    private val deadArls = ConcurrentHashMap.newKeySet<String>()
+
+    /**
+     * Clears in-memory dead ARL cache, allowing re-testing of credentials.
+     */
+    fun clearDeadArls() {
+        deadArls.clear()
+    }
+
     /**
      * Registers (or clears, on null/blank) the manually signed-in account. Cheap and idempotent, so
      * call sites can push the current value without tracking whether it changed.
@@ -148,6 +157,7 @@ object DeezerAudioProvider {
         premium: Boolean = false,
     ) {
         val trimmed = arl?.trim()
+        trimmed?.let { deadArls.remove(it) }
         val next =
             if (trimmed.isNullOrEmpty()) {
                 null
@@ -455,6 +465,9 @@ object DeezerAudioProvider {
 
     /** Returns a live session for [account], reusing a cached one until it ages out. */
     private fun session(account: PoolAccountManager.DeezerPoolAccount): Session {
+        if (deadArls.contains(account.arl)) {
+            throw IllegalStateException("ARL known dead (fast-failed)")
+        }
         val now = System.currentTimeMillis()
         sessions[account.arl]?.let { if (now - it.establishedAt < SESSION_TTL_MS) return it }
 
@@ -465,6 +478,7 @@ object DeezerAudioProvider {
         if (user.optLong("USER_ID", 0L) == 0L) {
             // Playback just learned the pooled credential is dead; tell the pool so it stops being
             // leased to other users before the next server-side sweep. Fire-and-forget.
+            deadArls.add(account.arl)
             PoolAccountManager.report("deezer", "account", account.id, "dead")
             throw IllegalStateException("ARL rejected by gateway")
         }

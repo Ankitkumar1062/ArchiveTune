@@ -168,11 +168,11 @@ object YTPlayerUtils {
      */
     private val STREAM_FALLBACK_CLIENTS: Array<YouTubeClient> =
         arrayOf(
-            VISIONOS,
-            ANDROID_VR_1_65_10,
             WEB_REMIX,
             WEB,
             MWEB,
+            VISIONOS,
+            ANDROID_VR_1_65_10,
             WEB_CREATOR,
         )
 
