@@ -527,9 +527,6 @@ dependencies {
     implementation(libs.accompanist.lyrics.ui)
     implementation(libs.accompanist.lyrics.core)
 
-    // org.json is already provided by Android framework at runtime.
-    // Packaging it as an implementation dependency causes ART DEX class verification failures on Android 14/15.
-    testImplementation("org.json:json:20240303")
 
     // PRDownloader — lightweight (~45 KB) file download library with
     // pause/resume, retry, and progress callbacks. Used as the HTTP
@@ -617,6 +614,7 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach 
 }
 
 configurations.configureEach {
+    exclude(group = "org.json", module = "json")
     resolutionStrategy.force(
         "androidx.compose.runtime:runtime:${libs.versions.compose.get()}",
         "androidx.compose.foundation:foundation:${libs.versions.compose.get()}",

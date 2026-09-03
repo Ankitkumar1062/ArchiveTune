@@ -39,6 +39,7 @@ subprojects {
 // Force Gradle to fetch fresh SNAPSHOTs instead of turning off the build cache
 subprojects {
     configurations.configureEach {
+        exclude(group = "org.json", module = "json")
         resolutionStrategy {
             cacheChangingModulesFor(0, "seconds")
         }
