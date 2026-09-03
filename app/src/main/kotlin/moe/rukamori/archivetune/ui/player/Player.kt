@@ -239,6 +239,8 @@ import moe.rukamori.archivetune.utils.makeTimeString
 import moe.rukamori.archivetune.utils.rememberEnumPreference
 import moe.rukamori.archivetune.utils.rememberLowDataModeActive
 import moe.rukamori.archivetune.utils.rememberPreference
+import moe.rukamori.archivetune.ui.player.bitchord.BitChordPlayerContent
+import moe.rukamori.archivetune.ui.player.tiktok.TikTokPlayerContent
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -415,7 +417,9 @@ fun BottomSheetPlayer(
     val playerUsesFixedBackground =
         playerDesignStyle == PlayerDesignStyle.V8 ||
             playerDesignStyle == PlayerDesignStyle.V9 ||
-            playerDesignStyle == PlayerDesignStyle.APPLE_MUSIC
+            playerDesignStyle == PlayerDesignStyle.APPLE_MUSIC ||
+            playerDesignStyle == PlayerDesignStyle.BITCHORD ||
+            playerDesignStyle == PlayerDesignStyle.TIKTOK
     val playerBackground =
         if (playerUsesFixedBackground) PlayerBackgroundStyle.DEFAULT else storedPlayerBackground
 
@@ -566,10 +570,6 @@ fun BottomSheetPlayer(
     // (kept in sync with the authoritative artwork resolver, including Tidal fallback commits).
     val paletteArtworkUrl = mediaMetadata?.thumbnailUrl
 
-    // V10 Editorial: exact artwork seeds (primary/secondary) feeding HCT-toned accents.
-    var v10ArtworkSeeds by remember { mutableStateOf<Pair<Color, Color>?>(null) }
-    val v10ArtworkSeedsCache = remember { mutableMapOf<String, Pair<Color, Color>>() }
-
     LaunchedEffect(mediaMetadata?.id, paletteArtworkUrl, playerBackground, useDarkTheme, playerDesignStyle) {
         if (aodModeEnabled) return@LaunchedEffect
         val wantsPalette =
@@ -661,22 +661,6 @@ fun BottomSheetPlayer(
             PlayerPaletteCache.put(cacheKey, extractedColors)
             gradientColors = extractedColors
             hasValidGradientPalette = true
-            // V10 Editorial: exact artwork seeds from the same palette run.
-            if (playerDesignStyle == PlayerDesignStyle.V10) {
-                val primarySeed =
-                    palette.vibrantSwatch ?: palette.lightVibrantSwatch ?: palette.darkVibrantSwatch ?: palette.dominantSwatch
-                val secondarySeed = palette.mutedSwatch ?: palette.lightMutedSwatch ?: palette.darkMutedSwatch ?: primarySeed
-                val seeds =
-                    if (primarySeed != null && secondarySeed != null) {
-                        Pair(Color(primarySeed.rgb), Color(secondarySeed.rgb))
-                    } else {
-                        null
-                    }
-                if (seeds != null) {
-                    v10ArtworkSeedsCache[currentMetadata.id] = seeds
-                    v10ArtworkSeeds = seeds
-                }
-            }
         }
     }
 
@@ -688,18 +672,22 @@ fun BottomSheetPlayer(
     // the artwork (no blur behind the controls — pure color gradient instead).
     val dominantColor = gradientColors.firstOrNull() ?: MaterialTheme.colorScheme.primary
 
-    // ── V10 "Editorial" artwork-seeded accents ──
-    // Exact seeds from the artwork color scheme, HCT-toned so the bento field and
-    // accent track the artwork with correct toning (from rukamori PR #1229).
+    // ── V10 "Editorial" dominant-artwork control theme ──
+    // Both halves of the two-tone contract (field + accent) are derived from the
+    // artwork's DOMINANT palette color — gradientColors.first(), the highest-
+    // weighted swatch of the cover — HCT-toned per theme so they always keep
+    // proper contrast (dark: light accent over dark field; light: dark accent
+    // over light field). Previously these came from the *vibrant* seed, which
+    // only existed on the fresh-extraction path: a PlayerPaletteCache hit left
+    // the seeds null and collapsed both tones onto the same dominant color —
+    // pill text invisible against the pill. Deriving from dominantColor fixes
+    // that and matches the user request (2026-09-01): "button and control theme
+    // based on the dominant color from the album art". dominantColor falls back
+    // to the theme primary only when no palette has ever resolved.
     val targetV10FieldColor =
-        remember(v10ArtworkSeeds, useDarkTheme) {
-            val seeds = v10ArtworkSeeds
-            if (seeds == null) {
-                dominantColor
-            } else {
-                val hct = seeds.first.toHct()
-                if (useDarkTheme) hct.withTone(30.0).toColor() else hct.withTone(90.0).toColor()
-            }
+        remember(dominantColor, useDarkTheme) {
+            val hct = dominantColor.toHct()
+            if (useDarkTheme) hct.withTone(30.0).toColor() else hct.withTone(90.0).toColor()
         }
     val dynamicV10FieldColor by animateColorAsState(
         targetValue = targetV10FieldColor,
@@ -707,14 +695,9 @@ fun BottomSheetPlayer(
         label = "dynamicV10FieldColor",
     )
     val targetV10AccentColor =
-        remember(v10ArtworkSeeds, useDarkTheme) {
-            val seeds = v10ArtworkSeeds
-            if (seeds == null) {
-                dominantColor
-            } else {
-                val hct = seeds.first.toHct()
-                if (useDarkTheme) hct.withTone(90.0).toColor() else hct.withTone(10.0).toColor()
-            }
+        remember(dominantColor, useDarkTheme) {
+            val hct = dominantColor.toHct()
+            if (useDarkTheme) hct.withTone(90.0).toColor() else hct.withTone(10.0).toColor()
         }
     val dynamicV10AccentColor by animateColorAsState(
         targetValue = targetV10AccentColor,
@@ -996,7 +979,11 @@ fun BottomSheetPlayer(
     }
 
     val dynamicQueuePeekHeight =
-        if (playerDesignStyle == PlayerDesignStyle.V5 || playerDesignStyle == PlayerDesignStyle.APPLE_MUSIC) {
+        if (playerDesignStyle == PlayerDesignStyle.V5 ||
+            playerDesignStyle == PlayerDesignStyle.APPLE_MUSIC ||
+            playerDesignStyle == PlayerDesignStyle.BITCHORD ||
+            playerDesignStyle == PlayerDesignStyle.TIKTOK
+        ) {
             0.dp
         } else if (playerDesignStyle == PlayerDesignStyle.V9) {
             88.dp +
@@ -1632,7 +1619,9 @@ fun BottomSheetPlayer(
             playerDesignStyle != PlayerDesignStyle.V7 &&
             playerDesignStyle != PlayerDesignStyle.V8 &&
             playerDesignStyle != PlayerDesignStyle.V9 &&
-            playerDesignStyle != PlayerDesignStyle.APPLE_MUSIC
+            playerDesignStyle != PlayerDesignStyle.APPLE_MUSIC &&
+            playerDesignStyle != PlayerDesignStyle.BITCHORD &&
+            playerDesignStyle != PlayerDesignStyle.TIKTOK
         ) {
             PlayerBackground(
                 playerBackground = playerBackground,
@@ -1994,6 +1983,66 @@ fun BottomSheetPlayer(
                                         WindowInsets(top = LocalStableSystemBarsTopPadding.current)
                                             .union(WindowInsets.systemBars.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)),
                                     ).nestedScroll(state.preUpPostDownNestedScrollConnection),
+                        )
+                    }
+                } else if (playerDesignStyle == PlayerDesignStyle.BITCHORD) {
+                    // A self-contained port of BitChord's NowPlayingScreen: mesh backdrop, sleeve,
+                    // hairline scrubber, inline queue and lyrics. Its content column is width-capped,
+                    // so the same portrait-first layout degrades gracefully on a wide screen rather
+                    // than stretching — which is why it is not orientation-branched.
+                    enrichedMetadata?.let { metadata ->
+                        BitChordPlayerContent(
+                            mediaMetadata = metadata,
+                            isPlaying = isPlaying,
+                            isLoading = isLoading,
+                            canSkipPrevious = canSkipPrevious,
+                            canSkipNext = canSkipNext,
+                            position = position,
+                            duration = duration,
+                            playerConnection = playerConnection,
+                            navController = navController,
+                            state = state,
+                            menuState = menuState,
+                            bottomSheetPageState = bottomSheetPageState,
+                            currentFormat = currentFormat,
+                            modifier =
+                                Modifier
+                                    .fillMaxSize()
+                                    .nestedScroll(state.preUpPostDownNestedScrollConnection),
+                        )
+                    }
+                } else if (playerDesignStyle == PlayerDesignStyle.TIKTOK) {
+                    // A full-screen vertical feed over the real queue — swipe up for the next song,
+                    // down for the previous. The page's hero sizes itself to the middle zone, so the
+                    // same layout is width-limited in portrait and height-limited in landscape, and
+                    // the pager plus the sheet's nested-scroll connection divide vertical drags
+                    // between paging and collapsing the player.
+                    //
+                    // No onOpenQueue: the feed opens the Apple Music queue sheet in place itself.
+                    enrichedMetadata?.let { metadata ->
+                        TikTokPlayerContent(
+                            mediaMetadata = metadata,
+                            isPlaying = isPlaying,
+                            isLoading = isLoading,
+                            canSkipPrevious = canSkipPrevious,
+                            canSkipNext = canSkipNext,
+                            sliderPosition = sliderPosition,
+                            position = position,
+                            duration = duration,
+                            playerConnection = playerConnection,
+                            navController = navController,
+                            state = state,
+                            menuState = menuState,
+                            bottomSheetPageState = bottomSheetPageState,
+                            lyricsVisible = isLyricsScreenVisible,
+                            lyricsSyncOffset = lyricsSyncOffset,
+                            onLyricsSyncOffsetChange = { lyricsSyncOffset = it },
+                            onSeek = onSliderValueChange,
+                            onSeekFinished = onSliderValueChangeFinished,
+                            modifier =
+                                Modifier
+                                    .fillMaxSize()
+                                    .nestedScroll(state.preUpPostDownNestedScrollConnection),
                         )
                     }
                 } else if (playerDesignStyle == PlayerDesignStyle.APPLE_MUSIC) {
@@ -2417,6 +2466,66 @@ fun BottomSheetPlayer(
                         )
                     }
 
+                } else if (playerDesignStyle == PlayerDesignStyle.BITCHORD) {
+                    // A self-contained port of BitChord's NowPlayingScreen: mesh backdrop, sleeve,
+                    // hairline scrubber, inline queue and lyrics. Its content column is width-capped,
+                    // so the same portrait-first layout degrades gracefully on a wide screen rather
+                    // than stretching — which is why it is not orientation-branched.
+                    enrichedMetadata?.let { metadata ->
+                        BitChordPlayerContent(
+                            mediaMetadata = metadata,
+                            isPlaying = isPlaying,
+                            isLoading = isLoading,
+                            canSkipPrevious = canSkipPrevious,
+                            canSkipNext = canSkipNext,
+                            position = position,
+                            duration = duration,
+                            playerConnection = playerConnection,
+                            navController = navController,
+                            state = state,
+                            menuState = menuState,
+                            bottomSheetPageState = bottomSheetPageState,
+                            currentFormat = currentFormat,
+                            modifier =
+                                Modifier
+                                    .fillMaxSize()
+                                    .nestedScroll(state.preUpPostDownNestedScrollConnection),
+                        )
+                    }
+                } else if (playerDesignStyle == PlayerDesignStyle.TIKTOK) {
+                    // A full-screen vertical feed over the real queue — swipe up for the next song,
+                    // down for the previous. The page's hero sizes itself to the middle zone, so the
+                    // same layout is width-limited in portrait and height-limited in landscape, and
+                    // the pager plus the sheet's nested-scroll connection divide vertical drags
+                    // between paging and collapsing the player.
+                    //
+                    // No onOpenQueue: the feed opens the Apple Music queue sheet in place itself.
+                    enrichedMetadata?.let { metadata ->
+                        TikTokPlayerContent(
+                            mediaMetadata = metadata,
+                            isPlaying = isPlaying,
+                            isLoading = isLoading,
+                            canSkipPrevious = canSkipPrevious,
+                            canSkipNext = canSkipNext,
+                            sliderPosition = sliderPosition,
+                            position = position,
+                            duration = duration,
+                            playerConnection = playerConnection,
+                            navController = navController,
+                            state = state,
+                            menuState = menuState,
+                            bottomSheetPageState = bottomSheetPageState,
+                            lyricsVisible = isLyricsScreenVisible,
+                            lyricsSyncOffset = lyricsSyncOffset,
+                            onLyricsSyncOffsetChange = { lyricsSyncOffset = it },
+                            onSeek = onSliderValueChange,
+                            onSeekFinished = onSliderValueChangeFinished,
+                            modifier =
+                                Modifier
+                                    .fillMaxSize()
+                                    .nestedScroll(state.preUpPostDownNestedScrollConnection),
+                        )
+                    }
                 } else if (playerDesignStyle == PlayerDesignStyle.APPLE_MUSIC) {
                     enrichedMetadata?.let { metadata ->
                         AppleMusicPlayerContent(
@@ -2551,7 +2660,11 @@ fun BottomSheetPlayer(
         //    (possibly light, dynamic-themed) surface. This mirrors upstream
         //    rukamori/ArchiveTune Player.kt.
         val queueOnBackgroundColor =
-            if (playerDesignStyle == PlayerDesignStyle.APPLE_MUSIC || useBlackBackground) {
+            if (playerDesignStyle == PlayerDesignStyle.APPLE_MUSIC ||
+                playerDesignStyle == PlayerDesignStyle.BITCHORD ||
+                playerDesignStyle == PlayerDesignStyle.TIKTOK ||
+                useBlackBackground
+            ) {
                 Color.White
             } else {
                 MaterialTheme.colorScheme.onSurface

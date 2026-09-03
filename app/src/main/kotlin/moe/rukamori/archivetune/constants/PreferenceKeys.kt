@@ -1079,6 +1079,18 @@ enum class PlayerDesignStyle {
     V9,
     APPLE_MUSIC,
     V10,
+
+    /**
+     * Self-contained styles: their layout, controls, lyrics surface and backdrop live in their own
+     * package and share nothing with the numbered styles above.
+     *
+     * [BITCHORD] is the BitChord "Now Playing" screen — a mesh-gradient field with the artwork
+     * dissolving into it. [TIKTOK] is a full-screen vertical feed where each queue entry is one
+     * page: swipe up for the next song, down for the previous. Both are views over the app's one
+     * playback engine and queue, not players of their own.
+     */
+    BITCHORD,
+    TIKTOK,
 }
 
 enum class PlayerBackgroundStyle {
@@ -1271,6 +1283,23 @@ val InnerTubeOAuthRefreshTokenKey = stringPreferencesKey("innerTubeOAuthRefreshT
 
 /** Epoch millis at which [InnerTubeOAuthTokenKey] expires, so a refresh happens before a 401. */
 val InnerTubeOAuthExpiresAtKey = longPreferencesKey("innerTubeOAuthExpiresAt")
+
+/**
+ * Google account chosen from the system picker, when signed in via microG / Play Services.
+ *
+ * Set means the token in [InnerTubeOAuthTokenKey] came from AccountManager rather than the device
+ * flow, and so is refreshed by asking the authenticator again instead of with a refresh token —
+ * AccountManager never gives one out. See GmsAccountRepository.
+ */
+val GmsAccountNameKey = stringPreferencesKey("gmsAccountName")
+
+/**
+ * Which authenticator issued the session — `app.revanced` for ReVanced GmsCore, `com.mgoogle` for
+ * Vanced-era microG, `com.google` for microG installed in Play Services' place. Stored because a
+ * silent refresh has to invalidate and re-request against the same one, and a device can host more
+ * than one.
+ */
+val GmsAccountTypeKey = stringPreferencesKey("gmsAccountType")
 val PoTokenKey = stringPreferencesKey("poToken")
 val AccountNameKey = stringPreferencesKey("accountName")
 val AccountEmailKey = stringPreferencesKey("accountEmail")
