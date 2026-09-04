@@ -1635,8 +1635,19 @@ class MediaLibrarySessionCallback
                 runCatching {
                     spotifyLibraryRepository
                         .likedSongs()
+                        // Capped like every other Auto list. A Spotify track is not playable until
+                        // it has been matched to a stream, and a liked library runs to hundreds or
+                        // thousands — resolving all of them is a browse callback that never
+                        // returns. AUTO_BROWSE_LIMIT is what the rest of the tree already shows.
                         .take(AUTO_BROWSE_LIMIT)
-                        .map { it.toMediaItem() }
+                        .chunked(SPOTIFY_RESOLVE_BATCH_SIZE)
+                        .flatMap { batch ->
+                            coroutineScope {
+                                batch.map { track ->
+                                    async { SpotifyPlaybackResolver.resolveToMediaItem(track) }
+                                }.awaitAll()
+                            }.filterNotNull()
+                        }
                 }.getOrElse { emptyList() }
             if (resolved.isNotEmpty()) spotifyPlaylistItemCache[SPOTIFY_LIKED_CACHE_KEY] = resolved
             return resolved
