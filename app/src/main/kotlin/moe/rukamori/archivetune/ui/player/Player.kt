@@ -240,6 +240,7 @@ import moe.rukamori.archivetune.utils.rememberEnumPreference
 import moe.rukamori.archivetune.utils.rememberLowDataModeActive
 import moe.rukamori.archivetune.utils.rememberPreference
 import moe.rukamori.archivetune.ui.player.bitchord.BitChordPlayerContent
+import moe.rukamori.archivetune.ui.player.simpmusic.SimpMusicPlayerContent
 import moe.rukamori.archivetune.ui.player.tiktok.TikTokPlayerContent
 import java.util.Locale
 import kotlin.math.abs
@@ -419,7 +420,8 @@ fun BottomSheetPlayer(
             playerDesignStyle == PlayerDesignStyle.V9 ||
             playerDesignStyle == PlayerDesignStyle.APPLE_MUSIC ||
             playerDesignStyle == PlayerDesignStyle.BITCHORD ||
-            playerDesignStyle == PlayerDesignStyle.TIKTOK
+            playerDesignStyle == PlayerDesignStyle.TIKTOK ||
+            playerDesignStyle == PlayerDesignStyle.SIMPMUSIC
     val playerBackground =
         if (playerUsesFixedBackground) PlayerBackgroundStyle.DEFAULT else storedPlayerBackground
 
@@ -982,7 +984,8 @@ fun BottomSheetPlayer(
         if (playerDesignStyle == PlayerDesignStyle.V5 ||
             playerDesignStyle == PlayerDesignStyle.APPLE_MUSIC ||
             playerDesignStyle == PlayerDesignStyle.BITCHORD ||
-            playerDesignStyle == PlayerDesignStyle.TIKTOK
+            playerDesignStyle == PlayerDesignStyle.TIKTOK ||
+            playerDesignStyle == PlayerDesignStyle.SIMPMUSIC
         ) {
             0.dp
         } else if (playerDesignStyle == PlayerDesignStyle.V9) {
@@ -1046,6 +1049,17 @@ fun BottomSheetPlayer(
 
     var isLyricsScreenVisible by rememberSaveable {
         mutableStateOf(false)
+    }
+
+    // The lyrics overlay belongs to the EXPANDED player: it is opened from it, drawn over it, and
+    // every way out of it — the BackHandler below, LyricsScreen's own, and the top-edge dismiss
+    // drag — is gated on `state.isExpandedOrExpanding`. Nothing tied the overlay's own lifetime to
+    // that, so collapsing the player while lyrics were open (a drag on the sheet, ON_STOP, or a
+    // restore from process death, since the flag is rememberSaveable) left the overlay covering
+    // the whole app with all three of those disabled at once: back did nothing at all and there
+    // was no way back to the player. It closes with the player it was opened from now.
+    LaunchedEffect(state.isExpandedOrExpanding) {
+        if (!state.isExpandedOrExpanding) isLyricsScreenVisible = false
     }
 
     // ISSUE 1 FIX: track Apple Music's INLINE lyrics open state separately from
@@ -1621,7 +1635,8 @@ fun BottomSheetPlayer(
             playerDesignStyle != PlayerDesignStyle.V9 &&
             playerDesignStyle != PlayerDesignStyle.APPLE_MUSIC &&
             playerDesignStyle != PlayerDesignStyle.BITCHORD &&
-            playerDesignStyle != PlayerDesignStyle.TIKTOK
+            playerDesignStyle != PlayerDesignStyle.TIKTOK &&
+            playerDesignStyle != PlayerDesignStyle.SIMPMUSIC
         ) {
             PlayerBackground(
                 playerBackground = playerBackground,
@@ -2037,6 +2052,35 @@ fun BottomSheetPlayer(
                             lyricsVisible = isLyricsScreenVisible,
                             lyricsSyncOffset = lyricsSyncOffset,
                             onLyricsSyncOffsetChange = { lyricsSyncOffset = it },
+                            onSeek = onSliderValueChange,
+                            onSeekFinished = onSliderValueChangeFinished,
+                            modifier =
+                                Modifier
+                                    .fillMaxSize()
+                                    .nestedScroll(state.preUpPostDownNestedScrollConnection),
+                        )
+                    }
+                } else if (playerDesignStyle == PlayerDesignStyle.SIMPMUSIC) {
+                    // SimpMusic's default now-playing screen: a diagonal wash pulled from the
+                    // artwork palette, the sleeve on a pager backed by the real queue, then the
+                    // info row, scrubber and transport. Like the two styles above it sizes itself
+                    // to whatever box it is given, so it is not orientation-branched.
+                    enrichedMetadata?.let { metadata ->
+                        SimpMusicPlayerContent(
+                            mediaMetadata = metadata,
+                            isPlaying = isPlaying,
+                            isLoading = isLoading,
+                            canSkipPrevious = canSkipPrevious,
+                            canSkipNext = canSkipNext,
+                            sliderPosition = sliderPosition,
+                            position = position,
+                            duration = duration,
+                            playerConnection = playerConnection,
+                            navController = navController,
+                            state = state,
+                            menuState = menuState,
+                            bottomSheetPageState = bottomSheetPageState,
+                            currentFormat = currentFormat,
                             onSeek = onSliderValueChange,
                             onSeekFinished = onSliderValueChangeFinished,
                             modifier =
@@ -2526,6 +2570,35 @@ fun BottomSheetPlayer(
                                     .nestedScroll(state.preUpPostDownNestedScrollConnection),
                         )
                     }
+                } else if (playerDesignStyle == PlayerDesignStyle.SIMPMUSIC) {
+                    // SimpMusic's default now-playing screen: a diagonal wash pulled from the
+                    // artwork palette, the sleeve on a pager backed by the real queue, then the
+                    // info row, scrubber and transport. Like the two styles above it sizes itself
+                    // to whatever box it is given, so it is not orientation-branched.
+                    enrichedMetadata?.let { metadata ->
+                        SimpMusicPlayerContent(
+                            mediaMetadata = metadata,
+                            isPlaying = isPlaying,
+                            isLoading = isLoading,
+                            canSkipPrevious = canSkipPrevious,
+                            canSkipNext = canSkipNext,
+                            sliderPosition = sliderPosition,
+                            position = position,
+                            duration = duration,
+                            playerConnection = playerConnection,
+                            navController = navController,
+                            state = state,
+                            menuState = menuState,
+                            bottomSheetPageState = bottomSheetPageState,
+                            currentFormat = currentFormat,
+                            onSeek = onSliderValueChange,
+                            onSeekFinished = onSliderValueChangeFinished,
+                            modifier =
+                                Modifier
+                                    .fillMaxSize()
+                                    .nestedScroll(state.preUpPostDownNestedScrollConnection),
+                        )
+                    }
                 } else if (playerDesignStyle == PlayerDesignStyle.APPLE_MUSIC) {
                     enrichedMetadata?.let { metadata ->
                         AppleMusicPlayerContent(
@@ -2663,6 +2736,7 @@ fun BottomSheetPlayer(
             if (playerDesignStyle == PlayerDesignStyle.APPLE_MUSIC ||
                 playerDesignStyle == PlayerDesignStyle.BITCHORD ||
                 playerDesignStyle == PlayerDesignStyle.TIKTOK ||
+                playerDesignStyle == PlayerDesignStyle.SIMPMUSIC ||
                 useBlackBackground
             ) {
                 Color.White
