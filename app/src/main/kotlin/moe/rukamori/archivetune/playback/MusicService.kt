@@ -12177,22 +12177,12 @@ class MusicService :
         const val CROSSFADE_MAX_BUFFER_BEFORE_START_MS = 12_500L
         const val PRIMARY_MIN_BUFFER_MS = 20_000
         const val PRIMARY_MAX_BUFFER_MS = 60_000
-        // Reduced from 750ms / 2_500ms → 150ms / 750ms for faster song-start
-        // latency. Combined with stream URL prefetching (see
-        // prefetchNextMediaItemStream) this cuts perceived "tap to play" time
-        // from ~1.5-3s down to ~150-400ms when the stream URL is cached.
-        // 150ms is just above the ExoPlayer default of 250ms but small enough
-        // that FLAC / YouTube streams start audibly within ~1 RTT of the
-        // first TCP packet arriving. The after-rebuffer floor was lowered
-        // from 1_000ms → 750ms for the same reason — the user is already
-        // waiting on a rebuffer, so making them wait a full extra second on
-        // top of the network RTT is excessive. `setPrioritizeTimeOverSizeThresholds(true)`
-        // on the LoadControl means ExoPlayer will start playback as soon as
-        // the time threshold is met, even if the size-based threshold hasn't
-        // been reached — important for FLAC where the bitrate is 4-6× higher
-        // than AAC, so the same byte count represents far less playback time.
-        const val PRIMARY_BUFFER_FOR_PLAYBACK_MS = 150
-        const val PRIMARY_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS = 750
+        // Buffer thresholds tuned for high-bitrate FLAC (1411kbps) and fallback CDNs.
+        // Initial start buffer of 500ms gives rapid song-start (~0.5s) while preventing immediate
+        // buffer underrun. Re-buffer threshold is set to 2,500ms so that once a network stall occurs,
+        // ExoPlayer gathers a healthy 2.5s buffer before resuming, preventing rapid 1-second pause/play stuttering.
+        const val PRIMARY_BUFFER_FOR_PLAYBACK_MS = 500
+        const val PRIMARY_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS = 2_500
         const val CROSSFADE_MIN_BUFFER_MS = 15_000
         const val CROSSFADE_MAX_BUFFER_MS = 45_000
         const val CROSSFADE_FRAME_MS = 32L
