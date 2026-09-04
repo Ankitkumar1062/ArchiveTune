@@ -87,7 +87,7 @@ object LosslessStreamResolver {
         formatId: Int,
         isrc: String? = null,
     ): DirectStream? {
-        val resolvedIsrc = isrc ?: moe.rukamori.archivetune.audiosource.IsrcResolver.resolveBlocking(mediaId, title, artists, durationMs)
+        val resolvedIsrc = isrc ?: moe.rukamori.archivetune.audiosource.IsrcResolver.resolveBlocking(mediaId, title, artists, durationMs)?.isrc
         val userInstances = parseMultiline(context, QobuzInstancesKey)
         val discoveredInstances = runCatching { QobuzAudioProvider.discoverInstances() }
             .getOrDefault(emptyList())
@@ -162,7 +162,7 @@ object LosslessStreamResolver {
         cacheDir: File,
         isrc: String? = null,
     ): DirectStream? {
-        val resolvedIsrc = isrc ?: moe.rukamori.archivetune.audiosource.IsrcResolver.resolveBlocking(mediaId, title, artists, durationMs)
+        val resolvedIsrc = isrc ?: moe.rukamori.archivetune.audiosource.IsrcResolver.resolveBlocking(mediaId, title, artists, durationMs)?.isrc
         val apiQuality = when (audioQuality) {
             TidalAudioQuality.HI_RES_LOSSLESS -> "HI_RES_LOSSLESS"
             TidalAudioQuality.FLAC -> "LOSSLESS"
@@ -298,6 +298,7 @@ object LosslessStreamResolver {
                 matchedArtist = resolved.matchedArtist,
                 matchedAlbum = resolved.matchedAlbum,
                 matchedDurationMs = resolved.matchedDurationMs,
+                matchedIsrc = resolved.matchedIsrc,
             )
         }
     }
@@ -374,7 +375,7 @@ object LosslessStreamResolver {
         format: String,
         isrc: String? = null,
     ): DirectStream? {
-        val resolvedIsrc = isrc ?: moe.rukamori.archivetune.audiosource.IsrcResolver.resolveBlocking(mediaId, title, artists, durationMs)
+        val resolvedIsrc = isrc ?: moe.rukamori.archivetune.audiosource.IsrcResolver.resolveBlocking(mediaId, title, artists, durationMs)?.isrc
         if (!DeezerAudioProvider.hasAccounts()) {
             Timber.tag("LosslessResolver").d("Deezer skip: no manual or pooled accounts available")
             return null
@@ -406,6 +407,7 @@ object LosslessStreamResolver {
                             matchedAlbum = resolved.matchedAlbum,
                             matchedDurationMs = resolved.matchedDurationMs,
                             matchedIsExplicit = resolved.matchedIsExplicit,
+                            matchedIsrc = resolved.matchedIsrc,
                             sampleRate = resolved.sampleRate,
                             bitDepth = resolved.bitDepth,
                         )
@@ -542,7 +544,7 @@ object LosslessStreamResolver {
     }
 
     /** Strips punctuation and whitespace so titles compare on their words alone. */
-    private val SAAVN_NORMALIZE_REGEX = Regex("[^a-z0-9]")
+    private val SAAVN_NORMALIZE_REGEX = Regex("[^\\p{L}\\p{N}]")
 
     /**
      * Returns the cache key prefix for [source], matching

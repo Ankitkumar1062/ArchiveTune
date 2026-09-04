@@ -8,6 +8,7 @@
 package moe.rukamori.archivetune.audiosource
 
 import moe.rukamori.archivetune.constants.AudioSourceType
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -73,6 +74,46 @@ class TitleMatchTest {
         assertFalse(result.accepted)
     }
 
+    @Test
+    fun fastGate_acceptsExactIsrcMatchEvenWhenTitlesDifferAcrossLanguages() {
+        val result =
+            TitleMatch.evaluate(
+                wantedTitle = "色彩",
+                wantedArtists = listOf("yama"),
+                wantedAlbum = null,
+                wantedDurationMs = 191_000,
+                wantedIsrc = "JPES02202685",
+                stream = stream(
+                    title = "color",
+                    artist = "yama",
+                    durationMs = 191_500,
+                    matchedIsrc = "JPES02202685",
+                ),
+            )
+
+        assertTrue(result.accepted)
+        assertEquals("isrc verified match", result.reason)
+    }
+
+    @Test
+    fun dualTitleMatch_acceptsLocalizedEnglishTitleWhenJapaneseTitleUsedOnYouTube() {
+        val result =
+            TitleMatch.evaluate(
+                wantedTitle = "色彩",
+                wantedArtists = listOf("yama"),
+                wantedAlbum = null,
+                wantedDurationMs = 191_000,
+                localizedTitle = "color",
+                stream = stream(
+                    title = "color",
+                    artist = "yama",
+                    durationMs = 191_500,
+                ),
+            )
+
+        assertTrue(result.accepted)
+    }
+
     private fun evaluate(stream: DirectStream): TitleMatch.Result =
         TitleMatch.evaluate(
             wantedTitle = "Stay",
@@ -87,6 +128,7 @@ class TitleMatchTest {
         artist: String?,
         album: String? = null,
         durationMs: Long?,
+        matchedIsrc: String? = null,
     ) = DirectStream(
         uri = "https://example.invalid/audio.flac",
         mimeType = "audio/flac",
@@ -98,5 +140,6 @@ class TitleMatchTest {
         matchedArtist = artist,
         matchedAlbum = album,
         matchedDurationMs = durationMs,
+        matchedIsrc = matchedIsrc,
     )
 }

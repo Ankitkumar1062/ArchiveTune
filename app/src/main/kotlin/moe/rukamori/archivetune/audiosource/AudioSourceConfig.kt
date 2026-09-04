@@ -7,6 +7,7 @@
 package moe.rukamori.archivetune.audiosource
 
 import java.text.Normalizer
+import java.util.Locale
 import moe.rukamori.archivetune.constants.AudioSourceType
 import kotlin.math.abs
 import kotlin.math.max
@@ -33,6 +34,7 @@ data class DirectStream(
     val matchedAlbum: String? = null,
     val matchedDurationMs: Long? = null,
     val matchedIsExplicit: Boolean? = null,
+    val matchedIsrc: String? = null,
     /** True only when the provider resolved a catalog id that is already authoritative. */
     val trustedDirectId: Boolean = false,
     /**
@@ -157,6 +159,8 @@ object TitleMatch {
         wantedDurationMs: Long?,
         stream: DirectStream,
         wantedIsExplicit: Boolean? = null,
+        wantedIsrc: String? = null,
+        localizedTitle: String? = null,
     ): Result {
         if (stream.trustedDirectId) return Result(true, 1.0, 1.0, 1.0, 1.0, "trusted catalog id")
         if (TrackMatching.hasExplicitMismatch(wantedIsExplicit, stream.matchedIsExplicit)) {
@@ -164,11 +168,23 @@ object TitleMatch {
         }
         val candidateTitle = stream.matchedTitle
             ?: return Result(false, 0.0, 0.0, null, null, "provider returned no matched metadata")
-        if (hasVersionMismatch(wantedTitle, candidateTitle)) {
+        if (hasVersionMismatch(wantedTitle, candidateTitle) && (localizedTitle == null || hasVersionMismatch(localizedTitle, candidateTitle))) {
             return Result(false, 0.0, ratio(wantedTitle, candidateTitle), null, null, "version mismatch")
         }
 
-        val titleScore = ratio(wantedTitle, candidateTitle)
+        // Authoritative ISRC verification fast-path:
+        // When the candidate stream carries an identical verified ISRC code, trust the recording metadata
+        if (wantedIsrc != null && stream.matchedIsrc != null) {
+            val normWantedIsrc = wantedIsrc.uppercase(Locale.US).replace(Regex("[^A-Z0-9]"), "")
+            val normMatchedIsrc = stream.matchedIsrc.uppercase(Locale.US).replace(Regex("[^A-Z0-9]"), "")
+            if (normWantedIsrc.isNotBlank() && normWantedIsrc == normMatchedIsrc) {
+                return Result(true, 1.0, 1.0, 1.0, 1.0, "isrc verified match")
+            }
+        }
+
+        val directTitleScore = ratio(wantedTitle, candidateTitle)
+        val localizedTitleScore = localizedTitle?.takeIf(String::isNotBlank)?.let { ratio(it, candidateTitle) } ?: 0.0
+        val titleScore = maxOf(directTitleScore, localizedTitleScore)
         val durationScore = durationScore(wantedDurationMs, stream.matchedDurationMs)
 
         val wantedArtist = wantedArtists.joinToString(", ").takeIf { it.isNotBlank() }
@@ -197,7 +213,7 @@ object TitleMatch {
             val score = titleScore * 0.8 + (durationScore ?: 0.5) * 0.2
             return Result(accepted, score, titleScore, null, durationScore, if (accepted) "strict title fallback" else "artist metadata unavailable")
         }
-        if (titleScore < MIN_TITLE_WITH_METADATA && !containsTokenRun(candidateTitle, wantedTitle)) {
+        if (titleScore < MIN_TITLE_WITH_METADATA && !containsTokenRun(candidateTitle, wantedTitle) && (localizedTitle == null || !containsTokenRun(candidateTitle, localizedTitle))) {
             return Result(false, 0.0, titleScore, artistScore, durationScore, "title mismatch")
         }
 

@@ -290,6 +290,7 @@ object DeezerAudioProvider {
         val matchedAlbum: String?,
         val matchedDurationMs: Long?,
         val matchedIsExplicit: Boolean? = null,
+        val matchedIsrc: String? = null,
         val sampleRate: Int?,
         val bitDepth: Int?,
     )
@@ -449,6 +450,7 @@ object DeezerAudioProvider {
                 matchedAlbum = resolvedMatch.album,
                 matchedDurationMs = resolvedMatch.durationMs,
                 matchedIsExplicit = resolvedMatch.isExplicit,
+                matchedIsrc = resolvedMatch.isrc,
                 // Deezer's gateway does not report either, and FLAC here is always CD-quality, so
                 // report the known 16/44.1 for FLAC and leave MP3 to the consumer's tier heuristic.
                 sampleRate = if (resolvedMedia.flac) 44_100 else null,

@@ -85,15 +85,21 @@ object IsrcResolver {
             .callTimeout(12, TimeUnit.SECONDS)
             .build()
 
+    data class MatchResult(
+        val isrc: String,
+        val localizedTitle: String? = null,
+        val localizedArtist: String? = null,
+    )
+
     private data class CachedIsrc(
-        val isrc: String?,
+        val result: MatchResult?,
         val expiresAt: Long,
     )
 
     private val cache = ConcurrentHashMap<String, CachedIsrc>()
 
     /**
-     * Resolves the verified ISRC for [title] + [artists] + [durationMs] + [isExplicit].
+     * Resolves the verified ISRC and localized metadata for [title] + [artists] + [durationMs] + [isExplicit].
      * Returns null if no candidate passes the 4-rule sanity gate.
      */
     suspend fun resolve(
@@ -102,12 +108,12 @@ object IsrcResolver {
         artists: List<String>,
         durationMs: Long?,
         isExplicit: Boolean? = null,
-    ): String? {
+    ): MatchResult? {
         if (title.isBlank()) return null
         val cacheKey = cacheKey(mediaId, title, artists, isExplicit)
         val now = System.currentTimeMillis()
         cache[cacheKey]?.let { cached ->
-            if (cached.expiresAt > now) return cached.isrc
+            if (cached.expiresAt > now) return cached.result
             cache.remove(cacheKey)
         }
 
@@ -120,12 +126,21 @@ object IsrcResolver {
 
         cache[cacheKey] = CachedIsrc(resolved, now + CACHE_TTL_MS)
         if (resolved != null) {
-            Timber.tag(TAG).i("Resolved ISRC \"%s\" for \"%s - %s\" (explicit=%s)", resolved, artists.firstOrNull(), title, isExplicit)
+            Timber.tag(TAG).i("Resolved ISRC \"%s\" (localized=\"%s\") for \"%s - %s\" (explicit=%s)", resolved.isrc, resolved.localizedTitle, artists.firstOrNull(), title, isExplicit)
         } else {
             Timber.tag(TAG).d("No verified ISRC found for \"%s - %s\"", artists.firstOrNull(), title)
         }
         return resolved
     }
+
+    /** Returns just the ISRC string for call sites that only require the ISRC identifier. */
+    suspend fun resolveIsrc(
+        mediaId: String?,
+        title: String,
+        artists: List<String>,
+        durationMs: Long?,
+        isExplicit: Boolean? = null,
+    ): String? = resolve(mediaId, title, artists, durationMs, isExplicit)?.isrc
 
     /** Blocking bridge for non-suspending call sites (e.g. loader threads). */
     fun resolveBlocking(
@@ -134,22 +149,24 @@ object IsrcResolver {
         artists: List<String>,
         durationMs: Long?,
         isExplicit: Boolean? = null,
-    ): String? =
+    ): MatchResult? =
         runBlocking(Dispatchers.IO) {
             resolve(mediaId, title, artists, durationMs, isExplicit)
         }
 
-    /** Manually primes the cache with a known ISRC (e.g., from DB). */
+    /** Manually primes the cache with a known ISRC and optional localized title (e.g., from DB or Spotify). */
     fun cacheIsrc(
         mediaId: String?,
         title: String,
         artists: List<String>,
         isrc: String,
         isExplicit: Boolean? = null,
+        localizedTitle: String? = null,
     ) {
         val normalized = normalizeIsrc(isrc) ?: return
         val key = cacheKey(mediaId, title, artists, isExplicit)
-        cache[key] = CachedIsrc(normalized, System.currentTimeMillis() + CACHE_TTL_MS)
+        val result = MatchResult(isrc = normalized, localizedTitle = localizedTitle?.takeIf(String::isNotBlank) ?: title)
+        cache[key] = CachedIsrc(result, System.currentTimeMillis() + CACHE_TTL_MS)
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
@@ -161,7 +178,7 @@ object IsrcResolver {
         artists: List<String>,
         durationMs: Long?,
         isExplicit: Boolean?,
-    ): String? =
+    ): MatchResult? =
         runCatching {
             val cleanTitle = cleanSearchTitle(title)
             val primaryArtist = artists.firstOrNull()?.let { cleanArtist(it) }.orEmpty()
@@ -192,7 +209,11 @@ object IsrcResolver {
                     )
                 ) {
                     Timber.tag(TAG).d("Spotify match verified: %s (ISRC: %s, explicit=%s)", track.name, candidateIsrc, candidateExplicit)
-                    return@runCatching candidateIsrc
+                    return@runCatching MatchResult(
+                        isrc = candidateIsrc,
+                        localizedTitle = track.name,
+                        localizedArtist = candidateArtist,
+                    )
                 }
             }
             null
@@ -209,7 +230,7 @@ object IsrcResolver {
         artists: List<String>,
         durationMs: Long?,
         isExplicit: Boolean?,
-    ): String? =
+    ): MatchResult? =
         runCatching {
             val devToken = AppleMusicProvider.getDevToken()
             if (devToken.isBlank()) return@runCatching null
@@ -265,7 +286,11 @@ object IsrcResolver {
                         )
                     ) {
                         Timber.tag(TAG).d("Apple Music match verified: %s (ISRC: %s, explicit=%s)", candidateName, candidateIsrc, candidateExplicit)
-                        return@runCatching candidateIsrc
+                        return@runCatching MatchResult(
+                            isrc = candidateIsrc,
+                            localizedTitle = candidateName,
+                            localizedArtist = candidateArtist,
+                        )
                     }
                 }
             }

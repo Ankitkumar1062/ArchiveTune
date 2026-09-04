@@ -379,7 +379,7 @@ import kotlin.time.Duration.Companion.seconds
 // wanted artist), and a JioSaavn search typically returns 5-20 candidates.
 // Compiling the Pattern once at class-load avoids ~20-80 Regex allocations
 // per stream resolution. Same pattern, same replacement semantics.
-private val JIO_SAAVN_NORMALIZE_REGEX = Regex("[^a-z0-9]")
+private val JIO_SAAVN_NORMALIZE_REGEX = Regex("[^\\p{L}\\p{N}]")
 
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class, UnstableApi::class)
 @AndroidEntryPoint
@@ -8780,6 +8780,8 @@ class MusicService :
         val album: String?,
         val durationMs: Long?,
         val isrc: String? = null,
+        val localizedTitle: String? = null,
+        val localizedArtist: String? = null,
         val isExplicit: Boolean = false,
         /**
          * When non-null, the Qobuz resolver skips its title/artist search and
@@ -8893,14 +8895,16 @@ class MusicService :
             runBlocking { dataStore.data.first()[SongSourceQobuzBackupVideoIdKey] }
         }.getOrNull()
         val directQobuzBackupVideoId = SongSourceQobuzBackupVideoId.get(qobuzBackupVideoIdRaw, mediaId)
-        val isrc = moe.rukamori.archivetune.audiosource.IsrcResolver.resolveBlocking(mediaId, title, artists, durationMs, isExplicit)
+        val isrcResult = moe.rukamori.archivetune.audiosource.IsrcResolver.resolveBlocking(mediaId, title, artists, durationMs, isExplicit)
         return SourceQuery(
             mediaId = mediaId,
             title = title,
             artists = artists,
             album = album,
             durationMs = durationMs,
-            isrc = isrc,
+            isrc = isrcResult?.isrc,
+            localizedTitle = isrcResult?.localizedTitle,
+            localizedArtist = isrcResult?.localizedArtist,
             isExplicit = isExplicit,
             directQobuzTrackId = directQobuzTrackId,
             directQobuzBackupVideoId = directQobuzBackupVideoId,
@@ -9562,6 +9566,8 @@ class MusicService :
                                                 wantedDurationMs = query.durationMs,
                                                 stream = stream,
                                                 wantedIsExplicit = query.isExplicit,
+                                                wantedIsrc = query.isrc,
+                                                localizedTitle = query.localizedTitle,
                                             )
                                         if (match.accepted) {
                                             Timber.tag("MusicService").d(
@@ -9615,6 +9621,8 @@ class MusicService :
                             wantedDurationMs = query.durationMs,
                             stream = stream,
                             wantedIsExplicit = query.isExplicit,
+                            wantedIsrc = query.isrc,
+                            localizedTitle = query.localizedTitle,
                         )
                     if (match.accepted) {
                         Timber.tag("MusicService").d(
@@ -9854,6 +9862,8 @@ class MusicService :
                         wantedDurationMs = query.durationMs,
                         stream = stream,
                         wantedIsExplicit = query.isExplicit,
+                        wantedIsrc = query.isrc,
+                        localizedTitle = query.localizedTitle,
                     )
                 }
             if (match.accepted && match.score > bestScore) {
@@ -10072,6 +10082,7 @@ class MusicService :
             matchedArtist = resolved.matchedArtist,
             matchedAlbum = resolved.matchedAlbum,
             matchedDurationMs = resolved.matchedDurationMs,
+            matchedIsrc = resolved.matchedIsrc,
         )
     }
 
@@ -10262,6 +10273,7 @@ class MusicService :
                             matchedAlbum = resolved.matchedAlbum,
                             matchedDurationMs = resolved.matchedDurationMs,
                             matchedIsExplicit = resolved.matchedIsExplicit,
+                            matchedIsrc = resolved.matchedIsrc,
                             sampleRate = resolved.sampleRate,
                             bitDepth = resolved.bitDepth,
                         )
@@ -10323,12 +10335,27 @@ class MusicService :
                             // Title similarity (simple normalized contains + length delta)
                             val normTitle = song.name.lowercase().replace(JIO_SAAVN_NORMALIZE_REGEX, "")
                             val normWanted = query.title.lowercase().replace(JIO_SAAVN_NORMALIZE_REGEX, "")
-                            penalty += if (normTitle == normWanted) 0 else if (normTitle.contains(normWanted) || normWanted.contains(normTitle)) 1 else 5
+                            val normWantedLocalized = query.localizedTitle?.lowercase()?.replace(JIO_SAAVN_NORMALIZE_REGEX, "")
+                            val titlePenalty = when {
+                                normTitle == normWanted -> 0
+                                normWantedLocalized != null && normTitle == normWantedLocalized -> 0
+                                normTitle.contains(normWanted) || normWanted.contains(normTitle) -> 1
+                                normWantedLocalized != null && (normTitle.contains(normWantedLocalized) || normWantedLocalized.contains(normTitle)) -> 1
+                                else -> 5
+                            }
+                            penalty += titlePenalty
                             // Artist match
                             val candidateArtist = song.artists.primary.firstOrNull()?.name?.lowercase()?.replace(JIO_SAAVN_NORMALIZE_REGEX, "") ?: ""
                             val wantedArtist = artistHint.lowercase().replace(JIO_SAAVN_NORMALIZE_REGEX, "")
-                            if (wantedArtist.isNotBlank() && candidateArtist.isNotBlank()) {
-                                penalty += if (candidateArtist == wantedArtist) 0 else if (candidateArtist.contains(wantedArtist) || wantedArtist.contains(candidateArtist)) 1 else 3
+                            val wantedArtistLocalized = query.localizedArtist?.lowercase()?.replace(JIO_SAAVN_NORMALIZE_REGEX, "")
+                            if (candidateArtist.isNotBlank() && (wantedArtist.isNotBlank() || !wantedArtistLocalized.isNullOrBlank())) {
+                                penalty += when {
+                                    wantedArtist.isNotBlank() && candidateArtist == wantedArtist -> 0
+                                    wantedArtistLocalized != null && candidateArtist == wantedArtistLocalized -> 0
+                                    wantedArtist.isNotBlank() && (candidateArtist.contains(wantedArtist) || wantedArtist.contains(candidateArtist)) -> 1
+                                    wantedArtistLocalized != null && (candidateArtist.contains(wantedArtistLocalized) || wantedArtistLocalized.contains(candidateArtist)) -> 1
+                                    else -> 3
+                                }
                             }
                             // Duration delta
                             if (wantedDurationSec != null && song.duration != null) {

@@ -44,20 +44,20 @@ class IsrcResolverTest {
     }
 
     @Test
-    fun sanityGate_acceptsWithinFiveSecondsTolerance() {
+    fun sanityGate_acceptsWithinThreeSecondsTolerance() {
         val passed = IsrcResolver.verifySanityGate(
             wantedTitle = "Die With A Smile",
             wantedArtists = listOf("Lady Gaga", "Bruno Mars"),
             wantedDurationMs = 251_000L,
             candidateTitle = "Die With A Smile",
             candidateArtist = "Lady Gaga & Bruno Mars",
-            candidateDurationMs = 254_500L, // +3.5s
+            candidateDurationMs = 253_500L, // +2.5s
         )
         assertTrue(passed)
     }
 
     @Test
-    fun sanityGate_rejectsExceedingFiveSecondsTolerance() {
+    fun sanityGate_rejectsExceedingThreeSecondsTolerance() {
         val passed = IsrcResolver.verifySanityGate(
             wantedTitle = "Die With A Smile",
             wantedArtists = listOf("Lady Gaga", "Bruno Mars"),

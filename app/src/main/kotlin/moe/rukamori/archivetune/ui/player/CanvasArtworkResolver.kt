@@ -111,6 +111,15 @@ internal suspend fun fetchCanvasArtworkForPlayback(
     strictIdentity: Boolean = true,
     albumTitle: String? = null,
 ): CanvasArtwork? {
+    val isrcResult = moe.rukamori.archivetune.audiosource.IsrcResolver.resolve(
+        mediaId = null,
+        title = songTitleRaw,
+        artists = listOf(artistNameRaw),
+        durationMs = null,
+    )
+    val localizedTitle = isrcResult?.localizedTitle
+    val localizedArtist = isrcResult?.localizedArtist
+
     val songTitle = normalizeCanvasSongTitle(songTitleRaw)
     val artistName = normalizeCanvasArtistName(artistNameRaw)
     val candidates =
@@ -119,7 +128,13 @@ internal suspend fun fetchCanvasArtworkForPlayback(
             songTitleRaw to artistName,
             songTitle to artistNameRaw,
             songTitleRaw to artistNameRaw,
-        ).filter { (song, artist) ->
+        ).apply {
+            if (!localizedTitle.isNullOrBlank()) {
+                val locArtist = localizedArtist?.takeIf { it.isNotBlank() } ?: artistName
+                add(localizedTitle to locArtist)
+                add(normalizeCanvasSongTitle(localizedTitle) to locArtist)
+            }
+        }.filter { (song, artist) ->
             song.isNotBlank() && artist.isNotBlank()
         }
 
@@ -132,8 +147,11 @@ internal suspend fun fetchCanvasArtworkForPlayback(
                 forceRefresh = forceRefresh,
                 album = albumTitle,
             )?.takeIf { artwork ->
-                artwork.matchesIdentity(songTitleRaw, artistNameRaw, strictIdentity) &&
-                    artwork.hasRequiredCanvasVariant(requireVertical)
+                val matches =
+                    artwork.matchesIdentity(songTitleRaw, artistNameRaw, strictIdentity) ||
+                        (!localizedTitle.isNullOrBlank() &&
+                            artwork.matchesIdentity(localizedTitle, localizedArtist ?: artistNameRaw, strictIdentity))
+                matches && artwork.hasRequiredCanvasVariant(requireVertical)
             }
     }
 }
@@ -241,13 +259,28 @@ internal suspend fun fetchAllCanvasSourcesForSong(
 
     // Apple Music lookup (by song title + artist) — try normalized + raw candidates.
     val appleMusicDeferred = async {
+        val isrcResult = moe.rukamori.archivetune.audiosource.IsrcResolver.resolve(
+            mediaId = null,
+            title = songTitleRaw,
+            artists = listOf(artistNameRaw),
+            durationMs = null,
+        )
+        val localizedTitle = isrcResult?.localizedTitle
+        val localizedArtist = isrcResult?.localizedArtist
+
         val candidates =
             linkedSetOf(
                 songTitle to artistName,
                 songTitleRaw to artistName,
                 songTitle to artistNameRaw,
                 songTitleRaw to artistNameRaw,
-            ).filter { (song, artist) ->
+            ).apply {
+                if (!localizedTitle.isNullOrBlank()) {
+                    val locArtist = localizedArtist?.takeIf { it.isNotBlank() } ?: artistName
+                    add(localizedTitle to locArtist)
+                    add(normalizeCanvasSongTitle(localizedTitle) to locArtist)
+                }
+            }.filter { (song, artist) ->
                 song.isNotBlank() && artist.isNotBlank()
             }
         candidates.firstNotNullOfOrNull { (song, artist) ->

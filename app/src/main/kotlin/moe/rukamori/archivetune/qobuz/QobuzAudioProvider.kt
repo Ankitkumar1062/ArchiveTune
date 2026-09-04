@@ -131,6 +131,7 @@ object QobuzAudioProvider {
         val artist: String?,
         val album: String?,
         val durationMs: Long?,
+        val isrc: String? = null,
     )
 
     /**
@@ -446,6 +447,7 @@ object QobuzAudioProvider {
                     matchedArtist = match.artist,
                     matchedAlbum = match.album,
                     matchedDurationMs = match.durationMs,
+                    matchedIsrc = match.isrc,
                 )
             streamCache[cacheKey] = CachedStream(stream, now + STREAM_CACHE_MS)
             Timber.tag("Qobuz").i("resolved \"%s\" via %s [%s]", query.title, backend.label, stream.label)
@@ -682,6 +684,7 @@ object QobuzAudioProvider {
         var bestArtist: String? = null
         var bestAlbum: String? = null
         var bestDurationMs: Long? = null
+        var bestIsrc: String? = null
         var bestScore = Int.MIN_VALUE
         for (index in 0 until items.length()) {
             val item = items.optJSONObject(index) ?: continue
@@ -704,6 +707,7 @@ object QobuzAudioProvider {
                 bestArtist = candidateArtist.takeIf { it.isNotBlank() }
                 bestAlbum = candidateAlbum
                 bestDurationMs = candidateDurationMs
+                bestIsrc = candidateIsrc
                 bestScore = 200
                 break
             }
@@ -724,11 +728,12 @@ object QobuzAudioProvider {
                 bestArtist = candidateArtist.takeIf { it.isNotBlank() }
                 bestAlbum = candidateAlbum
                 bestDurationMs = candidateDurationMs
+                bestIsrc = candidateIsrc
             }
         }
         val id = bestId
         return if (bestScore >= MIN_MATCH_SCORE && id != null) {
-            Match(id, bestTitle, bestArtist, bestAlbum, bestDurationMs)
+            Match(id, bestTitle, bestArtist, bestAlbum, bestDurationMs, bestIsrc)
         } else {
             null
         }

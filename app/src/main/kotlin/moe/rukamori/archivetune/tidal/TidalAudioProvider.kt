@@ -483,6 +483,7 @@ object TidalAudioProvider {
         val matchedArtist: String? = null,
         val matchedAlbum: String? = null,
         val matchedDurationMs: Long? = null,
+        val matchedIsrc: String? = null,
     )
 
     data class CandidateMetadata(
@@ -775,6 +776,7 @@ object TidalAudioProvider {
                             matchedArtist = track.artistNames.joinToString(", ").takeIf { it.isNotBlank() },
                             matchedAlbum = track.album,
                             matchedDurationMs = track.durationMs,
+                            matchedIsrc = track.isrc,
                         )
                     streamCache[streamCacheKey] = resolved
                     if (directTrackId == null) {
