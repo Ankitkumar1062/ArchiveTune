@@ -51,6 +51,20 @@ class ResolveAudioStreamUseCase
             cache[key]?.takeIf(::isFresh)?.let { return it }
             cache.remove(key)
 
+            if (request.purpose == StreamPurpose.PLAYBACK) {
+                val obsoletePreloads =
+                    inFlight.entries.filter { (activeKey, deferred) ->
+                        activeKey.mediaId != request.mediaId &&
+                            activeKey.purpose == StreamPurpose.DOWNLOAD &&
+                            !deferred.isCompleted
+                    }
+                obsoletePreloads.forEach { (activeKey, deferred) ->
+                    if (inFlight.remove(activeKey, deferred)) {
+                        deferred.cancel()
+                    }
+                }
+            }
+
             val candidate =
                 scope.async(start = CoroutineStart.LAZY) {
                     resolveUncached(request).also { resolved ->
