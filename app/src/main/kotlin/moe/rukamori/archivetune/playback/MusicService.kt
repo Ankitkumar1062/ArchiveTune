@@ -3138,6 +3138,12 @@ class MusicService :
     ): Boolean {
         val outgoingPlayer = localPlayer
         val oldSessionPlayer = player
+        // Whether playback should still be running once ownership has moved. Captured BEFORE the
+        // session player is rebuilt below: that rebuild constructs a fresh wrapper around the
+        // promoted ExoPlayer, and a fresh wrapper does not inherit playWhenReady. Nothing used to
+        // re-assert it, so the promoted player came up paused and the incoming song stopped a few
+        // seconds in — right at the end of the fade, which is what made it look random.
+        val shouldKeepPlaying = crossfadePlaybackRequested || incomingPlayer.playWhenReady || oldSessionPlayer.playWhenReady
         crossfadeHandoffInProgress = true
         return try {
             incomingPlayer.removeListener(secondaryCrossfadeListener)
@@ -3187,6 +3193,13 @@ class MusicService :
             // 4. MediaSession + observable player state.
             mediaSession.player = player
             _playerFlow.value = player
+
+            // The rebuilt wrapper starts with playWhenReady=false regardless of what the promoted
+            // ExoPlayer was doing, so the intent captured before the rebuild is re-applied here —
+            // before the metadata replay below, so listeners never observe a spurious pause.
+            if (shouldKeepPlaying && !player.playWhenReady) {
+                player.playWhenReady = true
+            }
 
             // 5. Audio effects follow the promoted player's audio session.
             rebindAudioEffectSession(localPlayer.audioSessionId)
@@ -12095,6 +12108,7 @@ class MusicService :
         const val ALBUM = "album"
         const val PLAYLIST = "playlist"
         const val SPOTIFY_PLAYLIST = "spotify_playlist"
+        const val SPOTIFY_LIKED = "spotify_liked"
         const val ONLINE_PLAYLIST = "online_playlist"
 
         private const val TAG = "MusicService"
