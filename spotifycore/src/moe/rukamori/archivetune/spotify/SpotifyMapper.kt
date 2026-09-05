@@ -18,19 +18,20 @@ import moe.rukamori.archivetune.spotify.models.SpotifyTrack
  */
 object SpotifyMapper {
     // Pre-compiled regex patterns for title normalization (avoids re-creation on each call)
-    private val FEAT_PATTERN = Regex("\\(feat\\..*?\\)")
-    private val FT_PATTERN = Regex("\\(ft\\..*?\\)")
-    private val BRACKET_PATTERN = Regex("\\[.*?]")
+    private val FEAT_PATTERN = Regex("\\(feat\\..*?\\)", RegexOption.IGNORE_CASE)
+    private val FT_PATTERN = Regex("\\(ft\\..*?\\)", RegexOption.IGNORE_CASE)
+    private val BRACKET_PATTERN = Regex("\\[.*?\\]")
     private val REMASTER_PATTERN = Regex("\\(.*?remaster.*?\\)", RegexOption.IGNORE_CASE)
     private val REMIX_PATTERN = Regex("\\(.*?remix.*?\\)", RegexOption.IGNORE_CASE)
-    private val NON_ALNUM_PATTERN = Regex("[^a-z0-9\\s]")
+    private val NON_ALNUM_PATTERN = Regex("[^\\p{L}\\p{N}\\s]")
     private val MULTI_SPACE_PATTERN = Regex("\\s+")
 
     private const val NORM_CACHE_MAX_SIZE = 256
     private const val EARLY_EXIT_THRESHOLD = 0.95
+    private const val MIN_TITLE_SCORE = 0.40
 
     /**
-     * LRU cache for normalized strings. Avoids re-running 7 regex replacements
+     * LRU cache for normalized strings. Avoids re-running regex replacements
      * on the same Spotify title/artist across multiple candidate comparisons.
      * Bounded to [NORM_CACHE_MAX_SIZE] entries to limit memory usage.
      */
@@ -84,21 +85,11 @@ object SpotifyMapper {
 
     /**
      * The best artwork URL Spotify offers for a playlist.
-     *
-     * Was a medium-size preference — the first image 200..400px wide — which is where the blurry
-     * covers on the Spotify home came from: those tiles are around 180dp, and on a 3x screen that
-     * is ~540 physical pixels being filled by a 300px image. Spotify publishes 640x640 for
-     * playlists and albums, so the largest entry is the right one to ask for; Coil downsamples to
-     * whatever the tile actually needs, and the smaller variants only ever cost detail.
-     *
-     * `width` is nullable in Spotify's payloads (and null for the ones this app synthesises), so
-     * an entry that does not declare a size sorts last rather than winning by accident.
      */
     fun getPlaylistThumbnail(playlist: SpotifyPlaylist): String? = largestImageUrl(playlist.images)
 
     /**
-     * The best artwork URL from a Spotify track's album art. Same reasoning as
-     * [getPlaylistThumbnail].
+     * The best artwork URL from a Spotify track's album art.
      */
     fun getTrackThumbnail(track: SpotifyTrack): String? = largestImageUrl(track.album?.images)
 
@@ -152,6 +143,8 @@ object SpotifyMapper {
                 normCandidateTitle,
                 cachedBigrams(normCandidateTitle),
             )
+        if (titleScore < MIN_TITLE_SCORE) return 0.0
+
         val artistScore =
             bigramSimilarity(
                 normSpotifyArtist,
@@ -185,6 +178,8 @@ object SpotifyMapper {
                 normCandidateTitle,
                 cachedBigrams(normCandidateTitle),
             )
+        if (titleScore < MIN_TITLE_SCORE) return 0.0
+
         val artistScore =
             bigramSimilarity(
                 precomputed.normalizedArtist,
@@ -243,7 +238,7 @@ object SpotifyMapper {
             .replace(BRACKET_PATTERN, "")
             .replace(REMASTER_PATTERN, "")
             .replace(REMIX_PATTERN, "")
-            .replace(NON_ALNUM_PATTERN, "")
+            .replace(NON_ALNUM_PATTERN, " ")
             .replace(MULTI_SPACE_PATTERN, " ")
             .trim()
 
@@ -256,6 +251,7 @@ object SpotifyMapper {
         b: String,
         bigramsB: Set<String>,
     ): Double {
+        if (a.isEmpty() || b.isEmpty()) return 0.0
         if (a == b) return 1.0
         if (bigramsA.isEmpty() || bigramsB.isEmpty()) return 0.0
         val intersection = bigramsA.count { it in bigramsB }

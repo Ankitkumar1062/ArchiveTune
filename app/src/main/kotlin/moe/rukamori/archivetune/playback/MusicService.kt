@@ -8849,31 +8849,30 @@ class MusicService :
 
     /** Builds the shared lookup metadata for [mediaId] from the database / queue metadata. */
     private fun buildSourceQuery(mediaId: String): SourceQuery? {
+        val queuedMetadata =
+            currentMediaMetadata.value?.takeIf { it.id == mediaId }
+                ?: queuedMetadataByMediaId[mediaId]
+                ?: player.findNextMediaItemById(mediaId)?.metadata
         val song =
             runCatching {
                 runBlocking(Dispatchers.IO) { database.song(mediaId).first() }
             }.getOrNull()
-        val queuedMetadata =
-            currentMediaMetadata.value?.takeIf { it.id == mediaId }
-                ?: queuedMetadataByMediaId[mediaId]
         val title =
-            song?.song?.title
-                ?: queuedMetadata?.title
+            queuedMetadata?.title?.takeIf { it.isNotBlank() }
+                ?: song?.song?.title
                 ?: return null
         val artists =
-            song?.artists?.map { it.name }?.takeIf { it.isNotEmpty() }
-                ?: queuedMetadata?.artists?.map { it.name }.orEmpty()
+            queuedMetadata?.artists?.map { it.name }?.takeIf { it.isNotEmpty() }
+                ?: song?.artists?.map { it.name }?.takeIf { it.isNotEmpty() }
+                ?: emptyList()
         val album =
-            song?.song?.albumName
+            queuedMetadata?.album?.title?.takeIf { it.isNotBlank() }
+                ?: song?.song?.albumName
                 ?: song?.album?.title
-                ?: queuedMetadata?.album?.title
         val durationMs =
-            song?.song?.duration
-                ?.takeIf { it > 0 }
-                ?.toLong()
-                ?.times(1000L)
-                ?: queuedMetadata?.duration?.takeIf { it > 0 }?.toLong()?.times(1000L)
-        val isExplicit = song?.song?.explicit ?: queuedMetadata?.explicit ?: false
+            queuedMetadata?.duration?.takeIf { it > 0 }?.toLong()?.times(1000L)
+                ?: song?.song?.duration?.takeIf { it > 0 }?.toLong()?.times(1000L)
+        val isExplicit = queuedMetadata?.explicit ?: song?.song?.explicit ?: false
         // Read the per-song Qobuz trackId override (set when the user picked a
         // specific Qobuz track from the "Play from" source-search popup). When
         // set, the Qobuz resolver downloads the exact track instead of

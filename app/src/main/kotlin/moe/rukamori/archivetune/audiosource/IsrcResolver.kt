@@ -337,11 +337,12 @@ object IsrcResolver {
             return false
         }
 
-        // 3. 3-Second Physical Duration Gate
+        // 3. Physical Duration Gate (with TV Size tolerance when candidate is the full official studio version)
         if (wantedDurationMs != null && candidateDurationMs != null) {
             val diff = abs(wantedDurationMs - candidateDurationMs)
-            if (diff > DURATION_GATE_MS) {
-                Timber.tag(TAG).v("Rejected candidate \"%s\": Duration diff %d ms > 3s gate", candidateTitle, diff)
+            val isTvSizeDiscrepancy = wantedDurationMs in 70_000L..115_000L && candidateDurationMs >= 180_000L
+            if (diff > DURATION_GATE_MS && !isTvSizeDiscrepancy) {
+                Timber.tag(TAG).v("Rejected candidate \"%s\": Duration diff %d ms > gate", candidateTitle, diff)
                 return false
             }
         }
@@ -401,9 +402,9 @@ object IsrcResolver {
 
     private fun cleanSearchTitle(title: String): String =
         title
-            .replace(Regex("""\s*[\[(]\s*(?:official\s*(?:music\s*)?video|video|audio|lyrics?|visualizer|mv|hd|4k|remaster(?:ed)?)\s*[\])]""", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("""\s*[\[(]\s*(?:official\s*(?:music\s*)?video|video|audio|lyrics?|visualizer|mv|hd|4k|remaster(?:ed)?|tv\s*size(?:\s*ver\.?)?|movie\s*ver\.?|anime\s*size|op|ed)\s*[\])]""", RegexOption.IGNORE_CASE), "")
             .replace(Regex("""\s*[\[(]\s*(?:feat\.?|ft\.?|featuring)\b.*?[\])]""", RegexOption.IGNORE_CASE), "")
-            .replace(Regex("""\s*-\s*(?:official|audio|video|lyrics?)\b.*$""", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("""\s*-\s*(?:official|audio|video|lyrics?|tv\s*size|movie\s*ver)\b.*$""", RegexOption.IGNORE_CASE), "")
             .replace(Regex("\\s+"), " ")
             .trim()
 
