@@ -50,7 +50,6 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
-import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -94,15 +93,15 @@ import androidx.navigation.NavController
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.launch
 import moe.rukamori.archivetune.App.Companion.forgetAccount
-import android.app.Activity
 import android.content.Context
-import android.content.ContextWrapper
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import moe.rukamori.archivetune.auth.YouTubeOAuthRepository
 import moe.rukamori.archivetune.BuildConfig
 import moe.rukamori.archivetune.LocalPlayerAwareWindowInsets
+import moe.rukamori.archivetune.LocalStableSystemBarsTopPadding
 import moe.rukamori.archivetune.R
+import dev.chrisbanes.haze.hazeSource
 import moe.rukamori.archivetune.constants.AccountChannelHandleKey
 import moe.rukamori.archivetune.constants.AccountEmailKey
 import moe.rukamori.archivetune.constants.AccountNameKey
@@ -117,12 +116,13 @@ import moe.rukamori.archivetune.constants.VisitorDataKey
 import moe.rukamori.archivetune.constants.YtmSyncKey
 import moe.rukamori.archivetune.innertube.YouTube
 import moe.rukamori.archivetune.innertube.utils.hasYouTubeLoginCookie
-import moe.rukamori.archivetune.ui.component.MarqueeText
+import moe.rukamori.archivetune.ui.component.FrostedHeaderPill
 import moe.rukamori.archivetune.ui.component.IconButton
 import moe.rukamori.archivetune.ui.component.InfoLabel
 import moe.rukamori.archivetune.ui.component.TextFieldDialog
+import moe.rukamori.archivetune.ui.screens.ScreenHeaderHaze
 import moe.rukamori.archivetune.ui.screens.buildLoginRoute
-import moe.rukamori.archivetune.ui.utils.appBarScrollBehavior
+import moe.rukamori.archivetune.ui.screens.rememberScreenHeaderHaze
 import moe.rukamori.archivetune.ui.utils.backToMain
 import moe.rukamori.archivetune.utils.PreferenceStore
 import moe.rukamori.archivetune.utils.SavedAccount
@@ -137,6 +137,7 @@ import moe.rukamori.archivetune.viewmodels.AccountChannelsState
 import moe.rukamori.archivetune.viewmodels.HomeViewModel
 import java.util.UUID
 import androidx.compose.foundation.layout.asPaddingValues
+import moe.rukamori.archivetune.ui.component.KeepStatusBarHiddenInDialog
 
 private val AccountContentMaxWidth = 840.dp
 private val AvatarSize = 72.dp
@@ -155,7 +156,6 @@ fun AccountSettings(
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
     val coroutineScope = rememberCoroutineScope()
-    val scrollBehavior = appBarScrollBehavior()
 
     val accountLabel = stringResource(R.string.account)
     val generalLabel = stringResource(R.string.general)
@@ -280,42 +280,52 @@ fun AccountSettings(
     }
 
     Scaffold(
-        modifier =
-            Modifier
-                .fillMaxSize()
-                .nestedScroll(scrollBehavior.nestedScrollConnection),
+        // Fixed (2026-09-04, user report: "There's empty space between headers
+        // and actual content in updates and account settings page"): the
+        // LargeFlexibleTopAppBar reserved its full EXPANDED height (~152dp) even
+        // with an empty title, leaving a dead band between the pill header and
+        // the first account row. A pinned single-row TopAppBar (the exact
+        // DebugSettings pattern) replaces it — same transparent colors, same
+        // FrostedHeaderPill navigation slot, no expanded state. The LazyColumn's
+        // top spacing stays in contentPadding so content still flows under the
+        // transparent bar into the header haze.
+        modifier = Modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.surface,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            LargeFlexibleTopAppBar(
-                title = {
-                    Column {
+            androidx.compose.material3.TopAppBar(
+                title = {},
+                navigationIcon = {
+                    FrostedHeaderPill(plain = true) {
+                        IconButton(
+                            onClick = navController::navigateUp,
+                            onLongClick = navController::backToMain,
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.arrow_back),
+                                contentDescription = null,
+                            )
+                        }
                         Text(
                             text = accountLabel,
-                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onBackground,
+                            fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(end = 4.dp),
                         )
                     }
                 },
-                navigationIcon = {
-                    IconButton(
-                        onClick = navController::navigateUp,
-                        onLongClick = navController::backToMain,
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.arrow_back),
-                            contentDescription = null,
-                        )
-                    }
-                },
-                windowInsets = TopAppBarDefaults.windowInsets,
                 colors =
-                    TopAppBarDefaults.largeTopAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface,
+                    TopAppBarDefaults.topAppBarColors(
+                        // Header haze (2026-09-04, user request: "Add the same
+                        // haze effect in Account page and stats page in
+                        // settings"): the bar stays transparent so the list
+                        // scrolls under it into the progressive top-fade blur,
+                        // exactly like the Home route and the other ported
+                        // settings screens (About / Updates / Developer).
+                        containerColor = Color.Transparent,
                         scrolledContainerColor = Color.Transparent,
                     ),
-                scrollBehavior = scrollBehavior,
             )
         },
     ) { innerPadding ->
@@ -324,6 +334,12 @@ fun AccountSettings(
                 .only(WindowInsetsSides.Bottom)
                 .asPaddingValues()
                 .calculateBottomPadding()
+        // Header haze (2026-09-04): the LazyColumn below is the haze source
+        // (its top spacing is contentPadding, so content scrolls under the
+        // now-transparent header); the overlay is a later sibling so it draws
+        // on top of the list, under the pinned FrostedHeaderPill.
+        val headerHaze = rememberScreenHeaderHaze()
+        val systemBarsTopPadding = LocalStableSystemBarsTopPadding.current
         Box(
             modifier =
                 Modifier
@@ -340,7 +356,9 @@ fun AccountSettings(
                         .fillMaxHeight()
                         .widthIn(max = AccountContentMaxWidth)
                         .fillMaxWidth()
-                        .align(Alignment.TopCenter),
+                        .align(Alignment.TopCenter)
+                        // Haze source for the header's top-fade blur.
+                        .hazeSource(headerHaze),
                 contentPadding =
                     PaddingValues(
                         start = 16.dp,
@@ -525,6 +543,13 @@ fun AccountSettings(
                     VersionStamp()
                 }
             }
+
+            // Header haze overlay — later sibling of the list so it draws on
+            // top of the scrolling content, under the pinned pill header.
+            ScreenHeaderHaze(
+                hazeState = headerHaze,
+                systemBarsTopPadding = systemBarsTopPadding,
+            )
         }
     }
 
@@ -587,6 +612,7 @@ fun AccountSettings(
                 Text(text = stringResource(R.string.unsaved_account_dialog_text))
             },
             confirmButton = {
+                KeepStatusBarHiddenInDialog() // status bar stays hidden while this dialog window is focused
                 TextButton(
                     onClick = {
                         showUnsavedAccountDialog = false
@@ -816,6 +842,7 @@ private fun AccountSwitcherSheet(
             .orEmpty()
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
+        KeepStatusBarHiddenInDialog() // status bar stays hidden while this sheet window is focused
         Text(
             text = stringResource(R.string.saved_accounts),
             style = MaterialTheme.typography.headlineSmall,
@@ -1207,11 +1234,11 @@ private fun ExpressiveActionRow(
                 }
             },
     ) {
-        // One line with an edge fade when it overflows — same treatment as every PreferenceEntry
-        // title, so the settings screens agree with each other.
-        MarqueeText(
+        Text(
             text = title,
             fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
@@ -1259,11 +1286,11 @@ private fun ExpressiveSwitchRow(
                 }
             },
     ) {
-        // One line with an edge fade when it overflows — same treatment as every PreferenceEntry
-        // title, so the settings screens agree with each other.
-        MarqueeText(
+        Text(
             text = title,
             fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
@@ -1374,10 +1401,4 @@ private fun TokenEditorDialog(
     )
 }
 
-/** The hosting Activity, needed so microG's consent prompt has somewhere to appear. */
-private tailrec fun Context.findActivity(): Activity? =
-    when (this) {
-        is Activity -> this
-        is ContextWrapper -> baseContext.findActivity()
-        else -> null
-    }
+

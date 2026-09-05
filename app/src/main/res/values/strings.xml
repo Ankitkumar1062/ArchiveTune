@@ -1731,4 +1731,12 @@
     <string name="apple_music_experience_desc">Replaces the artwork header on playlist, album and library pages with Apple Music\u2019s: a large title over the page, pink accent pills, no backdrop. Turning it on also switches the player to the Apple Music style.</string>
     <string name="spotify_home_style">Spotify home style</string>
     <string name="spotify_home_style_desc">Layout of the Spotify home page</string>
+    <string name="new_release_notification_channel_name">New Releases</string>
+    <string name="new_release_notification_channel_desc">Notifications when an artist you subscribed to releases new music</string>
+    <string name="new_release_notification_title">New release from %s</string>
+    <string name="new_release_notification_more_title">More new releases</string>
+    <string name="new_release_notification_more_text">And %d more from your subscribed artists</string>
+    <string name="mark_as_read">Mark as read</string>
+    <string name="marked_as_read">Marked as read</string>
+    <string name="mark_all_as_read">Mark all as read</string>
 </resources>

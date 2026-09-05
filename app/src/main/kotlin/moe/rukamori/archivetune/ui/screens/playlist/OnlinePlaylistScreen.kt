@@ -80,10 +80,12 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastAny
@@ -114,18 +116,20 @@ import moe.rukamori.archivetune.ui.component.DraggableScrollbar
 import moe.rukamori.archivetune.ui.component.ExpressivePullToRefreshBox
 import moe.rukamori.archivetune.ui.component.IconButton
 import moe.rukamori.archivetune.ui.component.LiquidGlassActionPill
-import moe.rukamori.archivetune.ui.component.LiquidGlassIconButton
+import moe.rukamori.archivetune.ui.component.GlassPillTitleText
 import moe.rukamori.archivetune.ui.component.LocalMenuState
 import moe.rukamori.archivetune.ui.component.MediaDetailAction
 import moe.rukamori.archivetune.ui.component.MediaDetailHero
 import moe.rukamori.archivetune.ui.component.MediaDetailIconAction
 import moe.rukamori.archivetune.ui.component.YouTubeListItem
 import moe.rukamori.archivetune.ui.component.layerBackdrop
+import moe.rukamori.archivetune.ui.component.liquidGlassContentColor
 import moe.rukamori.archivetune.ui.component.rememberBackdrop
 import moe.rukamori.archivetune.ui.component.shimmer.ButtonPlaceholder
 import moe.rukamori.archivetune.ui.component.shimmer.ListItemPlaceHolder
 import moe.rukamori.archivetune.ui.component.shimmer.ShimmerHost
 import moe.rukamori.archivetune.ui.component.shimmer.TextPlaceholder
+import moe.rukamori.archivetune.ui.component.rememberLayerBackdropSettled
 import moe.rukamori.archivetune.ui.menu.SelectionMediaMetadataMenu
 import moe.rukamori.archivetune.ui.menu.YouTubePlaylistMenu
 import moe.rukamori.archivetune.ui.menu.YouTubeSongMenu
@@ -138,9 +142,14 @@ import moe.rukamori.archivetune.ui.utils.formatCompactCount
 import moe.rukamori.archivetune.ui.utils.headerDownloadState
 import moe.rukamori.archivetune.ui.utils.sendAddMissingDownloads
 import moe.rukamori.archivetune.ui.utils.sendRemoveDownloads
+import moe.rukamori.archivetune.ui.utils.sendPauseRunningDownloads
+import moe.rukamori.archivetune.ui.utils.sendResumePausedDownloads
 import moe.rukamori.archivetune.utils.rememberPreference
 import moe.rukamori.archivetune.viewmodels.OnlinePlaylistViewModel
 import moe.rukamori.archivetune.ui.player.LocalPlayerLyricsFullScreen
+import dev.chrisbanes.haze.hazeSource
+import moe.rukamori.archivetune.ui.screens.ScreenHeaderHaze
+import moe.rukamori.archivetune.ui.screens.rememberScreenHeaderHaze
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -212,7 +221,18 @@ fun OnlinePlaylistScreen(
     val liquidGlassHeaderActive =
         liquidGlassEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     val lyricsFullScreen = LocalPlayerLyricsFullScreen.current
-    val layerBackdropActive = liquidGlassHeaderActive && !lyricsFullScreen
+    // Defer the layerBackdrop activation for ~500ms after first composition so
+    // the page transition (NavHost default 250ms slide-in-from-right) doesn't
+    // compete with the kyant RuntimeShader recording for the GPU/frame budget.
+    // Per user report (2026-08-29): "Whenever I open a page the transition/page
+    // switch animation lags a lot. this only happens in the pages that has
+    // liquid glass implementation." Keep the FrostedHeaderPill fallback (no
+    // backdrop, no per-frame recording) until the screen has settled, then swap
+    // to the real LiquidGlassActionPill + layerBackdrop. Liquid glass itself is
+    // NOT removed — only delayed.
+    val screenSettled = rememberLayerBackdropSettled()
+
+    val layerBackdropActive = liquidGlassHeaderActive && !lyricsFullScreen && screenSettled
 
     // Stable top inset: does not collapse to 0 when the status bar is transiently hidden,
     // so the search bar offset and the playlist header always stay anchored below the TopAppBar.
@@ -268,6 +288,34 @@ fun OnlinePlaylistScreen(
         }
     } else if (selection) {
         BackHandler { selection = false }
+    } else {
+        // BackHandler so the predictive back gesture always escapes the
+        // online playlist page. Per user report (2026-08-29): gesture not
+        // working in playlists. The previous implementation called
+        // `navController.navigate("library") {
+        // popUpTo(navController.graph.startDestinationId) ... }` which could
+        // fail silently when `navController.graph` was momentarily null.
+        //
+        // New approach: popBackStack() directly first, fall back to
+        // navigate("library") if no previous entry. Wrapped in try/catch
+        // as defense-in-depth so the gesture NEVER silently fails.
+        BackHandler {
+            try {
+                if (!navController.popBackStack()) {
+                    navController.navigate("library") {
+                        launchSingleTop = true
+                    }
+                }
+            } catch (_: Exception) {
+                try {
+                    if (!navController.navigateUp()) {
+                        navController.navigate("library") { launchSingleTop = true }
+                    }
+                } catch (_: Exception) {
+                    // Last-resort: let the system handle the back press.
+                }
+            }
+        }
     }
 
     val wrappedSongs =
@@ -326,8 +374,21 @@ fun OnlinePlaylistScreen(
     // the LazyColumn (not nested inside its first item) so they sample the backdrop
     // without being recorded into it — and, critically, their click handlers are not
     // competing with any LazyColumn-item pointer-input stack.
-    val artworkBackdrop = rememberBackdrop(Color.Black)
+    // Surface-coloured base, NOT black (user report 2026-09-03: light-mode
+    // Liquid Glass pills render solid black over white pages). The recorded
+    // LazyColumn layer is transparent wherever light-theme item backgrounds
+    // don't fill, and the pill's backdrop sample then shows this base rect —
+    // black under a light theme reads as a solid black pill. The surface
+    // colour blends with the page (LocalPlaylistScreen pattern).
+    val artworkBackdrop = rememberBackdrop(surfaceColor)
 
+    // Header haze (2026-09-04, revised): the home page's blurred top haze,
+    // ported to this screen. The haze SOURCE is the scrolling LazyColumn, the
+    // overlay renders ON TOP of it (a later sibling, beneath the pinned
+    // Liquid Glass pills) — the overlay was previously the FIRST child under
+    // the list, so the list drew straight over it and the haze was never
+    // visible (user report 2026-09-04: "I don't see the haze effect").
+    val headerHaze = rememberScreenHeaderHaze()
     ExpressivePullToRefreshBox(
         isRefreshing = isRefreshing,
         onRefresh = viewModel::refresh,
@@ -347,7 +408,8 @@ fun OnlinePlaylistScreen(
                         } else {
                             Modifier
                         },
-                    ),
+                    )
+                    .hazeSource(headerHaze),
             contentPadding =
                 PaddingValues(
                     // When searching, the header item collapses to zero height and the
@@ -530,7 +592,8 @@ fun OnlinePlaylistScreen(
                                                 },
                                             contentColor = contentColor,
                                             onClick = {
-                                                when (downloadState) {
+                                                val headerState = downloadState
+                                                when (headerState) {
                                                     HeaderDownloadState.Completed -> {
                                                         sendRemoveDownloads(
                                                             context = context,
@@ -539,10 +602,21 @@ fun OnlinePlaylistScreen(
                                                     }
 
                                                     is HeaderDownloadState.Partial -> {
-                                                        sendRemoveDownloads(
-                                                            context = context,
-                                                            songIds = songs.map { it.id },
-                                                        )
+                                                        // Pause/Resume (2026-09-05): pending-only, the
+                                                        // already-downloaded songs stay untouched.
+                                                        if (headerState.paused) {
+                                                            sendResumePausedDownloads(
+                                                                context = context,
+                                                                songIds = songs.map { it.id },
+                                                                downloads = downloads,
+                                                            )
+                                                        } else {
+                                                            sendPauseRunningDownloads(
+                                                                context = context,
+                                                                songIds = songs.map { it.id },
+                                                                downloads = downloads,
+                                                            )
+                                                        }
                                                     }
 
                                                     HeaderDownloadState.None -> {
@@ -783,6 +857,15 @@ fun OnlinePlaylistScreen(
             headerItems = headerItems,
         )
 
+        // ── Header haze overlay (2026-09-04, revised) ──
+        // Progressive top-fade blur over the list — declared AFTER the
+        // LazyColumn so it draws on top of it, BEFORE the pinned pills so
+        // they stay crisp above the frosted strip.
+        ScreenHeaderHaze(
+            hazeState = headerHaze,
+            systemBarsTopPadding = systemBarsTopPadding,
+        )
+
         // Persistent Liquid Glass header buttons. Siblings of the LazyColumn
         // (children of the ExpressivePullToRefreshBox), positioned at top-start
         // and top-end. They sample the artworkBackdrop (which captures the
@@ -799,19 +882,59 @@ fun OnlinePlaylistScreen(
         //  - Not in selection mode
         //  - Not searching
         //  - Playlist is loaded
+        //
+        // Fixed (2026-09-04, user report: "When I select songs in history page
+        // the liquid glass pills disappear and opaque rounded pill appears.
+        // Fix this. Fix the same thing for other screens too"): selection mode
+        // NO LONGER hides the glass pills. The back pill morphs in place —
+        // close (X) icon + the "N songs" count, tap to clear the selection —
+        // and the trailing pill swaps to the select-all / deselect toggle and
+        // the ⋯ that opens SelectionMediaMetadataMenu, the exact actions the
+        // opaque selection bar offered.
         val currentPlaylistForGlass = playlist
-        if (layerBackdropActive && !selection && !isSearching && currentPlaylistForGlass != null) {
-            LiquidGlassIconButton(
+        if (layerBackdropActive && !isSearching && currentPlaylistForGlass != null) {
+            LiquidGlassActionPill(
                 backdrop = artworkBackdrop,
-                painter = painterResource(R.drawable.arrow_back),
-                contentDescription = null,
+                interactive = true,
                 modifier =
                     Modifier
                         .align(Alignment.TopStart)
-                        .padding(start = 12.dp, top = systemBarsTopPadding + 12.dp)
-                        .size(48.dp),
-                onClick = { navController.navigateUp() },
-            )
+                        .padding(start = 12.dp, top = systemBarsTopPadding + 12.dp),
+            ) {
+                IconButton(
+                    onClick = {
+                        if (selection) {
+                            selection = false
+                        } else {
+                            navController.navigateUp()
+                        }
+                    },
+                    onLongClick = {
+                        if (!selection) {
+                            navController.backToMain()
+                        }
+                    },
+                    modifier = Modifier.size(48.dp),
+                ) {
+                    Icon(
+                        painter =
+                            painterResource(
+                                if (selection) R.drawable.close else R.drawable.arrow_back,
+                            ),
+                        contentDescription = stringResource(R.string.back_button_desc),
+                        tint = liquidGlassContentColor(),
+                    )
+                }
+                GlassPillTitleText(
+                    text =
+                        if (selection) {
+                            val count = wrappedSongs.count { it.isSelected }
+                            pluralStringResource(R.plurals.n_song, count, count)
+                        } else {
+                            currentPlaylistForGlass.title
+                        },
+                )
+            }
             LiquidGlassActionPill(
                 backdrop = artworkBackdrop,
                 modifier =
@@ -819,6 +942,58 @@ fun OnlinePlaylistScreen(
                         .align(Alignment.TopEnd)
                         .padding(end = 12.dp, top = systemBarsTopPadding + 12.dp),
             ) {
+                if (selection) {
+                    // Selection actions in glass (2026-09-04): select-all /
+                    // deselect toggle + the ⋯ that opens the selection menu —
+                    // the exact actions the opaque selection bar carried.
+                    val selectedCount = wrappedSongs.count { it.isSelected }
+                    Box(
+                        modifier = Modifier.size(48.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        androidx.compose.material3.IconButton(
+                            onClick = {
+                                if (selectedCount == wrappedSongs.size) {
+                                    wrappedSongs.forEach { it.isSelected = false }
+                                } else {
+                                    wrappedSongs.forEach { it.isSelected = true }
+                                }
+                            },
+                        ) {
+                            Icon(
+                                painter =
+                                    painterResource(
+                                        if (selectedCount == wrappedSongs.size) R.drawable.deselect else R.drawable.select_all,
+                                    ),
+                                contentDescription = null,
+                                tint = liquidGlassContentColor(),
+                            )
+                        }
+                    }
+                    androidx.compose.material3.IconButton(onClick = {
+                        menuState.show {
+                            SelectionMediaMetadataMenu(
+                                songSelection =
+                                    wrappedSongs
+                                        .filter { it.isSelected }
+                                        .map {
+                                            it.item.second
+                                                .toMediaItem()
+                                                .metadata!!
+                                        },
+                                onDismiss = menuState::dismiss,
+                                clearAction = { selection = false },
+                                currentItems = emptyList(),
+                            )
+                        }
+                    }) {
+                        Icon(
+                            painter = painterResource(R.drawable.more_vert),
+                            contentDescription = null,
+                            tint = liquidGlassContentColor(),
+                        )
+                    }
+                } else {
                 // Search
                 Box(
                     modifier = Modifier.size(48.dp),
@@ -828,7 +1003,7 @@ fun OnlinePlaylistScreen(
                         Icon(
                             painter = painterResource(R.drawable.search),
                             contentDescription = null,
-                            tint = Color.White,
+                            tint = liquidGlassContentColor(),
                         )
                     }
                 }
@@ -853,22 +1028,25 @@ fun OnlinePlaylistScreen(
                         Icon(
                             painter = painterResource(R.drawable.more_horiz),
                             contentDescription = null,
-                            tint = Color.White,
+                            tint = liquidGlassContentColor(),
                         )
                     }
                 }
+                } // end non-selection branch of the trailing pill (2026-09-04)
             }
         }
 
         // Top App Bar — hidden when the Liquid Glass header buttons are visible
         // (matches LocalPlaylistScreen pattern). The Liquid Glass back button and
-        // search+more pill handle navigation/actions when the hero is visible.
-        // The TopAppBar is only rendered during selection mode and search mode,
-        // where it provides the selection count / search TextField. Rendering the
-        // TopAppBar on top of the Liquid Glass buttons (even when transparent and
-        // with empty actions) causes it to intercept pointer events in the top
-        // area, making the Liquid Glass buttons unclickable.
-        if (selection || isSearching) {
+        // search+more pill handle navigation/actions when the hero is visible,
+        // INCLUDING selection mode (2026-09-04: the glass pills now carry the
+        // selection state, so the opaque bar no longer swaps in mid-selection).
+        // The TopAppBar is only rendered during search mode, where it provides
+        // the search TextField. Rendering the TopAppBar on top of the Liquid
+        // Glass buttons (even when transparent and with empty actions) causes
+        // it to intercept pointer events in the top area, making the Liquid
+        // Glass buttons unclickable.
+        if (isSearching) {
             val topAppBarColors =
                 if (transparentAppBar) {
                     TopAppBarDefaults.topAppBarColors(

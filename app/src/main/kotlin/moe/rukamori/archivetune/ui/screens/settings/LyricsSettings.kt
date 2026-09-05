@@ -9,6 +9,7 @@
 
 package moe.rukamori.archivetune.ui.screens.settings
 
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,6 +17,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -42,6 +46,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -71,22 +76,12 @@ import moe.rukamori.archivetune.constants.EnableBetterLyricsKey
 import moe.rukamori.archivetune.constants.EnableBetterLyricsPortatoKey
 import moe.rukamori.archivetune.constants.EnableKugouKey
 import moe.rukamori.archivetune.constants.EnableLrcLibKey
-import moe.rukamori.archivetune.constants.EnableMegalobizLyricsKey
 import moe.rukamori.archivetune.constants.EnableMusixmatchExperimentalKey
-import moe.rukamori.archivetune.constants.EnablePaxsenixAppleMusicLyricsKey
-import moe.rukamori.archivetune.constants.EnablePaxsenixLyricsKey
-import moe.rukamori.archivetune.constants.EnablePaxsenixMusixmatchLyricsKey
-import moe.rukamori.archivetune.constants.EnablePaxsenixNeteaseLyricsKey
-import moe.rukamori.archivetune.constants.EnablePaxsenixSpotifyLyricsKey
-import moe.rukamori.archivetune.constants.EnablePaxsenixYouTubeLyricsKey
-import moe.rukamori.archivetune.constants.EnableSimpMusicLyricsKey
 import moe.rukamori.archivetune.constants.EnableUnisonLyricsKey
 import moe.rukamori.archivetune.constants.EnableYouLyPlusLyricsKey
 import moe.rukamori.archivetune.constants.LyricsClickKey
 import moe.rukamori.archivetune.constants.LyricsLineBlurKey
 import moe.rukamori.archivetune.constants.LyricsLineSpacingKey
-import moe.rukamori.archivetune.constants.LyricsMode
-import moe.rukamori.archivetune.constants.LyricsModeKey
 import moe.rukamori.archivetune.constants.LyricsProviderOrderKey
 import moe.rukamori.archivetune.constants.LyricsRomanizeChineseKey
 import moe.rukamori.archivetune.constants.LyricsRomanizeHindiKey
@@ -94,26 +89,29 @@ import moe.rukamori.archivetune.constants.LyricsRomanizeJapaneseKey
 import moe.rukamori.archivetune.constants.LyricsRomanizeKoreanKey
 import moe.rukamori.archivetune.constants.LyricsRomanizeOtherLanguagesKey
 import moe.rukamori.archivetune.constants.LyricsScrollKey
+import moe.rukamori.archivetune.constants.AutoHideLyricsPlayerControlsKey
+import moe.rukamori.archivetune.constants.ShowLyricsPlayerControlsKey
 import moe.rukamori.archivetune.constants.LyricsTextSizeKey
 import moe.rukamori.archivetune.constants.PreferredLyricsProvider
 import moe.rukamori.archivetune.constants.QueueLyricsPreloadCountKey
 import moe.rukamori.archivetune.constants.deserializeLyricsProviderOrder
 import moe.rukamori.archivetune.lyrics.JapaneseLanguagePackManager
 import moe.rukamori.archivetune.lyrics.JapaneseLanguagePackState
-import moe.rukamori.archivetune.paxsenix.models.PaxsenixStats
-import moe.rukamori.archivetune.paxsenix.models.ProviderStats
 import moe.rukamori.archivetune.ui.component.DefaultDialog
 import moe.rukamori.archivetune.ui.component.EnumListPreference
+import moe.rukamori.archivetune.ui.component.FrostedHeaderPill
 import moe.rukamori.archivetune.ui.component.IconButton
 import moe.rukamori.archivetune.ui.component.NumberPickerPreference
 import moe.rukamori.archivetune.ui.component.PreferenceEntry
 import moe.rukamori.archivetune.ui.component.PreferenceGroup
 import moe.rukamori.archivetune.ui.component.SwitchPreference
 import moe.rukamori.archivetune.ui.utils.backToMain
-import moe.rukamori.archivetune.utils.rememberEnumPreference
+import moe.rukamori.archivetune.ui.screens.ScreenHeaderHaze
+import moe.rukamori.archivetune.ui.screens.rememberScreenHeaderHaze
+import moe.rukamori.archivetune.LocalStableSystemBarsTopPadding
+import dev.chrisbanes.haze.hazeSource
 import moe.rukamori.archivetune.utils.rememberPreference
 import moe.rukamori.archivetune.viewmodels.ContentSettingsViewModel
-import moe.rukamori.archivetune.viewmodels.PaxsenixStatsState
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 import kotlin.math.roundToInt
@@ -124,27 +122,27 @@ fun LyricsSettings(
     viewModel: ContentSettingsViewModel = hiltViewModel(),
     scrollTo: String? = null,
 ) {
-    var showPaxsenixStatsDialog by remember { mutableStateOf(false) }
-
-    if (showPaxsenixStatsDialog) {
-        val statsState by viewModel.paxsenixStatsState.collectAsStateWithLifecycle()
-
-        LaunchedEffect(Unit) {
-            viewModel.fetchPaxsenixStats()
-        }
-
-        PaxsenixStatsDialog(
-            state = statsState,
-            onDismiss = { showPaxsenixStatsDialog = false },
-            onRetry = { viewModel.fetchPaxsenixStats() },
-        )
-    }
+    // PaxsenixStatsDialog and its state plumbing removed (2026-08-30) along
+    // with the PaxsenixLyrics backend that the dialog queried. The
+    // fetchPaxsenixStats / paxsenixStatsState surface has been removed from
+    // ContentSettingsViewModel, and the PaxsenixStatsContent /
+    // PaxsenixStatusBar / PaxsenixProviderRow / PaxsenixServerStatus /
+    // successRateToStatus helpers below have been deleted too.
 
     val (lyricsClick, onLyricsClickChange) = rememberPreference(LyricsClickKey, defaultValue = true)
     val (lyricsScroll, onLyricsScrollChange) = rememberPreference(LyricsScrollKey, defaultValue = true)
+    // Restored (2026-09-04): the two control-preference reads behind the restored
+    // "Show player controls" / "Auto-hide controls" settings (see the items below).
+    val (showPlayerControls, onShowPlayerControlsChange) =
+        rememberPreference(ShowLyricsPlayerControlsKey, defaultValue = true)
+    val (autoHidePlayerControls, onAutoHidePlayerControlsChange) =
+        rememberPreference(AutoHideLyricsPlayerControlsKey, defaultValue = true)
     val (lyricsTextSize, onLyricsTextSizeChange) = rememberPreference(LyricsTextSizeKey, defaultValue = 26f)
     val (lyricsLineSpacing, onLyricsLineSpacingChange) = rememberPreference(LyricsLineSpacingKey, defaultValue = 1.3f)
-    val (lyricsMode, onLyricsModeChange) = rememberEnumPreference(LyricsModeKey, defaultValue = LyricsMode.ENHANCED)
+    // LyricsMode picker removed by user request — Enhanced is the only renderer now, so the
+    // "V2 Legacy / Enhanced" choice is no longer surfaced. The LyricsMode enum and LyricsModeKey
+    // preference are kept in PreferenceKeys.kt for backward compatibility with existing DataStore
+    // values (the player code reads the enum but only the ENHANCED branch is reachable now).
     val (enableLrclib, onEnableLrclibChange) = rememberPreference(key = EnableLrcLibKey, defaultValue = true)
     val (enableKugou, onEnableKugouChange) = rememberPreference(key = EnableKugouKey, defaultValue = true)
     val (enableBetterLyrics, onEnableBetterLyricsChange) = rememberPreference(key = EnableBetterLyricsKey, defaultValue = true)
@@ -152,34 +150,19 @@ fun LyricsSettings(
         rememberPreference(key = EnableBetterLyricsPortatoKey, defaultValue = true)
     val (enableYouLyPlusLyrics, onEnableYouLyPlusLyricsChange) =
         rememberPreference(key = EnableYouLyPlusLyricsKey, defaultValue = true)
-    val (enableSimpMusicLyrics, onEnableSimpMusicLyricsChange) = rememberPreference(key = EnableSimpMusicLyricsKey, defaultValue = true)
-    val (enableMegalobizLyrics, onEnableMegalobizLyricsChange) = rememberPreference(key = EnableMegalobizLyricsKey, defaultValue = true)
-    val (enablePaxsenixLyrics, onEnablePaxsenixLyricsChange) = rememberPreference(key = EnablePaxsenixLyricsKey, defaultValue = true)
-    val (enablePaxsenixAppleMusicLyrics, onEnablePaxsenixAppleMusicLyricsChange) =
-        rememberPreference(
-            key = EnablePaxsenixAppleMusicLyricsKey,
-            defaultValue = true,
-        )
-    val (enablePaxsenixNeteaseLyrics, onEnablePaxsenixNeteaseLyricsChange) =
-        rememberPreference(
-            key = EnablePaxsenixNeteaseLyricsKey,
-            defaultValue = true,
-        )
-    val (enablePaxsenixSpotifyLyrics, onEnablePaxsenixSpotifyLyricsChange) =
-        rememberPreference(
-            key = EnablePaxsenixSpotifyLyricsKey,
-            defaultValue = true,
-        )
-    val (enablePaxsenixMusixmatchLyrics, onEnablePaxsenixMusixmatchLyricsChange) =
-        rememberPreference(
-            key = EnablePaxsenixMusixmatchLyricsKey,
-            defaultValue = true,
-        )
-    val (enablePaxsenixYouTubeLyrics, onEnablePaxsenixYouTubeLyricsChange) =
-        rememberPreference(
-            key = EnablePaxsenixYouTubeLyricsKey,
-            defaultValue = true,
-        )
+    // SimpMusic / BiniLyrics lyrics providers removed per user request
+    // (2026-08-30): "Remove simpmusic and binilyrics lyrics provider and
+    // their entire code too". The provider files, settings toggles, enum
+    // entries, gradle module includes and the underlying :lyrics:simpmusic
+    // / :lyrics:paxsenix gradle modules have all been deleted.
+    //
+    // The Paxsenix* enable keys / rememberPreference calls below were also
+    // removed because the PaxsenixLyrics backend was the only consumer; the
+    // keys remain defined in PreferenceKeys.kt as no-ops for source compat.
+    // Megalobiz lyrics provider removed per user request (2026-08-28):
+    // "Remove megalobiz lyrics provider". The MegalobizLyricsProvider
+    // file was deleted; the PreferredLyricsProvider.MEGALOBIZ enum value
+    // and the DefaultLyricsProviderOrder entry are also gone.
     val (enableUnisonLyrics, onEnableUnisonLyricsChange) = rememberPreference(key = EnableUnisonLyricsKey, defaultValue = true)
     val (enableMusixmatchExperimental, onEnableMusixmatchExperimentalChange) =
         rememberPreference(key = EnableMusixmatchExperimentalKey, defaultValue = false)
@@ -223,13 +206,44 @@ fun LyricsSettings(
 
     LaunchedEffect(scrollTo) { positions.scrollToKey(scrollTo, scrollState) }
 
+    // ── Home-screen header haze (2026-09-05, revised) ──
+    // The 2026-09-05 morning attempt recorded the Column into a kyant
+    // layerBackdrop for a glass pill in the TopAppBar — but the pill and
+    // the recorded layer never overlap (the bar overlays the NavHost Box,
+    // while the recording only covered the area below the bar), so the pill
+    // rendered opaque with no visible blur (user report: "liquid glass but
+    // the background is opaque and there's no haze effect"). This now uses
+    // the canonical pattern the 30+ approved settings screens use
+    // (PlayerSettings et al.): the scrolling Column is the haze source, the
+    // ScreenHeaderHaze overlay blurs whatever scrolls under the transparent
+    // TopAppBar, and the pill is the plain single-pill look.
+    val headerHaze = rememberScreenHeaderHaze()
+    val systemBarsTopPadding = LocalStableSystemBarsTopPadding.current
+    // Mini-player aware bottom padding — keeps the last row clear of the
+    // persistent mini player (the insets' bottom half of the old single
+    // windowInsetsPadding call).
+    val playerAwareBottomPadding =
+        LocalPlayerAwareWindowInsets.current
+            .only(WindowInsetsSides.Bottom)
+            .asPaddingValues()
+            .calculateBottomPadding()
+    // The insets' top half (status bar + AppBarHeight) moves INSIDE the
+    // scroll so items scroll up under the transparent bar into the blur.
+    val headerTopPadding =
+        LocalPlayerAwareWindowInsets.current
+            .asPaddingValues()
+            .calculateTopPadding()
+
+    Box(modifier = Modifier.fillMaxSize()) {
     Column(
         Modifier
-            .windowInsetsPadding(LocalPlayerAwareWindowInsets.current)
+            .windowInsetsPadding(LocalPlayerAwareWindowInsets.current.only(WindowInsetsSides.Horizontal))
             // Chained before verticalScroll so it measures the viewport, not the scrolling content.
             .then(positions.containerModifier())
             .verticalScroll(scrollState)
-            .padding(bottom = SettingsDimensions.ScreenBottomPadding),
+            .hazeSource(headerHaze)
+            .padding(top = headerTopPadding)
+            .padding(bottom = playerAwareBottomPadding + SettingsDimensions.ScreenBottomPadding),
     ) {
         var showLyricsTextSizeDialog by rememberSaveable { mutableStateOf(false) }
 
@@ -421,36 +435,13 @@ fun LyricsSettings(
             modifier = positions.modifierFor("lyrics_font_size"),
             title = stringResource(R.string.display),
         ) {
-            item {
-                EnumListPreference(
-                    modifier = positions.modifierFor("lyrics_mode", "use_lyrics_v2"),
-                    title = { Text(stringResource(R.string.lyrics_mode)) },
-                    icon = { Icon(painterResource(R.drawable.lyrics), null) },
-                    selectedValue = lyricsMode,
-                    onValueSelected = onLyricsModeChange,
-                    valueText = {
-                        when (it) {
-                            LyricsMode.V2 -> stringResource(R.string.lyrics_mode_v2)
-                            LyricsMode.ENHANCED -> stringResource(R.string.lyrics_mode_enhanced)
-                            LyricsMode.SPOTIFY -> stringResource(R.string.lyrics_mode_spotify)
-                            LyricsMode.SIMPMUSIC -> stringResource(R.string.lyrics_mode_simpmusic)
-                        }
-                    },
-                )
-            }
-
-            item {
-                val animationSettingsEnabled = lyricsMode == LyricsMode.V2
-
-                PreferenceEntry(
-                    modifier = positions.modifierFor("lyrics_animation_style"),
-                    title = { Text(stringResource(R.string.lyrics_animation_style)) },
-                    description = if (animationSettingsEnabled) null else stringResource(R.string.lyrics_animation_style_v2_only),
-                    icon = { Icon(painterResource(R.drawable.animation), null) },
-                    onClick = { navController.navigate("settings/appearance/lyrics_animations") },
-                    isEnabled = animationSettingsEnabled,
-                )
-            }
+            // ── Lyrics mode picker ("V2 Legacy" / "Enhanced") and "Lyrics animation style"
+            // entry removed by user request. Enhanced is the sole lyrics renderer now, so the
+            // mode selector was redundant, and the animation style page only adjusted V2-specific
+            // sliders (Bounce Amplitude / Glow Intensity / Fill Transition / Line Bounce Effect)
+            // that no longer have a renderer to affect. The navigation route
+            // "settings/appearance/lyrics_animations" and the LyricsAnimationSettings screen
+            // are also removed (see NavigationBuilder.kt and the deleted file). ──
 
             item {
                 SwitchPreference(
@@ -472,6 +463,34 @@ fun LyricsSettings(
                 )
             }
 
+            // ── Restored (2026-09-04) ──────────────────────────────────────────
+            // "Show player controls" / "Auto-hide controls" toggles, back by
+            // user request after the Sept 3→4 upstream port removed them together
+            // with the Apple Music five-second auto-hide. The keys kept their
+            // original names so previously-saved values continue to apply. The
+            // description matches the restored behaviour: fade after 5s, tap to
+            // bring back.
+            item {
+                SwitchPreference(
+                    modifier = positions.modifierFor("show_lyrics_player_controls"),
+                    title = { Text(stringResource(R.string.show_lyrics_player_controls)) },
+                    icon = { Icon(painterResource(R.drawable.play), null) },
+                    checked = showPlayerControls,
+                    onCheckedChange = onShowPlayerControlsChange,
+                )
+            }
+
+            item {
+                SwitchPreference(
+                    modifier = positions.modifierFor("auto_hide_lyrics_player_controls"),
+                    title = { Text(stringResource(R.string.auto_hide_lyrics_player_controls)) },
+                    description = stringResource(R.string.auto_hide_lyrics_player_controls_description),
+                    icon = { Icon(painterResource(R.drawable.timer), null) },
+                    checked = autoHidePlayerControls,
+                    onCheckedChange = onAutoHidePlayerControlsChange,
+                    isEnabled = showPlayerControls,
+                )
+            }
 
             item {
                 SwitchPreference(
@@ -534,42 +553,56 @@ fun LyricsSettings(
 
     }
 
+    // Header haze overlay — drawn ON TOP of the scrolling content (later
+    // sibling), UNDER the transparent TopAppBar (emitted after it).
+    ScreenHeaderHaze(
+        hazeState = headerHaze,
+        systemBarsTopPadding = systemBarsTopPadding,
+    )
+
     TopAppBar(
-        title = { Text(stringResource(R.string.lyrics)) },
+        title = {},
+        colors =
+            TopAppBarDefaults.topAppBarColors(
+                containerColor = Color.Transparent,
+                scrolledContainerColor = Color.Transparent,
+            ),
         navigationIcon = {
-            IconButton(
-                onClick = navController::navigateUp,
-                onLongClick = navController::backToMain,
-            ) {
-                Icon(
-                    painterResource(R.drawable.arrow_back),
-                    contentDescription = null,
+            FrostedHeaderPill(plain = true) {
+                IconButton(
+                    onClick = navController::navigateUp,
+                    onLongClick = navController::backToMain,
+                ) {
+                    Icon(
+                        painterResource(R.drawable.arrow_back),
+                        contentDescription = null,
+                    )
+                }
+                Text(
+                    text = stringResource(R.string.lyrics),
+                    color = MaterialTheme.colorScheme.onBackground,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    modifier = Modifier.padding(end = 4.dp),
                 )
             }
         },
     )
+    } // end full-screen haze Box
 }
-
-internal enum class PaxsenixServerStatus { Operational, Degraded, Down }
 
 internal fun PreferredLyricsProvider.displayName(): String =
     when (this) {
         PreferredLyricsProvider.LRCLIB -> "LrcLib"
         PreferredLyricsProvider.KUGOU -> "KuGou"
-        PreferredLyricsProvider.MEGALOBIZ -> "Megalobiz"
         PreferredLyricsProvider.BETTER_LYRICS -> "BetterLyrics"
         PreferredLyricsProvider.BETTER_LYRICS_PORTATO -> "BetterLyrics Portato"
         PreferredLyricsProvider.YOULY_PLUS -> "YouLyPlus"
-        PreferredLyricsProvider.SIMPMUSIC -> "SimpMusic"
-        PreferredLyricsProvider.PAXSENIX_APPLE_MUSIC -> "Paxsenix: Apple Music"
-        PreferredLyricsProvider.APPLE_MUSIC -> "Apple Music"
-        PreferredLyricsProvider.PAXSENIX_NETEASE -> "Paxsenix: NetEase"
-        PreferredLyricsProvider.PAXSENIX_SPOTIFY -> "Paxsenix: Spotify"
-        PreferredLyricsProvider.PAXSENIX_MUSIXMATCH -> "Paxsenix: Musixmatch"
-        PreferredLyricsProvider.PAXSENIX_YOUTUBE -> "Paxsenix: YouTube"
+        // SIMPMUSIC and BINI_LYRICS cases removed per user request (2026-08-30).
         PreferredLyricsProvider.UNISON -> "Unison"
-        PreferredLyricsProvider.TIDAL -> "Tidal"
-        PreferredLyricsProvider.DEEZER -> "Deezer"
+        // Ported from upstream 2026-08-31 window: Apple Music account lyrics
+        // (via the logged-in Apple Music/pool account).
+        PreferredLyricsProvider.APPLE_MUSIC -> "Apple Music (account)"
         PreferredLyricsProvider.MUSIXMATCH_EXPERIMENTAL -> "Musixmatch (experimental)"
     }
 
@@ -675,356 +708,3 @@ internal fun LyricsProviderOrderDialog(
     }
 }
 
-internal fun successRateToStatus(rate: Float): PaxsenixServerStatus =
-    when {
-        rate >= 90f -> PaxsenixServerStatus.Operational
-        rate >= 70f -> PaxsenixServerStatus.Degraded
-        else -> PaxsenixServerStatus.Down
-    }
-
-internal fun formatUptimeSeconds(seconds: Double): String {
-    val total = seconds.toLong()
-    val days = total / 86400L
-    val hours = (total % 86400L) / 3600L
-    val minutes = (total % 3600L) / 60L
-    return when {
-        days > 0L -> "${days}d ${hours}h ${minutes}m"
-        hours > 0L -> "${hours}h ${minutes}m"
-        else -> "${minutes}m"
-    }
-}
-
-@Composable
-internal fun PaxsenixStatsDialog(
-    state: PaxsenixStatsState,
-    onDismiss: () -> Unit,
-    onRetry: () -> Unit,
-) {
-    val uriHandler = LocalUriHandler.current
-
-    DefaultDialog(
-        onDismiss = onDismiss,
-        title = { Text(stringResource(R.string.paxsenix_stats)) },
-        icon = { Icon(painterResource(R.drawable.stats), contentDescription = null) },
-        buttons = {
-            if (state is PaxsenixStatsState.Error) {
-                TextButton(onClick = onRetry) {
-                    Text(stringResource(R.string.retry))
-                }
-            } else {
-                TextButton(onClick = { uriHandler.openUri("https://lyrics.paxsenix.org/") }) {
-                    Text(stringResource(R.string.visit_website))
-                }
-            }
-            Spacer(Modifier.weight(1f))
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(android.R.string.ok))
-            }
-        },
-    ) {
-        when (state) {
-            PaxsenixStatsState.Loading -> {
-                Box(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 24.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    LoadingIndicator()
-                }
-            }
-
-            PaxsenixStatsState.Error -> {
-                Column(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Icon(
-                        painterResource(R.drawable.error),
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(32.dp),
-                    )
-                    Text(
-                        text = stringResource(R.string.paxsenix_stats_failed),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-
-            is PaxsenixStatsState.Success -> {
-                PaxsenixStatsContent(stats = state.stats)
-            }
-        }
-    }
-}
-
-@Composable
-internal fun PaxsenixStatsContent(stats: PaxsenixStats) {
-    val overallRate =
-        remember(stats.overallSuccessRate) {
-            stats.overallSuccessRate.trimEnd('%').toFloatOrNull() ?: 0f
-        }
-
-    Column(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        PaxsenixStatusBar(successRate = overallRate)
-
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text(
-                    text = stringResource(R.string.uptime),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    text = formatUptimeSeconds(stats.uptimeSeconds),
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Medium,
-                )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text(
-                    text = stringResource(R.string.total_requests),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    text = stats.totalRequests.toString(),
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Medium,
-                )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text(
-                    text = stringResource(R.string.success_rate),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    text = stats.overallSuccessRate,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Medium,
-                )
-            }
-        }
-
-        if (stats.providers.isNotEmpty()) {
-            HorizontalDivider()
-            Text(
-                text = stringResource(R.string.providers),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                stats.providers.forEach { (name, providerStats) ->
-                    key(name) {
-                        PaxsenixProviderRow(name = name, providerStats = providerStats)
-                    }
-                }
-            }
-        }
-
-        if (stats.requestLog.isNotEmpty()) {
-            HorizontalDivider()
-            Text(
-                text = stringResource(R.string.recent_requests),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                stats.requestLog.take(5).forEach { entry ->
-                    key(entry.timestamp + entry.endpoint) {
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            colors =
-                                CardDefaults.cardColors(
-                                    containerColor =
-                                        if (entry.success) {
-                                            MaterialTheme.colorScheme.surfaceContainerHigh
-                                        } else {
-                                            MaterialTheme.colorScheme.errorContainer
-                                        },
-                                ),
-                        ) {
-                            Row(
-                                modifier =
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = entry.endpoint,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    Text(
-                                        text = entry.provider,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color =
-                                            if (entry.success) {
-                                                MaterialTheme.colorScheme.onSurfaceVariant
-                                            } else {
-                                                MaterialTheme.colorScheme.onErrorContainer
-                                            },
-                                    )
-                                }
-                                Text(
-                                    text = "${entry.responseTimeMs.toInt()}ms",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color =
-                                        if (entry.success) {
-                                            MaterialTheme.colorScheme.onSurfaceVariant
-                                        } else {
-                                            MaterialTheme.colorScheme.onErrorContainer
-                                        },
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-internal fun PaxsenixStatusBar(successRate: Float) {
-    val status = remember(successRate) { successRateToStatus(successRate) }
-    val statusColor =
-        when (status) {
-            PaxsenixServerStatus.Operational -> Color(0xFF4CAF50)
-            PaxsenixServerStatus.Degraded -> Color(0xFFFF9800)
-            PaxsenixServerStatus.Down -> MaterialTheme.colorScheme.error
-        }
-    val statusLabel =
-        when (status) {
-            PaxsenixServerStatus.Operational -> stringResource(R.string.paxsenix_status_operational)
-            PaxsenixServerStatus.Degraded -> stringResource(R.string.paxsenix_status_degraded)
-            PaxsenixServerStatus.Down -> stringResource(R.string.paxsenix_status_down)
-        }
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors =
-            CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-            ),
-    ) {
-        Row(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Box(
-                    modifier =
-                        Modifier
-                            .size(10.dp)
-                            .clip(CircleShape)
-                            .background(statusColor),
-                )
-                Text(
-                    text = statusLabel,
-                    style = MaterialTheme.typography.titleSmall,
-                )
-            }
-            Text(
-                text = "${successRate.toInt()}%",
-                style = MaterialTheme.typography.titleSmall,
-                color = statusColor,
-                fontWeight = FontWeight.SemiBold,
-            )
-        }
-    }
-}
-
-@Composable
-internal fun PaxsenixProviderRow(
-    name: String,
-    providerStats: ProviderStats,
-) {
-    val rate =
-        remember(providerStats.successRate) {
-            providerStats.successRate.trimEnd('%').toFloatOrNull() ?: 0f
-        }
-    val status = remember(rate) { successRateToStatus(rate) }
-    val dotColor =
-        when (status) {
-            PaxsenixServerStatus.Operational -> Color(0xFF4CAF50)
-            PaxsenixServerStatus.Degraded -> Color(0xFFFF9800)
-            PaxsenixServerStatus.Down -> MaterialTheme.colorScheme.error
-        }
-
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.weight(1f),
-        ) {
-            Box(
-                modifier =
-                    Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(dotColor),
-            )
-            Text(
-                text = name,
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = "${providerStats.hits} hits",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                text = providerStats.successRate,
-                style = MaterialTheme.typography.labelSmall,
-                color = dotColor,
-                fontWeight = FontWeight.Medium,
-            )
-        }
-    }
-}

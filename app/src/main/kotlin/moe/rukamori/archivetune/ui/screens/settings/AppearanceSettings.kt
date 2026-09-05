@@ -457,6 +457,10 @@ fun AppearanceSectionSettings(
             PlayerDesignStyle.V9,
             PlayerDesignStyle.APPLE_MUSIC,
             PlayerDesignStyle.V10,
+            PlayerDesignStyle.BITCHORD,
+            PlayerDesignStyle.TIKTOK,
+            PlayerDesignStyle.SIMPMUSIC,
+            PlayerDesignStyle.SPATIALFLOW,
             -> false
 
             else -> true
@@ -979,6 +983,8 @@ fun AppearanceSectionSettings(
                                             stringResource(R.string.player_design_tiktok)
                                         PlayerDesignStyle.SIMPMUSIC ->
                                             stringResource(R.string.player_design_simpmusic)
+                                        PlayerDesignStyle.SPATIALFLOW ->
+                                            stringResource(R.string.player_design_spatialflow)
                                     }
                                 },
                             )

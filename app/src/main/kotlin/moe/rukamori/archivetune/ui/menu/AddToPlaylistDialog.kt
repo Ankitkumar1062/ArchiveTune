@@ -98,6 +98,7 @@ import moe.rukamori.archivetune.ui.component.PlaylistListItem
 import moe.rukamori.archivetune.utils.rememberPreference
 import java.time.LocalDateTime
 import java.util.Locale
+import moe.rukamori.archivetune.ui.component.UnglassedDialogTheme
 
 private fun preferredAddTargetPlaylist(
     current: Playlist,
@@ -299,15 +300,16 @@ fun AddToPlaylistDialog(
             onDismissRequest = onDismiss,
             properties = DialogProperties(usePlatformDefaultWidth = false),
         ) {
-            BoxWithConstraints(
-                modifier =
-                    Modifier
-                        .fillMaxSize()
-                        .padding(24.dp)
-                        .imePadding()
-                        .navigationBarsPadding(),
-                contentAlignment = Alignment.Center,
-            ) {
+            UnglassedDialogTheme {
+                BoxWithConstraints(
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .padding(24.dp)
+                            .imePadding()
+                            .navigationBarsPadding(),
+                    contentAlignment = Alignment.Center,
+                ) {
                 Surface(
                     modifier =
                         Modifier
@@ -699,6 +701,7 @@ fun AddToPlaylistDialog(
                 }
             }
         }
+    }
     }
 
     if (showCreatePlaylistDialog) {

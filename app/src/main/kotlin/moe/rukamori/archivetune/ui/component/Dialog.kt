@@ -37,7 +37,29 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ColorScheme
+import androidx.compose.runtime.ProvidableCompositionLocal
+import androidx.compose.runtime.compositionLocalOf
+
+val LocalUnglassColorScheme: ProvidableCompositionLocal<ColorScheme?> =
+    compositionLocalOf { null }
+
+/**
+ * Restores the standard opaque Material theme inside a dialog if that
+ * dialog was spawned inside a glass menu's [MaterialTheme] overlay — see
+ * [LocalUnglassColorScheme]. Outside a glass menu this is a no-op (the
+ * current scheme is re-provided unchanged).
+ */
+@Composable
+fun UnglassedDialogTheme(content: @Composable () -> Unit) {
+    val unglassed = LocalUnglassColorScheme.current
+    MaterialTheme(
+        colorScheme = unglassed ?: MaterialTheme.colorScheme,
+        shapes = MaterialTheme.shapes,
+        typography = MaterialTheme.typography,
+        content = content,
+    )
+}
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.Surface
@@ -101,15 +123,16 @@ fun DefaultDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
-        BoxWithConstraints(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .padding(24.dp)
-                    .imePadding()
-                    .navigationBarsPadding(),
-            contentAlignment = Alignment.Center,
-        ) {
+        UnglassedDialogTheme {
+            BoxWithConstraints(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .padding(24.dp)
+                        .imePadding()
+                        .navigationBarsPadding(),
+                contentAlignment = Alignment.Center,
+            ) {
             Surface(
                 modifier = Modifier.heightIn(max = maxHeight),
                 // Material 3 Expressive: extra-large rounded corners +
@@ -185,6 +208,7 @@ fun DefaultDialog(
         }
     }
 }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -211,75 +235,77 @@ fun ActionPromptDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
-        BoxWithConstraints(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .padding(24.dp)
-                    .imePadding()
-                    .navigationBarsPadding(),
-            contentAlignment = Alignment.Center,
-        ) {
-            Surface(
-                modifier = Modifier.heightIn(max = maxHeight),
-                // Material 3 Expressive: extra-large rounded corners +
-                // elevated tonal surface for a more modern dialog look.
-                shape = AlertDialogDefaults.shape,
-                color = AlertDialogDefaults.containerColor,
-                tonalElevation = AlertDialogDefaults.TonalElevation,
-                shadowElevation = 6.dp,
+        UnglassedDialogTheme {
+            BoxWithConstraints(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .padding(24.dp)
+                        .imePadding()
+                        .navigationBarsPadding(),
+                contentAlignment = Alignment.Center,
             ) {
-                Column(
-                    modifier = Modifier.padding(24.dp),
+                Surface(
+                    modifier = Modifier.heightIn(max = maxHeight),
+                    // Material 3 Expressive: extra-large rounded corners +
+                    // elevated tonal surface for a more modern dialog look.
+                    shape = AlertDialogDefaults.shape,
+                    color = AlertDialogDefaults.containerColor,
+                    tonalElevation = AlertDialogDefaults.TonalElevation,
+                    shadowElevation = 6.dp,
                 ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        // title
-                        if (titleBar != null) {
-                            Row {
-                                titleBar()
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            // title
+                            if (titleBar != null) {
+                                Row {
+                                    titleBar()
+                                }
+                            } else if (title != null) {
+                                Text(
+                                    text = title,
+                                    overflow = TextOverflow.Ellipsis,
+                                    maxLines = 1,
+                                    style = MaterialTheme.typography.headlineSmall,
+                                )
+                                Spacer(Modifier.height(16.dp))
                             }
-                        } else if (title != null) {
-                            Text(
-                                text = title,
-                                overflow = TextOverflow.Ellipsis,
-                                maxLines = 1,
-                                style = MaterialTheme.typography.headlineSmall,
-                            )
-                            Spacer(Modifier.height(16.dp))
+
+                            content() // body
                         }
 
-                        content() // body
-                    }
-
-                    Row(
-                        horizontalArrangement = Arrangement.End,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        if (onReset != null) {
-                            Row(modifier = Modifier.weight(1f)) {
-                                TextButton(
-                                    onClick = { onReset() },
-                                    shapes = ButtonDefaults.shapes(),
-                                ) {
-                                    Text(stringResource(R.string.reset))
+                        Row(
+                            horizontalArrangement = Arrangement.End,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            if (onReset != null) {
+                                Row(modifier = Modifier.weight(1f)) {
+                                    TextButton(
+                                        onClick = { onReset() },
+                                        shapes = ButtonDefaults.shapes(),
+                                    ) {
+                                        Text(stringResource(R.string.reset))
+                                    }
                                 }
                             }
-                        }
 
-                        if (onCancel != null) {
+                            if (onCancel != null) {
+                                TextButton(
+                                    onClick = { onCancel() },
+                                    shapes = ButtonDefaults.shapes(),
+                                ) {
+                                    Text(stringResource(android.R.string.cancel))
+                                }
+                            }
+
                             TextButton(
-                                onClick = { onCancel() },
+                                onClick = { onConfirm() },
                                 shapes = ButtonDefaults.shapes(),
                             ) {
-                                Text(stringResource(android.R.string.cancel))
+                                Text(stringResource(android.R.string.ok))
                             }
-                        }
-
-                        TextButton(
-                            onClick = { onConfirm() },
-                            shapes = ButtonDefaults.shapes(),
-                        ) {
-                            Text(stringResource(android.R.string.ok))
                         }
                     }
                 }
@@ -308,29 +334,31 @@ fun ListDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
-        BoxWithConstraints(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .padding(24.dp)
-                    .imePadding()
-                    .navigationBarsPadding(),
-            contentAlignment = Alignment.Center,
-        ) {
-            Surface(
-                modifier = Modifier.heightIn(max = maxHeight),
-                // Material 3 Expressive: extra-large rounded corners +
-                // elevated tonal surface for a more modern dialog look.
-                shape = AlertDialogDefaults.shape,
-                color = AlertDialogDefaults.containerColor,
-                tonalElevation = AlertDialogDefaults.TonalElevation,
-                shadowElevation = 6.dp,
+        UnglassedDialogTheme {
+            BoxWithConstraints(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .padding(24.dp)
+                        .imePadding()
+                        .navigationBarsPadding(),
+                contentAlignment = Alignment.Center,
             ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = modifier.padding(vertical = 24.dp),
+                Surface(
+                    modifier = Modifier.heightIn(max = maxHeight),
+                    // Material 3 Expressive: extra-large rounded corners +
+                    // elevated tonal surface for a more modern dialog look.
+                    shape = AlertDialogDefaults.shape,
+                    color = AlertDialogDefaults.containerColor,
+                    tonalElevation = AlertDialogDefaults.TonalElevation,
+                    shadowElevation = 6.dp,
                 ) {
-                    LazyColumn(content = content)
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = modifier.padding(vertical = 24.dp),
+                    ) {
+                        LazyColumn(content = content)
+                    }
                 }
             }
         }

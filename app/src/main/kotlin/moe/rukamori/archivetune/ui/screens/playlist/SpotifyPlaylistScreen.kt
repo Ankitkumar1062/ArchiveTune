@@ -10,6 +10,7 @@
 package moe.rukamori.archivetune.ui.screens.playlist
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -69,11 +70,13 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.google.common.collect.ImmutableList
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import moe.rukamori.archivetune.LocalDownloadUtil
 import moe.rukamori.archivetune.LocalPlayerAwareWindowInsets
@@ -82,9 +85,7 @@ import moe.rukamori.archivetune.LocalPlayerConnection
 import moe.rukamori.archivetune.R
 import moe.rukamori.archivetune.extensions.togglePlayPause
 import moe.rukamori.archivetune.models.MediaMetadata
-import moe.rukamori.archivetune.models.toMediaMetadata
 import moe.rukamori.archivetune.spotify.SpotifyMapper
-
 import moe.rukamori.archivetune.spotify.SpotifyDownloadItem
 import moe.rukamori.archivetune.spotify.SPOTIFY_LIKED_SONGS_ID
 import moe.rukamori.archivetune.spotify.SpotifyPlaybackResolver
@@ -97,17 +98,20 @@ import moe.rukamori.archivetune.ui.component.EmptyPlaceholder
 import moe.rukamori.archivetune.ui.component.ExpressivePullToRefreshBox
 import moe.rukamori.archivetune.ui.component.IconButton
 import moe.rukamori.archivetune.ui.component.LiquidGlassActionPill
+import moe.rukamori.archivetune.ui.component.GlassPillTitleText
 import moe.rukamori.archivetune.ui.component.LiquidGlassIconButton
 import moe.rukamori.archivetune.ui.component.MediaDetailAction
 import moe.rukamori.archivetune.ui.component.MediaDetailHero
 import moe.rukamori.archivetune.ui.component.MediaDetailIconAction
 import moe.rukamori.archivetune.ui.component.SpotifyTrackListItem
 import moe.rukamori.archivetune.ui.component.layerBackdrop
+import moe.rukamori.archivetune.ui.component.liquidGlassContentColor
 import android.os.Build
 import moe.rukamori.archivetune.constants.LiquidGlassEnabledKey
 import moe.rukamori.archivetune.utils.rememberPreference
 import moe.rukamori.archivetune.ui.player.LocalPlayerLyricsFullScreen
 import moe.rukamori.archivetune.ui.component.rememberBackdrop
+import moe.rukamori.archivetune.ui.component.rememberLayerBackdropSettled
 import moe.rukamori.archivetune.ui.utils.HeaderDownloadItem
 import moe.rukamori.archivetune.ui.utils.HeaderDownloadProgressIndicator
 import moe.rukamori.archivetune.ui.utils.HeaderDownloadState
@@ -116,7 +120,12 @@ import moe.rukamori.archivetune.ui.utils.headerDownloadState
 import moe.rukamori.archivetune.ui.utils.resize
 import moe.rukamori.archivetune.ui.utils.sendAddMissingDownloads
 import moe.rukamori.archivetune.ui.utils.sendRemoveDownloads
+import moe.rukamori.archivetune.ui.utils.sendPauseRunningDownloads
+import moe.rukamori.archivetune.ui.utils.sendResumePausedDownloads
 import moe.rukamori.archivetune.utils.makeTimeString
+import dev.chrisbanes.haze.hazeSource
+import moe.rukamori.archivetune.ui.screens.ScreenHeaderHaze
+import moe.rukamori.archivetune.ui.screens.rememberScreenHeaderHaze
 import kotlin.math.abs
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -195,7 +204,7 @@ fun SpotifyPlaylistScreen(
         removeCompleted: Boolean = true,
     ) {
         val songIds = items.map(SpotifyDownloadItem::id)
-        when (headerDownloadState(songIds, latestDownloads)) {
+        when (val headerState = headerDownloadState(songIds, latestDownloads)) {
             HeaderDownloadState.Completed -> {
                 if (removeCompleted) {
                     sendRemoveDownloads(
@@ -206,10 +215,21 @@ fun SpotifyPlaylistScreen(
             }
 
             is HeaderDownloadState.Partial -> {
-                sendRemoveDownloads(
-                    context = navController.context,
-                    songIds = songIds,
-                )
+                // Pause/Resume (2026-09-05): pending-only, the
+                // already-downloaded songs stay untouched.
+                if (headerState.paused) {
+                    sendResumePausedDownloads(
+                        context = navController.context,
+                        songIds = songIds,
+                        downloads = latestDownloads,
+                    )
+                } else {
+                    sendPauseRunningDownloads(
+                        context = navController.context,
+                        songIds = songIds,
+                        downloads = latestDownloads,
+                    )
+                }
             }
 
             HeaderDownloadState.None -> {
@@ -234,9 +254,9 @@ fun SpotifyPlaylistScreen(
     }
 
     var isSearching by rememberSaveable { mutableStateOf(false) }
+    var resolvingTrackId by remember { mutableStateOf<String?>(null) }
     var query by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue()) }
     val focusRequester = remember { FocusRequester() }
-
 
     val filteredTracks =
         remember(tracks, query.text) {
@@ -319,6 +339,38 @@ fun SpotifyPlaylistScreen(
             isSearching = false
             query = TextFieldValue()
         }
+    } else {
+        // BackHandler so the predictive back gesture always escapes the
+        // Spotify playlist page. Per user report (2026-08-29): "I'm in the
+        // playlist but I can't get back using the navigation gesture." The
+        // previous implementation called `navController.navigate("library") {
+        // popUpTo(navController.graph.startDestinationId) ... }` which could
+        // fail silently when `navController.graph` was momentarily null
+        // during fast back-to-back navigation or when the start destination
+        // ID was the same as the target.
+        //
+        // New approach: call `popBackStack()` directly first — this is the
+        // most primitive NavController operation and reliably pops the
+        // current entry to reveal the previous one. If `popBackStack()`
+        // returns false (no previous entry), fall back to navigating to
+        // the Library route. Wrapped in try/catch as defense-in-depth.
+        BackHandler {
+            try {
+                if (!navController.popBackStack()) {
+                    navController.navigate("library") {
+                        launchSingleTop = true
+                    }
+                }
+            } catch (_: Exception) {
+                try {
+                    if (!navController.navigateUp()) {
+                        navController.navigate("library") { launchSingleTop = true }
+                    }
+                } catch (_: Exception) {
+                    // Last-resort: let the system handle the back press.
+                }
+            }
+        }
     }
 
     fun playPlaylist(
@@ -330,18 +382,26 @@ fun SpotifyPlaylistScreen(
         if (queueTracks.isEmpty()) return
         val boundedStartIndex = startIndex.coerceIn(queueTracks.indices)
         val preloadTrack = queueTracks[boundedStartIndex]
+        if (resolvingTrackId != null) return
 
-        playerConnection?.playQueue(
-            SpotifyPlaylistQueue(
-                playlistId = currentPlaylist.id,
-                title = currentPlaylist.name,
-                initialTracks = queueTracks,
-                startIndex = boundedStartIndex,
-                preloadItem = preloadTrack.toMediaMetadata(),
-            ),
-        )
+        coroutineScope.launch {
+            resolvingTrackId = preloadTrack.id
+            try {
+                val preloadItem = SpotifyPlaybackResolver.resolveToMetadata(preloadTrack)
+                playerConnection?.playQueue(
+                    SpotifyPlaylistQueue(
+                        playlistId = currentPlaylist.id,
+                        title = currentPlaylist.name,
+                        initialTracks = queueTracks,
+                        startIndex = boundedStartIndex,
+                        preloadItem = preloadItem,
+                    ),
+                )
+            } finally {
+                resolvingTrackId = null
+            }
+        }
     }
-
 
     // Liquid Glass backdrop: created unconditionally (cheap — just a GraphicsLayer
     // handle). The actual content recording happens when
@@ -364,11 +424,33 @@ fun SpotifyPlaylistScreen(
     val liquidGlassHeaderActive =
         liquidGlassEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     val lyricsFullScreen = LocalPlayerLyricsFullScreen.current
-    val layerBackdropActive = liquidGlassHeaderActive && !lyricsFullScreen
-    val artworkBackdrop = rememberBackdrop(Color.Black)
+    // Defer the layerBackdrop activation for ~500ms after first composition so
+    // the page transition (NavHost default 250ms slide-in-from-right) doesn't
+    // compete with the kyant RuntimeShader recording for the GPU/frame budget.
+    // Per user report (2026-08-29): "Whenever I open a page the transition/page
+    // switch animation lags a lot. this only happens in the pages that has
+    // liquid glass implementation." Keep the FrostedHeaderPill fallback (no
+    // backdrop, no per-frame recording) until the screen has settled, then swap
+    // to the real LiquidGlassActionPill + layerBackdrop. Liquid glass itself is
+    // NOT removed — only delayed.
+    val screenSettled = rememberLayerBackdropSettled()
 
+    val layerBackdropActive = liquidGlassHeaderActive && !lyricsFullScreen && screenSettled
+    // Use the theme surface color (not Color.Black) so the initial frame, before
+    // any scrolling content is recorded into the backdrop, blends with the page
+    // background instead of flashing solid black. Matches the LocalPlaylistScreen
+    // / AutoPlaylistScreen / CachePlaylistScreen fix from stage-6.
+    val artworkBackdrop = rememberBackdrop(surfaceColor)
+
+    // Header haze (2026-09-04, revised): the home page's blurred top haze,
+    // ported to this screen. The haze SOURCE is the scrolling LazyColumn, the
+    // overlay renders ON TOP of it (a later sibling, beneath the pinned
+    // Liquid Glass pills) — the overlay was previously the FIRST child under
+    // the list, so the list drew straight over it and the haze was never
+    // visible (user report 2026-09-04: "I don't see the haze effect").
+    val headerHaze = rememberScreenHeaderHaze()
     ExpressivePullToRefreshBox(
-        isRefreshing = state.isLoading,
+        isRefreshing = state.isLoading && tracks.isNotEmpty(),
         onRefresh = viewModel::reload,
         modifier =
             Modifier
@@ -399,7 +481,8 @@ fun SpotifyPlaylistScreen(
                         } else {
                             Modifier
                         },
-                    ),
+                    )
+                    .hazeSource(headerHaze),
         ) {
             playlist?.let { currentPlaylist ->
                 item(key = "header") {
@@ -569,15 +652,21 @@ fun SpotifyPlaylistScreen(
                     remember(track, mediaMetadata) {
                         track.isResolvedAs(mediaMetadata)
                     }
+                val trackIsResolving = resolvingTrackId == track.id
 
                 SpotifyTrackListItem(
                     track = track,
-                    isActive = trackIsActive,
-                    isPlaying = isPlaying,
+                    isActive = trackIsActive || trackIsResolving,
+                    isPlaying = isPlaying && !trackIsResolving,
+                    trailingContent = {
+                        if (trackIsResolving) {
+                            CircularWavyProgressIndicator(modifier = Modifier.size(24.dp))
+                        }
+                    },
                     modifier =
                         Modifier
                             .fillMaxWidth()
-                            .clickable {
+                            .clickable(enabled = resolvingTrackId == null || trackIsActive) {
                                 if (trackIsActive) {
                                     playerConnection?.player?.togglePlayPause()
                                 } else {
@@ -590,7 +679,6 @@ fun SpotifyPlaylistScreen(
                                 }
                             },
                 )
-
             }
         }
 
@@ -602,6 +690,15 @@ fun SpotifyPlaylistScreen(
                     ).align(Alignment.CenterEnd),
             scrollState = lazyListState,
             headerItems = if (!isSearching && playlist != null) 1 else 0,
+        )
+
+        // ── Header haze overlay (2026-09-04, revised) ──
+        // Progressive top-fade blur over the list — declared AFTER the
+        // LazyColumn so it draws on top of it, BEFORE the pinned pills so
+        // they stay crisp above the frosted strip.
+        ScreenHeaderHaze(
+            hazeState = headerHaze,
+            systemBarsTopPadding = systemBarsTopPadding,
         )
 
         // Persistent Liquid Glass header buttons. Siblings of the LazyColumn
@@ -620,17 +717,50 @@ fun SpotifyPlaylistScreen(
         //  - Not searching
         //  - Playlist is loaded
         if (layerBackdropActive && !isSearching && playlist != null) {
-            LiquidGlassIconButton(
+            // iOS-inspired back pill: persistent translucent liquid-glass
+            // capsule containing a left-pointing chevron followed by the
+            // text "Library", matching the user's reference screenshot and
+            // the LocalPlaylistScreen / AutoPlaylistScreen / HistoryScreen
+            // layout. Previously this was a single LiquidGlassIconButton
+            // (just the arrow_back icon with no "Library" label), which
+            // the user reported as not matching the history-page layout.
+            // Tapping it pops back to the previous destination (or pops
+            // back to the Library tab if no previous destination exists);
+            // long-pressing it jumps straight to the Home tab.
+            LiquidGlassActionPill(
                 backdrop = artworkBackdrop,
-                painter = painterResource(R.drawable.arrow_back),
-                contentDescription = null,
+                interactive = true,
                 modifier =
                     Modifier
                         .align(Alignment.TopStart)
-                        .padding(start = 12.dp, top = systemBarsTopPadding + 12.dp)
-                        .size(48.dp),
-                onClick = { navController.navigateUp() },
-            )
+                        .padding(start = 12.dp, top = systemBarsTopPadding + 12.dp),
+            ) {
+                IconButton(
+                    onClick = {
+                        if (!navController.navigateUp()) {
+                            // No previous back-stack entry — fall back to the
+                            // Library tab so the back gesture always lands on
+                            // Library (not Home) when the user entered this
+                            // screen directly (e.g. via a deep link).
+                            navController.navigate("library") {
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        }
+                    },
+                    onLongClick = { navController.backToMain() },
+                    modifier = Modifier.size(48.dp),
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.arrow_back),
+                        contentDescription = stringResource(R.string.library),
+                        tint = liquidGlassContentColor(),
+                    )
+                }
+                GlassPillTitleText(
+                    text = playlist?.name ?: stringResource(R.string.spotify),
+                )
+            }
             LiquidGlassActionPill(
                 backdrop = artworkBackdrop,
                 modifier =
@@ -647,7 +777,7 @@ fun SpotifyPlaylistScreen(
                         Icon(
                             painter = painterResource(R.drawable.search),
                             contentDescription = null,
-                            tint = Color.White,
+                            tint = liquidGlassContentColor(),
                         )
                     }
                 }

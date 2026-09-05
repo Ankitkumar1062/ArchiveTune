@@ -13,17 +13,21 @@
 
 package moe.rukamori.archivetune.ui.component
 
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton as Material3IconButton
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
@@ -33,6 +37,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.lerp
 import com.kyant.backdrop.backdrops.LayerBackdrop
@@ -287,3 +293,31 @@ fun LiquidGlassIconButton(
         }
     }
 }
+
+private const val GlassPillTitleMaxWidthFraction = 0.42f
+
+/**
+ * The title text for a [LiquidGlassActionPill] back pill: capped at a fixed
+ * length (a screen-width fraction) and marquee-scrolls inside that length
+ * when the title is longer, instead of growing the pill until it collides
+ * with the trailing actions pill.
+ */
+@Composable
+fun GlassPillTitleText(
+    text: String,
+    modifier: Modifier = Modifier,
+) {
+    val screenWidthDp = LocalConfiguration.current.screenWidthDp
+    Text(
+        text = text,
+        color = liquidGlassContentColor(),
+        fontWeight = FontWeight.SemiBold,
+        maxLines = 1,
+        modifier =
+            modifier
+                .widthIn(max = (screenWidthDp * GlassPillTitleMaxWidthFraction).dp)
+                .basicMarquee()
+                .padding(end = 12.dp),
+    )
+}
+

@@ -128,3 +128,4 @@ core.*
 /.env
 /.cursor/
 /.windsurf/
+/scratch/

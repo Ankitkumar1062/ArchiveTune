@@ -24,6 +24,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
@@ -184,6 +185,7 @@ import moe.rukamori.archivetune.R
 import moe.rukamori.archivetune.canvas.models.CanvasArtwork
 import moe.rukamori.archivetune.constants.ArchiveTuneCanvasKey
 import moe.rukamori.archivetune.constants.SpotifyCanvasKey
+import moe.rukamori.archivetune.constants.SpotifySpDcKey
 import moe.rukamori.archivetune.constants.BackdropBlurAmountKey
 import moe.rukamori.archivetune.constants.BackdropEnabledKey
 import moe.rukamori.archivetune.constants.BlurRadiusKey
@@ -235,17 +237,19 @@ import moe.rukamori.archivetune.ui.utils.getNextFallbackUrl
 import moe.rukamori.archivetune.ui.utils.resize
 import moe.rukamori.archivetune.utils.ImageBlurUtils
 import moe.rukamori.archivetune.utils.isLocalMediaId
+import moe.rukamori.archivetune.ui.player.bitchord.BitChordPlayerContent
+import moe.rukamori.archivetune.ui.player.tiktok.TikTokPlayerContent
 import moe.rukamori.archivetune.utils.makeTimeString
 import moe.rukamori.archivetune.utils.rememberEnumPreference
 import moe.rukamori.archivetune.utils.rememberLowDataModeActive
 import moe.rukamori.archivetune.utils.rememberPreference
-import moe.rukamori.archivetune.ui.player.bitchord.BitChordPlayerContent
 import moe.rukamori.archivetune.ui.player.simpmusic.SimpMusicPlayerContent
-import moe.rukamori.archivetune.ui.player.tiktok.TikTokPlayerContent
+import moe.rukamori.archivetune.ui.player.spatialflow.SpatialFlowPlayerContent
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
+import moe.rukamori.archivetune.ui.component.KeepStatusBarHiddenInDialog
 
 private const val SeekbarSettleToleranceMs = 1_500L
 private const val V7BackdropMinArtworkSizePx = 1_024
@@ -416,12 +420,12 @@ fun BottomSheetPlayer(
         defaultValue = PlayerBackgroundStyle.DEFAULT,
     )
     val playerUsesFixedBackground =
-        playerDesignStyle == PlayerDesignStyle.V8 ||
-            playerDesignStyle == PlayerDesignStyle.V9 ||
+        playerDesignStyle == PlayerDesignStyle.V9 ||
             playerDesignStyle == PlayerDesignStyle.APPLE_MUSIC ||
             playerDesignStyle == PlayerDesignStyle.BITCHORD ||
             playerDesignStyle == PlayerDesignStyle.TIKTOK ||
-            playerDesignStyle == PlayerDesignStyle.SIMPMUSIC
+            playerDesignStyle == PlayerDesignStyle.SIMPMUSIC ||
+            playerDesignStyle == PlayerDesignStyle.SPATIALFLOW
     val playerBackground =
         if (playerUsesFixedBackground) PlayerBackgroundStyle.DEFAULT else storedPlayerBackground
 
@@ -515,6 +519,21 @@ fun BottomSheetPlayer(
     val (thumbnailCornerRadius) = rememberPreference(ThumbnailCornerRadiusKey, defaultValue = 8f)
     val archiveTuneCanvasEnabled by rememberPreference(ArchiveTuneCanvasKey, false)
     val spotifyCanvasEnabled by rememberPreference(SpotifyCanvasKey, false)
+    // ── Spotify-account canvas (2026-09-04) ──
+    // "When users have logged in using their Spotify account the canvas
+    // should be fetched from their actual account using the Spotify tokens
+    // generated from the web auth during login." A connected session (the
+    // sp_dc cookie captured by the web-auth login sheet) enables the
+    // Spotify Canvas path on its own — the user no longer has to find the
+    // "Spotify Canvas" toggle in Player settings first. The tokens are
+    // minted from that same web-auth session by
+    // SpotifyCanvasProvider.tokenProvider (App.kt wires it to
+    // spotifyLibraryRepository.ensureAccessToken()), so the canvaz lookup
+    // runs against the user's ACTUAL account; the title/artist search is
+    // skipped entirely when the playing metadata already carries a
+    // spotifyTrackId from their session.
+    val spotifyConnected by rememberPreference(SpotifySpDcKey, defaultValue = "")
+    val spotifyCanvasEffective = spotifyCanvasEnabled || spotifyConnected.isNotBlank()
     val lowDataModeActive = rememberLowDataModeActive()
     val (maxCanvasCacheSize, _) =
         rememberPreference(
@@ -543,6 +562,14 @@ fun BottomSheetPlayer(
     var duration by rememberSaveable(mediaMetadata?.id) {
         mutableLongStateOf(playerConnection.player.duration)
     }
+    // Mirror position's pattern so MiniPlayer never sees a stale duration and never
+    // recomposes just because duration changed during the same track. Without this
+    // the MiniPlayer would receive `duration: Long` as a parameter and re-launch its
+    // entire `Row` (artwork, info, transport controls) on every duration update —
+    // most often as a single tick from `C.TIME_UNSET` to the real value once ExoPlayer
+    // resolves the stream, but also on per-track reloads.
+    val durationUpdatedState = rememberUpdatedState(duration)
+    val durationProvider = remember { { durationUpdatedState.value } }
     var lyricsSyncOffset by rememberSaveable(mediaMetadata?.id) {
         mutableIntStateOf(0)
     }
@@ -765,7 +792,7 @@ fun BottomSheetPlayer(
     val TextBackgroundColor =
         if (playerDesignStyle == PlayerDesignStyle.V9) {
             dynamicTextColor
-        } else if (playerDesignStyle == PlayerDesignStyle.V7 || playerDesignStyle == PlayerDesignStyle.V8) {
+        } else if (playerDesignStyle == PlayerDesignStyle.V7) {
             Color.White
         } else {
             when (playerBackground) {
@@ -783,7 +810,7 @@ fun BottomSheetPlayer(
     val icBackgroundColor =
         if (playerDesignStyle == PlayerDesignStyle.V9) {
             dynamicBgColor
-        } else if (playerDesignStyle == PlayerDesignStyle.V7 || playerDesignStyle == PlayerDesignStyle.V8) {
+        } else if (playerDesignStyle == PlayerDesignStyle.V7) {
             Color.Black
         } else {
             when (playerBackground) {
@@ -811,7 +838,7 @@ fun BottomSheetPlayer(
                 )
             }
         }.let { (tb, ib) ->
-            if (playerDesignStyle == PlayerDesignStyle.V7 || playerDesignStyle == PlayerDesignStyle.V8) {
+            if (playerDesignStyle == PlayerDesignStyle.V7) {
                 Pair(Color.White, Color.Black)
             } else if (playerDesignStyle == PlayerDesignStyle.V9) {
                 Pair(dynamicAccentColor, dynamicIconButtonColor)
@@ -869,6 +896,7 @@ fun BottomSheetPlayer(
             },
             title = { Text(stringResource(R.string.sleep_timer)) },
             confirmButton = {
+                KeepStatusBarHiddenInDialog() // status bar stays hidden while this dialog window is focused
                 TextButton(
                     onClick = {
                         showSleepTimerDialog = false
@@ -981,11 +1009,13 @@ fun BottomSheetPlayer(
     }
 
     val dynamicQueuePeekHeight =
-        if (playerDesignStyle == PlayerDesignStyle.V5 ||
+        if (
+            playerDesignStyle == PlayerDesignStyle.V5 ||
             playerDesignStyle == PlayerDesignStyle.APPLE_MUSIC ||
             playerDesignStyle == PlayerDesignStyle.BITCHORD ||
             playerDesignStyle == PlayerDesignStyle.TIKTOK ||
-            playerDesignStyle == PlayerDesignStyle.SIMPMUSIC
+            playerDesignStyle == PlayerDesignStyle.SIMPMUSIC ||
+            playerDesignStyle == PlayerDesignStyle.SPATIALFLOW
         ) {
             0.dp
         } else if (playerDesignStyle == PlayerDesignStyle.V9) {
@@ -1094,10 +1124,22 @@ fun BottomSheetPlayer(
         }
 
     if (!aodModeEnabled) {
+        // Root-overlay back-priority guard (2026-09-04, second report): the
+        // back gesture was still collapsing the full player out from under an
+        // open root popup (overflow menu / Cast picker / details sheet) even
+        // after the handlers were re-ordered — callback registration order is
+        // not a guarantee across predictive-back paths. While a root overlay
+        // is showing, this handler disables itself entirely so back can only
+        // reach the overlay's own dismissal handler: the popup closes first,
+        // the full player stays put (user report: "when I use back navigation
+        // gesture it should return to the full player and not close it
+        // instead"). The overlay-back layering then unwinds one press at a
+        // time: popup → queue/lyrics → collapse.
+        val rootOverlayActive = LocalRootOverlayActive.current
         BackHandler(
             enabled =
-                queueSheetState.isExpandedOrExpanding ||
-                    state.isExpandedOrExpanding,
+                (queueSheetState.isExpandedOrExpanding ||
+                    state.isExpandedOrExpanding) && !rootOverlayActive,
         ) {
             when {
                 isLyricsScreenVisible && state.isExpandedOrExpanding -> isLyricsScreenVisible = false
@@ -1268,7 +1310,7 @@ fun BottomSheetPlayer(
                         0f
                     }
                 dynamicBgColor.copy(alpha = 1f - fadeProgress)
-            } else if (playerDesignStyle == PlayerDesignStyle.V7 || playerDesignStyle == PlayerDesignStyle.V8) {
+            } else if (playerDesignStyle == PlayerDesignStyle.V7) {
                 val progress =
                     ((state.value - state.collapsedBound) / (state.expandedBound - state.collapsedBound))
                         .coerceIn(0f, 1f)
@@ -1330,8 +1372,8 @@ fun BottomSheetPlayer(
         keepContentAlive = true,
         collapsedContent = {
             MiniPlayer(
-                position = position,
-                duration = duration,
+                positionProvider = positionProvider,
+                durationProvider = durationProvider,
                 pureBlack = pureBlack,
                 isPairedWithNavigation = isMiniPlayerPairedWithNavigation,
             )
@@ -1401,12 +1443,16 @@ fun BottomSheetPlayer(
                 if (country.length == 2) country.lowercase(Locale.ROOT) else "us"
             }
         val shouldUseV7Canvas =
-            (archiveTuneCanvasEnabled || spotifyCanvasEnabled) &&
-                playerDesignStyle == PlayerDesignStyle.V7 &&
+            (archiveTuneCanvasEnabled || spotifyCanvasEffective) &&
+                (playerDesignStyle == PlayerDesignStyle.V7 ||
+                    playerDesignStyle == PlayerDesignStyle.TIKTOK) &&
                 !aodModeEnabled
         val shouldUseArtworkCanvas =
-            (archiveTuneCanvasEnabled || spotifyCanvasEnabled) &&
-                playerDesignStyle == PlayerDesignStyle.APPLE_MUSIC &&
+            (archiveTuneCanvasEnabled || spotifyCanvasEffective) &&
+                (
+                    playerDesignStyle == PlayerDesignStyle.APPLE_MUSIC ||
+                        playerDesignStyle == PlayerDesignStyle.V9
+                ) &&
                 !aodModeEnabled
         val shouldFetchV7Canvas = shouldUseV7Canvas && !lowDataModeActive
         val shouldFetchArtworkCanvas = shouldUseArtworkCanvas && !lowDataModeActive
@@ -1444,7 +1490,8 @@ fun BottomSheetPlayer(
                         requireVertical = shouldUseV7Canvas,
                         allowNetwork = true,
                         albumTitle = next.album?.title,
-                        trySpotifyCanvas = spotifyCanvasEnabled,
+                        trySpotifyCanvas = spotifyCanvasEffective,
+                        spotifyTrackId = next.spotifyTrackId,
                     )
                 }
             }
@@ -1493,7 +1540,8 @@ fun BottomSheetPlayer(
                         requireVertical = true,
                         allowNetwork = shouldFetchV7Canvas,
                         albumTitle = metadata.album?.title,
-                        trySpotifyCanvas = spotifyCanvasEnabled,
+                        trySpotifyCanvas = spotifyCanvasEffective,
+                        spotifyTrackId = metadata.spotifyTrackId,
                     )
                 if (requestRevision == canvasArtworkRevision) {
                     v7CanvasArtwork = resolvedArtwork
@@ -1532,7 +1580,8 @@ fun BottomSheetPlayer(
                         requireVertical = false,
                         allowNetwork = shouldFetchArtworkCanvas,
                         albumTitle = metadata.album?.title,
-                        trySpotifyCanvas = spotifyCanvasEnabled,
+                        trySpotifyCanvas = spotifyCanvasEffective,
+                        spotifyTrackId = metadata.spotifyTrackId,
                     )
                 if (requestRevision == canvasArtworkRevision) {
                     artworkCanvas = resolvedArtwork
@@ -1631,12 +1680,12 @@ fun BottomSheetPlayer(
             !aodModeEnabled &&
             playerDesignStyle != PlayerDesignStyle.V5 &&
             playerDesignStyle != PlayerDesignStyle.V7 &&
-            playerDesignStyle != PlayerDesignStyle.V8 &&
             playerDesignStyle != PlayerDesignStyle.V9 &&
             playerDesignStyle != PlayerDesignStyle.APPLE_MUSIC &&
             playerDesignStyle != PlayerDesignStyle.BITCHORD &&
             playerDesignStyle != PlayerDesignStyle.TIKTOK &&
-            playerDesignStyle != PlayerDesignStyle.SIMPMUSIC
+            playerDesignStyle != PlayerDesignStyle.SIMPMUSIC &&
+            playerDesignStyle != PlayerDesignStyle.SPATIALFLOW
         ) {
             PlayerBackground(
                 playerBackground = playerBackground,
@@ -1653,7 +1702,79 @@ fun BottomSheetPlayer(
 
         when (LocalConfiguration.current.orientation) {
             Configuration.ORIENTATION_LANDSCAPE -> {
-                if (playerDesignStyle == PlayerDesignStyle.V5) {
+                if (playerDesignStyle == PlayerDesignStyle.BITCHORD) {
+                    // The Bitchord style: a fully self-contained port of
+                    // BitChord's NowPlayingScreen (mesh backdrop, sleeve,
+                    // hairline scrubber, inline queue + lyrics). It renders the
+                    // same portrait-first layout in either orientation - its
+                    // content column is width-capped (PLAYER_MAX_WIDTH), so it
+                    // degrades gracefully on wide screens instead of stretching.
+                    enrichedMetadata?.let { metadata ->
+                        BitChordPlayerContent(
+                            mediaMetadata = metadata,
+                            isPlaying = isPlaying,
+                            isLoading = isLoading,
+                            canSkipPrevious = canSkipPrevious,
+                            canSkipNext = canSkipNext,
+                            position = position,
+                            duration = duration,
+                            playerConnection = playerConnection,
+                            navController = navController,
+                            state = state,
+                            menuState = menuState,
+                            bottomSheetPageState = bottomSheetPageState,
+                            currentFormat = currentFormat,
+                            modifier =
+                                Modifier
+                                    .fillMaxSize()
+                                    .nestedScroll(state.preUpPostDownNestedScrollConnection),
+                        )
+                    }
+                } else if (playerDesignStyle == PlayerDesignStyle.TIKTOK) {
+                    // The TikTok style: a full-screen vertical feed over the
+                    // real queue — swipe up for the next song, down for the
+                    // previous. Same layout in either orientation: the page's
+                    // hero artwork sizes itself to the middle zone, so it is
+                    // width-limited in portrait and height-limited here, and
+                    // the pager + the sheet's nested-scroll connection divide
+                    // vertical drags between paging and collapsing. The feed
+                    // scrubs via the app's standard seek callbacks, so its
+                    // progress row behaves exactly like every other style's
+                    // slider.
+                    enrichedMetadata?.let { metadata ->
+                        TikTokPlayerContent(
+                            mediaMetadata = metadata,
+                            isPlaying = isPlaying,
+                            isLoading = isLoading,
+                            canSkipPrevious = canSkipPrevious,
+                            canSkipNext = canSkipNext,
+                            sliderPosition = sliderPosition,
+                            position = position,
+                            duration = duration,
+                            playerConnection = playerConnection,
+                            navController = navController,
+                            state = state,
+                            menuState = menuState,
+                            bottomSheetPageState = bottomSheetPageState,
+                            lyricsVisible = isLyricsScreenVisible,
+                            lyricsSyncOffset = lyricsSyncOffset,
+                            onLyricsSyncOffsetChange = { lyricsSyncOffset = it },
+                            // Vertical canvas (same resolver the V7 style uses): the current
+                            // page's hero artwork becomes the looping canvas video.
+                            canvasPrimaryUrl = v7CanvasArtwork?.animatedVertical,
+                            canvasFallbackUrl = v7CanvasArtwork?.videoUrlVertical,
+                            modifier =
+                                Modifier
+                                    .fillMaxSize()
+                                    .nestedScroll(state.preUpPostDownNestedScrollConnection),
+                            // NOTE: no onOpenQueue here — the feed opens the
+                            // Apple Music inline queue sheet itself (see
+                            // TikTokPlayerContent's queueOpen overlay).
+                            onSeek = onSliderValueChange,
+                            onSeekFinished = onSliderValueChangeFinished,
+                        )
+                    }
+                } else if (playerDesignStyle == PlayerDesignStyle.V5) {
                     val littleBackground = MaterialTheme.colorScheme.primaryContainer
                     val littleTextColor = MaterialTheme.colorScheme.onPrimaryContainer
                     val displayPositionMs = sliderPosition ?: position
@@ -1832,78 +1953,7 @@ fun BottomSheetPlayer(
                             Spacer(Modifier.height(16.dp))
                         }
                     }
-                } else if (playerDesignStyle == PlayerDesignStyle.V8) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                    ) {
-                        val v8SwapState =
-                            rememberThumbnailSwapState(
-                                videoId = mediaMetadata?.id,
-                                ytmUrl = mediaMetadata?.thumbnailUrl,
-                                lowDataMode = lowDataModeActive,
-                                isMusicVideo = mediaMetadata?.isMusicVideo ?: false,
-                            )
-                        val v8VideoMetadata = mediaMetadata
-                        val v8VideoShowing =
-                            videoState != null &&
-                                v8VideoMetadata?.isMusicVideo == true &&
-                                !v8VideoMetadata.id.isLocalMediaId() &&
-                                !aodModeEnabled &&
-                                !isLyricsScreenVisible &&
-                                !videoPlaybackFailed
-                        if (v8VideoShowing) {
-                            Box(
-                                modifier =
-                                    Modifier
-                                        .fillMaxSize()
-                                        .background(Color.Black),
-                            )
-                        } else {
-                            V8PlayerBackdrop(
-                                thumbnailUrl = v8SwapState.displayUrl,
-                                backdropBlurAmount = backdropBlurAmount,
-                            )
-                        }
-
-                        enrichedMetadata?.let { metadata ->
-                            V8PlayerContent(
-                                mediaMetadata = metadata,
-                                queueTitle = queueTitle,
-                                playbackState = playbackState,
-                                isPlaying = isPlaying,
-                                isLoading = isLoading,
-                                canSkipPrevious = canSkipPrevious,
-                                canSkipNext = canSkipNext,
-                                currentSongLiked = currentSongLiked,
-                                sliderPosition = sliderPosition,
-                                position = position,
-                                duration = duration,
-                                volume = deviceMusicVolumeController.volumeFraction,
-                                showVolumeBar = showPlayerVolumeBar,
-                                playerConnection = playerConnection,
-                                navController = navController,
-                                state = state,
-                                menuState = menuState,
-                                bottomSheetPageState = bottomSheetPageState,
-                                currentFormat = currentFormat,
-                                canvasPrimaryUrl = artworkCanvas?.animated,
-                                canvasFallbackUrl = artworkCanvas?.videoUrl,
-                                onSliderValueChange = onSliderValueChange,
-                                onSliderValueChangeFinished = onSliderValueChangeFinished,
-                                onVolumeChange = onPlayerVolumeChange,
-                                landscape = true,
-                                modifier =
-                                    Modifier
-                                        .fillMaxSize()
-                                        .padding(bottom = queueSheetState.collapsedBound)
-                                        .windowInsetsPadding(
-                                            WindowInsets(top = LocalStableSystemBarsTopPadding.current)
-                                                .union(WindowInsets.systemBars.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)),
-                                        ).nestedScroll(state.preUpPostDownNestedScrollConnection),
-                            )
-                        }
-                    }
-                } else if (playerDesignStyle == PlayerDesignStyle.V9) {
+} else if (playerDesignStyle == PlayerDesignStyle.V9) {
                     enrichedMetadata?.let { metadata ->
                         V9PlayerContent(
                             mediaMetadata = metadata,
@@ -2000,13 +2050,16 @@ fun BottomSheetPlayer(
                                     ).nestedScroll(state.preUpPostDownNestedScrollConnection),
                         )
                     }
-                } else if (playerDesignStyle == PlayerDesignStyle.BITCHORD) {
-                    // A self-contained port of BitChord's NowPlayingScreen: mesh backdrop, sleeve,
-                    // hairline scrubber, inline queue and lyrics. Its content column is width-capped,
-                    // so the same portrait-first layout degrades gracefully on a wide screen rather
-                    // than stretching — which is why it is not orientation-branched.
+} else if (playerDesignStyle == PlayerDesignStyle.SPATIALFLOW) {
+                    // The SpatialFlow style (github.com/MythicalSHUB/SpatialFlow, GPL-3.0): a
+                    // fully self-contained port of its FullPlayer — artwork pager over the real
+                    // queue, pill-chip control row, wavy seek bar, M3 Expressive transport,
+                    // embedded sliding queue drawer, circular-reveal lyrics overlay and
+                    // Visualizer-fed music haptics. It owns its layout outright (like BitChord /
+                    // TikTok / SimpMusic) and sizes itself to whatever box it is given, so it is
+                    // not orientation-branched.
                     enrichedMetadata?.let { metadata ->
-                        BitChordPlayerContent(
+                        SpatialFlowPlayerContent(
                             mediaMetadata = metadata,
                             isPlaying = isPlaying,
                             isLoading = isLoading,
@@ -2020,47 +2073,22 @@ fun BottomSheetPlayer(
                             menuState = menuState,
                             bottomSheetPageState = bottomSheetPageState,
                             currentFormat = currentFormat,
-                            modifier =
-                                Modifier
-                                    .fillMaxSize()
-                                    .nestedScroll(state.preUpPostDownNestedScrollConnection),
-                        )
-                    }
-                } else if (playerDesignStyle == PlayerDesignStyle.TIKTOK) {
-                    // A full-screen vertical feed over the real queue — swipe up for the next song,
-                    // down for the previous. The page's hero sizes itself to the middle zone, so the
-                    // same layout is width-limited in portrait and height-limited in landscape, and
-                    // the pager plus the sheet's nested-scroll connection divide vertical drags
-                    // between paging and collapsing the player.
-                    //
-                    // No onOpenQueue: the feed opens the Apple Music queue sheet in place itself.
-                    enrichedMetadata?.let { metadata ->
-                        TikTokPlayerContent(
-                            mediaMetadata = metadata,
-                            isPlaying = isPlaying,
-                            isLoading = isLoading,
-                            canSkipPrevious = canSkipPrevious,
-                            canSkipNext = canSkipNext,
-                            sliderPosition = sliderPosition,
-                            position = position,
-                            duration = duration,
-                            playerConnection = playerConnection,
-                            navController = navController,
-                            state = state,
-                            menuState = menuState,
-                            bottomSheetPageState = bottomSheetPageState,
-                            lyricsVisible = isLyricsScreenVisible,
-                            lyricsSyncOffset = lyricsSyncOffset,
-                            onLyricsSyncOffsetChange = { lyricsSyncOffset = it },
+                            positionProvider = { position },
                             onSeek = onSliderValueChange,
                             onSeekFinished = onSliderValueChangeFinished,
                             modifier =
                                 Modifier
                                     .fillMaxSize()
-                                    .nestedScroll(state.preUpPostDownNestedScrollConnection),
+                                    // Notch fix (2026-09-05): horizontal system-bars padding so
+                                    // the style's edge-to-edge content clears a landscape
+                                    // side cutout; the top inset is handled inside the style via
+                                    // LocalStableSystemBarsTopPadding.
+                                    .windowInsetsPadding(
+                                        WindowInsets.systemBars.only(WindowInsetsSides.Horizontal),
+                                    ).nestedScroll(state.preUpPostDownNestedScrollConnection),
                         )
                     }
-                } else if (playerDesignStyle == PlayerDesignStyle.SIMPMUSIC) {
+} else if (playerDesignStyle == PlayerDesignStyle.SIMPMUSIC) {
                     // SimpMusic's default now-playing screen: a diagonal wash pulled from the
                     // artwork palette, the sleeve on a pager backed by the real queue, then the
                     // info row, scrubber and transport. Like the two styles above it sizes itself
@@ -2090,7 +2118,13 @@ fun BottomSheetPlayer(
                             modifier =
                                 Modifier
                                     .fillMaxSize()
-                                    .nestedScroll(state.preUpPostDownNestedScrollConnection),
+                                    // Notch fix (2026-09-05): horizontal system-bars padding so
+                                    // the style's edge-to-edge content clears a landscape
+                                    // side cutout; the top inset is handled inside the style via
+                                    // LocalStableSystemBarsTopPadding.
+                                    .windowInsetsPadding(
+                                        WindowInsets.systemBars.only(WindowInsetsSides.Horizontal),
+                                    ).nestedScroll(state.preUpPostDownNestedScrollConnection),
                         )
                     }
                 } else if (playerDesignStyle == PlayerDesignStyle.APPLE_MUSIC) {
@@ -2147,7 +2181,6 @@ fun BottomSheetPlayer(
                                 sliderPositionProvider = { sliderPosition },
                                 modifier = Modifier.size(thumbnailSize),
                                 isPlayerExpanded = state.isExpanded,
-                                onOpenLyrics = { isLyricsScreenVisible = true },
                             )
                         }
                         Column(
@@ -2170,7 +2203,77 @@ fun BottomSheetPlayer(
             }
 
             else -> {
-                if (playerDesignStyle == PlayerDesignStyle.V5) {
+                if (playerDesignStyle == PlayerDesignStyle.BITCHORD) {
+                    // The Bitchord style: a fully self-contained port of
+                    // BitChord's NowPlayingScreen (mesh backdrop, sleeve,
+                    // hairline scrubber, inline queue + lyrics). It renders the
+                    // same portrait-first layout in either orientation - its
+                    // content column is width-capped (PLAYER_MAX_WIDTH), so it
+                    // degrades gracefully on wide screens instead of stretching.
+                    enrichedMetadata?.let { metadata ->
+                        BitChordPlayerContent(
+                            mediaMetadata = metadata,
+                            isPlaying = isPlaying,
+                            isLoading = isLoading,
+                            canSkipPrevious = canSkipPrevious,
+                            canSkipNext = canSkipNext,
+                            position = position,
+                            duration = duration,
+                            playerConnection = playerConnection,
+                            navController = navController,
+                            state = state,
+                            menuState = menuState,
+                            bottomSheetPageState = bottomSheetPageState,
+                            currentFormat = currentFormat,
+                            modifier =
+                                Modifier
+                                    .fillMaxSize()
+                                    .nestedScroll(state.preUpPostDownNestedScrollConnection),
+                        )
+                    }
+                } else if (playerDesignStyle == PlayerDesignStyle.TIKTOK) {
+                    // The TikTok style: a full-screen vertical feed over the
+                    // real queue — swipe up for the next song, down for the
+                    // previous. Each queue entry is one page (hero artwork,
+                    // right action rail, bottom info); playback switches only
+                    // when a page settles, and the feed follows song changes
+                    // made from anywhere else in the app. The feed scrubs via
+                    // the app's standard seek callbacks, so its progress row
+                    // behaves exactly like every other style's slider.
+                    enrichedMetadata?.let { metadata ->
+                        TikTokPlayerContent(
+                            mediaMetadata = metadata,
+                            isPlaying = isPlaying,
+                            isLoading = isLoading,
+                            canSkipPrevious = canSkipPrevious,
+                            canSkipNext = canSkipNext,
+                            sliderPosition = sliderPosition,
+                            position = position,
+                            duration = duration,
+                            playerConnection = playerConnection,
+                            navController = navController,
+                            state = state,
+                            menuState = menuState,
+                            bottomSheetPageState = bottomSheetPageState,
+                            lyricsVisible = isLyricsScreenVisible,
+                            lyricsSyncOffset = lyricsSyncOffset,
+                            onLyricsSyncOffsetChange = { lyricsSyncOffset = it },
+                            // Vertical canvas (same resolver the V7 style uses): the current
+                            // page's hero artwork becomes the looping canvas video.
+                            canvasPrimaryUrl = v7CanvasArtwork?.animatedVertical,
+                            canvasFallbackUrl = v7CanvasArtwork?.videoUrlVertical,
+                            modifier =
+                                Modifier
+                                    .fillMaxSize()
+                                    .nestedScroll(state.preUpPostDownNestedScrollConnection),
+                            // NOTE: no onOpenQueue here — the feed opens the
+                            // Apple Music inline queue sheet itself (see
+                            // TikTokPlayerContent's queueOpen overlay).
+                            onSeek = onSliderValueChange,
+                            onSeekFinished = onSliderValueChangeFinished,
+                        )
+                    }
+                } else if (playerDesignStyle == PlayerDesignStyle.V5) {
                     val littleBackground = MaterialTheme.colorScheme.primaryContainer
                     val littleTextColor = MaterialTheme.colorScheme.onPrimaryContainer
                     val displayPositionMs = sliderPosition ?: position
@@ -2348,77 +2451,7 @@ fun BottomSheetPlayer(
                             Spacer(Modifier.height(24.dp))
                         }
                     }
-                } else if (playerDesignStyle == PlayerDesignStyle.V8) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                    ) {
-                        val v8SwapState =
-                            rememberThumbnailSwapState(
-                                videoId = mediaMetadata?.id,
-                                ytmUrl = mediaMetadata?.thumbnailUrl,
-                                lowDataMode = lowDataModeActive,
-                                isMusicVideo = mediaMetadata?.isMusicVideo ?: false,
-                            )
-                        val v8VideoMetadata = mediaMetadata
-                        val v8VideoShowing =
-                            videoState != null &&
-                                v8VideoMetadata?.isMusicVideo == true &&
-                                !v8VideoMetadata.id.isLocalMediaId() &&
-                                !aodModeEnabled &&
-                                !isLyricsScreenVisible &&
-                                !videoPlaybackFailed
-                        if (v8VideoShowing) {
-                            Box(
-                                modifier =
-                                    Modifier
-                                        .fillMaxSize()
-                                        .background(Color.Black),
-                            )
-                        } else {
-                            V8PlayerBackdrop(
-                                thumbnailUrl = v8SwapState.displayUrl,
-                                backdropBlurAmount = backdropBlurAmount,
-                            )
-                        }
-
-                        enrichedMetadata?.let { metadata ->
-                            V8PlayerContent(
-                                mediaMetadata = metadata,
-                                queueTitle = queueTitle,
-                                playbackState = playbackState,
-                                isPlaying = isPlaying,
-                                isLoading = isLoading,
-                                canSkipPrevious = canSkipPrevious,
-                                canSkipNext = canSkipNext,
-                                currentSongLiked = currentSongLiked,
-                                sliderPosition = sliderPosition,
-                                position = position,
-                                duration = duration,
-                                volume = deviceMusicVolumeController.volumeFraction,
-                                showVolumeBar = showPlayerVolumeBar,
-                                playerConnection = playerConnection,
-                                navController = navController,
-                                state = state,
-                                menuState = menuState,
-                                bottomSheetPageState = bottomSheetPageState,
-                                currentFormat = currentFormat,
-                                canvasPrimaryUrl = artworkCanvas?.animated,
-                                canvasFallbackUrl = artworkCanvas?.videoUrl,
-                                onSliderValueChange = onSliderValueChange,
-                                onSliderValueChangeFinished = onSliderValueChangeFinished,
-                                onVolumeChange = onPlayerVolumeChange,
-                                modifier =
-                                    Modifier
-                                        .fillMaxSize()
-                                        .padding(bottom = queueSheetState.collapsedBound)
-                                        .windowInsetsPadding(
-                                            WindowInsets(top = LocalStableSystemBarsTopPadding.current)
-                                                .union(WindowInsets.systemBars.only(WindowInsetsSides.Horizontal)),
-                                        ).nestedScroll(state.preUpPostDownNestedScrollConnection),
-                            )
-                        }
-                    }
-                } else if (playerDesignStyle == PlayerDesignStyle.V9) {
+} else if (playerDesignStyle == PlayerDesignStyle.V9) {
                     enrichedMetadata?.let { metadata ->
                         V9PlayerContent(
                             mediaMetadata = metadata,
@@ -2514,13 +2547,16 @@ fun BottomSheetPlayer(
                         )
                     }
 
-                } else if (playerDesignStyle == PlayerDesignStyle.BITCHORD) {
-                    // A self-contained port of BitChord's NowPlayingScreen: mesh backdrop, sleeve,
-                    // hairline scrubber, inline queue and lyrics. Its content column is width-capped,
-                    // so the same portrait-first layout degrades gracefully on a wide screen rather
-                    // than stretching — which is why it is not orientation-branched.
+} else if (playerDesignStyle == PlayerDesignStyle.SPATIALFLOW) {
+                    // The SpatialFlow style (github.com/MythicalSHUB/SpatialFlow, GPL-3.0): a
+                    // fully self-contained port of its FullPlayer — artwork pager over the real
+                    // queue, pill-chip control row, wavy seek bar, M3 Expressive transport,
+                    // embedded sliding queue drawer, circular-reveal lyrics overlay and
+                    // Visualizer-fed music haptics. It owns its layout outright (like BitChord /
+                    // TikTok / SimpMusic) and sizes itself to whatever box it is given, so it is
+                    // not orientation-branched.
                     enrichedMetadata?.let { metadata ->
-                        BitChordPlayerContent(
+                        SpatialFlowPlayerContent(
                             mediaMetadata = metadata,
                             isPlaying = isPlaying,
                             isLoading = isLoading,
@@ -2534,47 +2570,22 @@ fun BottomSheetPlayer(
                             menuState = menuState,
                             bottomSheetPageState = bottomSheetPageState,
                             currentFormat = currentFormat,
-                            modifier =
-                                Modifier
-                                    .fillMaxSize()
-                                    .nestedScroll(state.preUpPostDownNestedScrollConnection),
-                        )
-                    }
-                } else if (playerDesignStyle == PlayerDesignStyle.TIKTOK) {
-                    // A full-screen vertical feed over the real queue — swipe up for the next song,
-                    // down for the previous. The page's hero sizes itself to the middle zone, so the
-                    // same layout is width-limited in portrait and height-limited in landscape, and
-                    // the pager plus the sheet's nested-scroll connection divide vertical drags
-                    // between paging and collapsing the player.
-                    //
-                    // No onOpenQueue: the feed opens the Apple Music queue sheet in place itself.
-                    enrichedMetadata?.let { metadata ->
-                        TikTokPlayerContent(
-                            mediaMetadata = metadata,
-                            isPlaying = isPlaying,
-                            isLoading = isLoading,
-                            canSkipPrevious = canSkipPrevious,
-                            canSkipNext = canSkipNext,
-                            sliderPosition = sliderPosition,
-                            position = position,
-                            duration = duration,
-                            playerConnection = playerConnection,
-                            navController = navController,
-                            state = state,
-                            menuState = menuState,
-                            bottomSheetPageState = bottomSheetPageState,
-                            lyricsVisible = isLyricsScreenVisible,
-                            lyricsSyncOffset = lyricsSyncOffset,
-                            onLyricsSyncOffsetChange = { lyricsSyncOffset = it },
+                            positionProvider = { position },
                             onSeek = onSliderValueChange,
                             onSeekFinished = onSliderValueChangeFinished,
                             modifier =
                                 Modifier
                                     .fillMaxSize()
-                                    .nestedScroll(state.preUpPostDownNestedScrollConnection),
+                                    // Notch fix (2026-09-05): horizontal system-bars padding so
+                                    // the style's edge-to-edge content clears a landscape
+                                    // side cutout; the top inset is handled inside the style via
+                                    // LocalStableSystemBarsTopPadding.
+                                    .windowInsetsPadding(
+                                        WindowInsets.systemBars.only(WindowInsetsSides.Horizontal),
+                                    ).nestedScroll(state.preUpPostDownNestedScrollConnection),
                         )
                     }
-                } else if (playerDesignStyle == PlayerDesignStyle.SIMPMUSIC) {
+} else if (playerDesignStyle == PlayerDesignStyle.SIMPMUSIC) {
                     // SimpMusic's default now-playing screen: a diagonal wash pulled from the
                     // artwork palette, the sleeve on a pager backed by the real queue, then the
                     // info row, scrubber and transport. Like the two styles above it sizes itself
@@ -2604,7 +2615,13 @@ fun BottomSheetPlayer(
                             modifier =
                                 Modifier
                                     .fillMaxSize()
-                                    .nestedScroll(state.preUpPostDownNestedScrollConnection),
+                                    // Notch fix (2026-09-05): horizontal system-bars padding so
+                                    // the style's edge-to-edge content clears a landscape
+                                    // side cutout; the top inset is handled inside the style via
+                                    // LocalStableSystemBarsTopPadding.
+                                    .windowInsetsPadding(
+                                        WindowInsets.systemBars.only(WindowInsetsSides.Horizontal),
+                                    ).nestedScroll(state.preUpPostDownNestedScrollConnection),
                         )
                     }
                 } else if (playerDesignStyle == PlayerDesignStyle.APPLE_MUSIC) {
@@ -2650,6 +2667,15 @@ fun BottomSheetPlayer(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier =
                             Modifier
+                                // Notch fix (2026-09-01): with "Hide status bar" on,
+                                // WindowInsets.statusBars reports 0, so the artwork block
+                                // started at y=0 and collided with the display cutout.
+                                // Floor the top inset with the cached status-bar top
+                                // (LocalStableSystemBarsTopPadding, which also floors
+                                // with displayCutout) — the same pattern V9/V10 use.
+                                .windowInsetsPadding(
+                                    WindowInsets(top = LocalStableSystemBarsTopPadding.current),
+                                )
                                 .windowInsetsPadding(
                                     WindowInsets.systemBars.only(
                                         WindowInsetsSides.Horizontal,
@@ -2664,7 +2690,6 @@ fun BottomSheetPlayer(
                                 sliderPositionProvider = { sliderPosition },
                                 modifier = Modifier.nestedScroll(state.preUpPostDownNestedScrollConnection),
                                 isPlayerExpanded = state.isExpanded,
-                                onOpenLyrics = { isLyricsScreenVisible = true },
                             )
                         }
 
@@ -2745,6 +2770,7 @@ fun BottomSheetPlayer(
                 playerDesignStyle == PlayerDesignStyle.BITCHORD ||
                 playerDesignStyle == PlayerDesignStyle.TIKTOK ||
                 playerDesignStyle == PlayerDesignStyle.SIMPMUSIC ||
+                playerDesignStyle == PlayerDesignStyle.SPATIALFLOW ||
                 useBlackBackground
             ) {
                 Color.White
@@ -2804,11 +2830,20 @@ fun BottomSheetPlayer(
             modifier =
                 Modifier
                     .fillMaxSize()
-                    .background(
-                        queueSurfaceColor.copy(
+                    // Per audit (2026-08-30): use drawBehind + drawRect's `alpha`
+                    // parameter instead of `Modifier.background(color.copy(alpha=...))`.
+                    // The previous call allocated a new Color value every frame during
+                    // sheet drag (queueSheetState.progress updates ~60 fps). drawRect's
+                    // `alpha` param is a primitive Float — zero per-frame Color allocation.
+                    // Visual is identical: same color, same alpha math, default
+                    // RectangleShape (the Box has no shape modifier, so background()
+                    // was also using RectangleShape).
+                    .drawBehind {
+                        drawRect(
+                            color = queueSurfaceColor,
                             alpha = queueSurfaceColor.alpha * queueSheetState.progress.coerceIn(0f, 1f),
-                        ),
-                    ),
+                        )
+                    },
         )
 
         // Queue sheet — wrapped in AnimatedVisibility with slide+fade so it
@@ -2956,14 +2991,20 @@ private fun MikoLyricsTransition(
                 targetValue = if (visible) 1f else 0f,
                 animationSpec =
                     if (visible) {
-                        // OPEN — keep the premium slow glide (~500 ms).
-                        spring(
-                            dampingRatio = 1f,
-                            stiffness = 160f,
-                            visibilityThreshold = 0.001f,
+                        // OPEN — slowed down from the old spring(stiffness = 160f, ~500 ms)
+                        // to a ~900 ms tween with FastOutSlowInEasing. The old spring snapped
+                        // the sheet up so quickly that the MovingBlurBackground inside
+                        // LyricsScreen "popped in" at full alpha and immediately started its
+                        // drift animation, which read as "backdrop blur is too fast and looks
+                        // bad". The longer tween gives the eye time to settle and pairs with
+                        // the alpha fade-in on the inner content Box below.
+                        tween(
+                            durationMillis = 900,
+                            easing = FastOutSlowInEasing,
                         )
                     } else {
-                        // CLOSE — slower by ~40% (~700 ms) per user request.
+                        // CLOSE — keep the existing ~700 ms spring (slow close, per prior
+                        // user request).
                         spring(
                             dampingRatio = 1f,
                             stiffness = 80f,
@@ -3008,114 +3049,39 @@ private fun MikoLyricsTransition(
                             clip = true
                         }.background(surfaceColor),
             ) {
-                LyricsScreen(
-                    mediaMetadata = mediaMetadata,
-                    onBackClick = onDismiss,
-                    navController = navController,
-                    lyricsSyncOffset = lyricsSyncOffset,
-                    onLyricsSyncOffsetChange = onLyricsSyncOffsetChange,
-                    onQueueClick = onQueueClick,
-                    backHandlerEnabled = backHandlerEnabled,
-                )
+                // Inner content fade: the LyricsScreen subtree (which owns the
+                // MovingBlurBackground + the drift animation) is faded in over the
+                // slide-up transition tied to the same progress. The outer Box keeps
+                // its opaque surfaceColor so the sliding sheet is always a solid shape;
+                // only the inner content (blur + lyrics + controls) eases in. This is
+                // the fix for "backdrop blur is too fast and looks bad": instead of
+                // the blur arriving at full alpha the instant the sheet starts moving,
+                // it ramps from 0 → 1 across the ~900 ms slide.
+                Box(
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                // Pull the fade-in forward slightly so the blur is at full
+                                // strength just before the sheet arrives (avoids feeling like
+                                // the lyrics are "still loading" when the slide finishes).
+                                alpha = (progressState.value * 1.35f).coerceIn(0f, 1f)
+                            },
+                ) {
+                    LyricsScreen(
+                        mediaMetadata = mediaMetadata,
+                        onBackClick = onDismiss,
+                        navController = navController,
+                        lyricsSyncOffset = lyricsSyncOffset,
+                        onLyricsSyncOffsetChange = onLyricsSyncOffsetChange,
+                        onQueueClick = onQueueClick,
+                        backHandlerEnabled = backHandlerEnabled,
+                    )
+                }
             }
         }
     }
 }
-
-@Composable
-private fun V8PlayerBackdrop(
-    thumbnailUrl: String?,
-    backdropBlurAmount: Int,
-    modifier: Modifier = Modifier,
-) {
-    var currentUrl by remember(thumbnailUrl) {
-        mutableStateOf(
-            thumbnailUrl?.resize(
-                width = V8BackdropArtworkSizePx,
-                height = V8BackdropArtworkSizePx,
-                maxresAllowed = true,
-                ytimgResizePolicy = YtimgResizePolicy.AllowAnyAspect,
-            ),
-        )
-    }
-    val backdropRequest = rememberOfflineArtworkImageRequest(currentUrl)
-    val blurRadiusDp = 44.dp * (backdropBlurAmount.toFloat() / 100f)
-
-    Box(
-        modifier =
-            modifier
-                .fillMaxSize()
-                .background(Color.Black),
-    ) {
-        if (currentUrl != null) {
-            val backdropHasBlur = backdropBlurAmount > 0
-            if (backdropHasBlur && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                AsyncImage(
-                    model = backdropRequest,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier =
-                        Modifier
-                            .fillMaxSize()
-                            .then(if (blurRadiusDp > 0.dp) Modifier.blur(blurRadiusDp) else Modifier)
-                            .graphicsLayer {
-                                scaleX = 1.16f
-                                scaleY = 1.16f
-                                alpha = 0.66f
-                            },
-                    onState = { state ->
-                        if (state is coil3.compose.AsyncImagePainter.State.Error) {
-                            getNextFallbackUrl(currentUrl)?.let { currentUrl = it }
-                        }
-                    },
-                )
-            } else if (backdropHasBlur) {
-                BackdropBlurApi30(
-                    model = currentUrl,
-                    blurAmount = backdropBlurAmount,
-                    modifier =
-                        Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                scaleX = 1.16f
-                                scaleY = 1.16f
-                                alpha = 0.66f
-                            },
-                    onError = { failedUrl ->
-                        getNextFallbackUrl(failedUrl)?.let { currentUrl = it }
-                    },
-                )
-            } else {
-                AsyncImage(
-                    model = backdropRequest,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier =
-                        Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                scaleX = 1.16f
-                                scaleY = 1.16f
-                                alpha = 0.66f
-                            },
-                    onState = { state ->
-                        if (state is coil3.compose.AsyncImagePainter.State.Error) {
-                            getNextFallbackUrl(currentUrl)?.let { currentUrl = it }
-                        }
-                    },
-                )
-            }
-        }
-
-        Box(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.52f)),
-        )
-    }
-}
-
 @Composable
 private fun BackdropBlurApi30(
     model: String?,

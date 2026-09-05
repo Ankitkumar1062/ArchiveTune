@@ -1100,6 +1100,7 @@ enum class PlayerDesignStyle {
     BITCHORD,
     TIKTOK,
     SIMPMUSIC,
+    SPATIALFLOW,
 }
 
 enum class PlayerBackgroundStyle {
@@ -1226,6 +1227,9 @@ val LyricsRomanizeOtherLanguagesKey = booleanPreferencesKey("lyricsRomanizeOther
 val TranslateLyricsKey = booleanPreferencesKey("translateLyrics")
 val UseLyricsV2Key = booleanPreferencesKey("useLyricsV2")
 val LyricsModeKey = stringPreferencesKey("lyricsMode")
+
+val ShowLyricsPlayerControlsKey = booleanPreferencesKey("showLyricsPlayerControls")
+val AutoHideLyricsPlayerControlsKey = booleanPreferencesKey("autoHideLyricsPlayerControls")
 
 enum class LyricsMode {
     V2,
@@ -1753,6 +1757,9 @@ val UpdateChannelKey = stringPreferencesKey("updateChannel")
 val LastUpdateCheckKey = longPreferencesKey("lastUpdateCheck")
 val YtDlpManualUpdateHistoryKey = stringSetPreferencesKey("ytDlpManualUpdateHistory")
 val LastNotifiedVersionKey = stringPreferencesKey("lastNotifiedVersion")
+
+val SeenNewReleaseIdsKey = stringPreferencesKey("seenNewReleaseIds")
+val ReadNewReleaseIdsKey = stringPreferencesKey("readNewReleaseIds")
 
 val GitHubContributorsEtagKey = stringPreferencesKey("github_contributors_etag")
 val GitHubContributorsJsonKey = stringPreferencesKey("github_contributors_json")

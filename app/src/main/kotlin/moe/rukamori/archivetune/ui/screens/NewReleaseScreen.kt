@@ -23,6 +23,8 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -73,6 +75,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -88,12 +91,15 @@ import moe.rukamori.archivetune.R
 import moe.rukamori.archivetune.constants.GridThumbnailHeight
 import moe.rukamori.archivetune.innertube.models.AlbumItem
 import moe.rukamori.archivetune.ui.component.IconButton as AppIconButton
-import moe.rukamori.archivetune.ui.component.LocalMenuState
 import moe.rukamori.archivetune.ui.component.YouTubeGridItem
 import moe.rukamori.archivetune.ui.component.shimmer.GridItemPlaceHolder
 import moe.rukamori.archivetune.ui.component.shimmer.ShimmerHost
-import moe.rukamori.archivetune.ui.menu.YouTubeAlbumMenu
 import moe.rukamori.archivetune.ui.utils.backToMain
+import android.content.Context
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
+import moe.rukamori.archivetune.LocalStableSystemBarsTopPadding
+import moe.rukamori.archivetune.ui.component.liquidGlassContentColor
 import moe.rukamori.archivetune.viewmodels.NewReleaseContent
 import moe.rukamori.archivetune.viewmodels.NewReleaseUiState
 import moe.rukamori.archivetune.viewmodels.NewReleaseViewModel
@@ -105,8 +111,14 @@ fun NewReleaseScreen(
     scrollBehavior: TopAppBarScrollBehavior,
     viewModel: NewReleaseViewModel = hiltViewModel(),
 ) {
-    val menuState = LocalMenuState.current
     val haptic = LocalHapticFeedback.current
+    val context = LocalContext.current
+    // "Marked as read" toast — shown for both the header's mark-all-read
+    // button and a long-press on a single release's thumbnail (2026-09-05,
+    // user request: "a toast should appear that's says marked as read").
+    val showMarkedAsReadToast: () -> Unit = {
+        Toast.makeText(context, R.string.marked_as_read, Toast.LENGTH_SHORT).show()
+    }
     val playerConnection = LocalPlayerConnection.current ?: return
     val isPlaying by playerConnection.isPlaying.collectAsStateWithLifecycle()
     val mediaMetadata by playerConnection.mediaMetadata.collectAsStateWithLifecycle()
@@ -119,9 +131,20 @@ fun NewReleaseScreen(
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var isSearchActive by rememberSaveable { mutableStateOf(false) }
 
+    // Persistent Liquid Glass header (2026-09-04): the History-page pattern —
+    // back pill + search pill pinned over the scrolling content, plus the
+    // header haze — replaces the normal top bar while Liquid Glass is on.
+    val glassHeader = rememberGlassScreenHeader()
+    val systemBarsTopPadding = LocalStableSystemBarsTopPadding.current
+
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
+            // While the glass pills own the header, the normal bar (and the
+            // in-bar search mode) is hidden — search moves to the trailing
+            // glass pill. In search mode the SearchBar still renders in the
+            // topBar slot so it stays reachable.
+            if (isSearchActive || !glassHeader.liquidGlassActive) {
             // Switch between the normal top app bar and a Material3 SearchBar
             // when the user taps the search icon. Rendering the search bar in
             // the topBar slot (instead of as a grid item below the top app bar)
@@ -208,6 +231,20 @@ fun NewReleaseScreen(
                             }
                         },
                         actions = {
+                            // Mark all releases read (2026-09-05) — the plain-bar
+                            // twin of the glass header's trailing mark-all-read
+                            // button, so the affordance exists in both header modes.
+                            IconButton(
+                                onClick = {
+                                    viewModel.markAllRead()
+                                    showMarkedAsReadToast()
+                                },
+                            ) {
+                                Icon(
+                                    painter = painterResource(R.drawable.solar_check_circle_linear),
+                                    contentDescription = stringResource(R.string.marked_as_read),
+                                )
+                            }
                             // Using Material3's standard IconButton here (not the
                             // custom AppIconButton) because the custom one uses
                             // combinedClickable which can fail to register taps in
@@ -231,22 +268,42 @@ fun NewReleaseScreen(
                     )
                 }
             }
+            }
         },
         contentWindowInsets = LocalPlayerAwareWindowInsets.current,
     ) { paddingValues ->
+        // In glass-header mode the topBar is empty, so the Scaffold's top
+        // padding is 0 — the grid instead gets the pill zone (status bar +
+        // pills + breathing room) as its content top padding, and the items
+        // scroll under the pills/haze exactly like the History page.
+        val contentTopPadding =
+            if (glassHeader.liquidGlassActive && !isSearchActive) {
+                systemBarsTopPadding + 72.dp // History pattern: content sits 12dp under the
+            // pills so the glass actually samples it (2026-09-04 fix)
+            } else {
+                paddingValues.calculateTopPadding()
+            }
+        val adjustedPaddingValues =
+            PaddingValues(
+                start = paddingValues.calculateStartPadding(LocalLayoutDirection.current),
+                top = contentTopPadding,
+                end = paddingValues.calculateEndPadding(LocalLayoutDirection.current),
+                bottom = paddingValues.calculateBottomPadding(),
+            )
+        Box(modifier = Modifier.fillMaxSize()) {
         AnimatedContent(
             targetState = uiState,
             transitionSpec = {
                 fadeIn(tween(300)) togetherWith fadeOut(tween(150))
             },
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().glassHeaderSource(glassHeader),
             label = "NewReleaseContent",
         ) { state ->
             when (state) {
                 NewReleaseUiState.Loading -> {
                     LazyVerticalGrid(
                         columns = GridCells.Adaptive(minSize = GridThumbnailHeight + 24.dp),
-                        contentPadding = paddingValues,
+                        contentPadding = adjustedPaddingValues,
                         modifier = Modifier.fillMaxSize(),
                     ) {
                         items(12) {
@@ -262,21 +319,23 @@ fun NewReleaseScreen(
                         content = state.content,
                         selectedTab = selectedTab,
                         onTabSelected = { selectedTab = it },
-                        paddingValues = paddingValues,
+                        paddingValues = adjustedPaddingValues,
                         activeAlbumId = mediaMetadata?.album?.id,
                         isPlaying = isPlaying,
                         coroutineScope = coroutineScope,
                         searchQuery = searchQuery,
                         onReleaseClick = { album -> navController.navigate("album/${album.id}") },
                         onReleaseLongClick = { album ->
+                            // 2026-09-05 (user request: "This should also
+                            // appear when I long press any album, ed or a
+                            // single songs thumbnail. That should individually
+                            // clear that selected item and mark it as read"):
+                            // long-press marks the release read — it clears
+                            // from the feed and the matching system
+                            // notification is cancelled.
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            menuState.show {
-                                YouTubeAlbumMenu(
-                                    albumItem = album,
-                                    navController = navController,
-                                    onDismiss = menuState::dismiss,
-                                )
-                            }
+                            viewModel.markRead(album.id)
+                            showMarkedAsReadToast()
                         },
                         onRefresh = viewModel::retry,
                     )
@@ -288,7 +347,7 @@ fun NewReleaseScreen(
                         modifier =
                             Modifier
                                 .fillMaxSize()
-                                .padding(paddingValues)
+                                .padding(adjustedPaddingValues)
                                 .padding(horizontal = 24.dp),
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -329,7 +388,7 @@ fun NewReleaseScreen(
                         modifier =
                             Modifier
                                 .fillMaxSize()
-                                .padding(paddingValues)
+                                .padding(adjustedPaddingValues)
                                 .padding(horizontal = 24.dp),
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -350,6 +409,60 @@ fun NewReleaseScreen(
                     }
                 }
             }
+        }
+
+        // Persistent glass pills + header haze (History-page behaviour). The
+        // search pill activates the same in-bar SearchBar flow the normal
+        // top bar's search icon used, so the feature is fully preserved.
+        if (glassHeader.liquidGlassActive && !isSearchActive) {
+            GlassScreenHeaderOverlay(
+                header = glassHeader,
+                title = stringResource(R.string.new_releases),
+                onBack = navController::navigateUp,
+                onBackLongClick = navController::backToMain,
+                // Trailing liquid-glass pill (2026-09-05, user request: "add a
+                // button on the right side of the header in liquid glass.
+                // When I click on it all the new album, single, eds
+                // notifications should get cleared and a toast should appear
+                // that's says marked as read"): mark-all-read + search, the
+                // same two affordances the plain top bar's actions carry.
+                trailing = {
+                    Box(
+                        modifier = Modifier.size(48.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        AppIconButton(
+                            onClick = {
+                                viewModel.markAllRead()
+                                showMarkedAsReadToast()
+                            },
+                            onLongClick = {},
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.solar_check_circle_linear),
+                                contentDescription = stringResource(R.string.marked_as_read),
+                                tint = liquidGlassContentColor(),
+                            )
+                        }
+                    }
+                    Box(
+                        modifier = Modifier.size(48.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        AppIconButton(
+                            onClick = { isSearchActive = true },
+                            onLongClick = {},
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.search),
+                                contentDescription = stringResource(R.string.search),
+                                tint = liquidGlassContentColor(),
+                            )
+                        }
+                    }
+                },
+            )
+        }
         }
     }
 }

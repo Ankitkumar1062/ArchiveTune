@@ -49,11 +49,10 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MediumFlexibleTopAppBar
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SearchBar
@@ -68,7 +67,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -79,6 +77,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.Dp
@@ -92,8 +91,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import moe.rukamori.archivetune.LocalPlayerAwareWindowInsets
 import moe.rukamori.archivetune.R
+import moe.rukamori.archivetune.ui.component.FrostedHeaderPill
 import moe.rukamori.archivetune.ui.component.IconButton
+import moe.rukamori.archivetune.ui.screens.ScreenHeaderHaze
+import moe.rukamori.archivetune.ui.screens.rememberScreenHeaderHaze
 import moe.rukamori.archivetune.ui.utils.backToMain
+import moe.rukamori.archivetune.LocalStableSystemBarsTopPadding
+import dev.chrisbanes.haze.hazeSource
+import moe.rukamori.archivetune.utils.rememberPreference
 import moe.rukamori.archivetune.viewmodels.AppIconSortOrder
 import moe.rukamori.archivetune.viewmodels.AppIconUiModel
 import moe.rukamori.archivetune.viewmodels.IconScreenEffect
@@ -190,42 +195,60 @@ private fun IconScreenContent(
     onDismissSortMenu: () -> Unit,
     onSortOrderChange: (AppIconSortOrder) -> Unit,
 ) {
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    // ── Home-screen header haze (2026-09-05, revised again) ──
+    // The 2026-09-05 morning attempt gave this screen a kyant glass pill in
+    // the top bar with `layerBackdrop` recording the content BELOW the bar.
+    // The pill and the recorded layer never overlap (the Scaffold lays the
+    // top bar out ABOVE the content slot), so the pill had nothing behind it
+    // to blur and rendered as an opaque chip — the user reported "liquid
+    // glass but the background is opaque and there's no haze effect". The
+    // mid-day fix then tagged the full-screen Box as the haze source with the
+    // ScreenHeaderHaze effect NESTED INSIDE it — and haze does not support a
+    // hazeEffect inside its own hazeSource content (the exact trap the
+    // History screen's comment documents), so the effect never rendered and
+    // the user still saw no haze. This now mirrors the History screen
+    // exactly: a root Box with NO haze source, an inner Box that is the haze
+    // source (content only), and the ScreenHeaderHaze overlay as a LATER
+    // SIBLING on top of it.
+    val headerHaze = rememberScreenHeaderHaze()
+    val systemBarsTopPadding = LocalStableSystemBarsTopPadding.current
 
     Scaffold(
-        modifier =
-            Modifier
-                .fillMaxSize()
-                .nestedScroll(scrollBehavior.nestedScrollConnection),
         containerColor = MaterialTheme.colorScheme.surface,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            MediumFlexibleTopAppBar(
-                title = {
-                    Text(text = stringResource(R.string.app_icon))
-                },
-                subtitle = {
-                    Text(text = stringResource(R.string.app_icon_subtitle))
-                },
+            // Plain TopAppBar + transparent container (the approved single-pill
+            // pattern). The pinned "Personalize your launcher" subtitle the user
+            // asked to remove is gone, and the back button keeps its default
+            // (transparent inside a plain FrostedHeaderPill) instead of the
+            // filled-tonal orange circle that nested inside the glass pill.
+            TopAppBar(
+                title = {},
                 navigationIcon = {
-                    IconButton(
-                        onClick = onNavigateUp,
-                        onLongClick = onNavigateHome,
-                        modifier = Modifier.padding(start = 5.dp),
-                        colors = IconButtonDefaults.filledTonalIconButtonColors(),
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.arrow_back),
-                            contentDescription = stringResource(R.string.back_button_desc),
+                    FrostedHeaderPill(plain = true) {
+                        IconButton(
+                            onClick = onNavigateUp,
+                            onLongClick = onNavigateHome,
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.arrow_back),
+                                contentDescription = stringResource(R.string.back_button_desc),
+                            )
+                        }
+                        Text(
+                            text = stringResource(R.string.app_icon),
+                            color = MaterialTheme.colorScheme.onBackground,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            modifier = Modifier.padding(end = 4.dp),
                         )
                     }
                 },
                 colors =
                     TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface,
+                        containerColor = Color.Transparent,
                         scrolledContainerColor = Color.Transparent,
                     ),
-                scrollBehavior = scrollBehavior,
             )
         },
     ) { innerPadding ->
@@ -234,6 +257,20 @@ private fun IconScreenContent(
                 .only(WindowInsetsSides.Bottom)
                 .asPaddingValues()
                 .calculateBottomPadding()
+        // Root full-screen Box (NO haze source on it): the haze overlay below
+        // must never sit inside the layer its own source records. The inner
+        // Box carries hazeSource for the scrolling content only; the
+        // ScreenHeaderHaze overlay is a LATER SIBLING that draws on top of
+        // it, under the transparent top bar — the History screen's exact
+        // source/effect split (2026-09-05, user report: "Haze effect like
+        // home screen is still missing in app icon customisation").
+        Box(modifier = Modifier.fillMaxSize()) {
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .hazeSource(headerHaze),
+            ) {
         when (state) {
             IconScreenState.Loading -> {
                 IconScreenLoading(
@@ -290,7 +327,19 @@ private fun IconScreenContent(
                             .playerAwareInsets(),
                 )
             }
-        }
+            }
+            } // end haze-source Box (content only — never the effect)
+
+            // Header haze overlay — progressive top-fade blur over whatever
+            // scrolls under the transparent bar (the Home route's material).
+            // A SIBLING of the source Box (never inside it — the effect
+            // would sample its own source), drawn ON TOP of the content,
+            // under the transparent top bar.
+            ScreenHeaderHaze(
+                hazeState = headerHaze,
+                systemBarsTopPadding = systemBarsTopPadding,
+            )
+        } // end root full-screen Box
     }
 }
 
