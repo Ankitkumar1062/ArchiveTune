@@ -180,3 +180,55 @@ fun moe.rukamori.archivetune.spotify.models.SpotifyTrack.toMediaMetadata(): Medi
     )
 }
 
+fun moe.rukamori.archivetune.spotify.models.SpotifyRadioTrack.toMediaMetadata(): MediaMetadata {
+    val meta = metadata
+    val dur = meta?.duration
+    val durationSec =
+        when {
+            dur == null -> -1
+            dur > 10000 -> (dur / 1000).toInt()
+            else -> dur.toInt()
+        }
+    val artistName = meta?.artistName
+    val artistsList =
+        if (!artistName.isNullOrBlank()) {
+            listOf(
+                MediaMetadata.Artist(
+                    id = null,
+                    name = artistName,
+                    thumbnailUrl = null,
+                ),
+            )
+        } else {
+            emptyList()
+        }
+    val albumMeta =
+        meta?.albumTitle?.takeIf { it.isNotBlank() }?.let {
+            MediaMetadata.Album(
+                id = "",
+                title = it,
+            )
+        }
+    val thumb =
+        meta?.imageUrl?.let { rawUrl ->
+            if (rawUrl.startsWith("spotify:image:")) {
+                val imgId = rawUrl.removePrefix("spotify:image:")
+                "https://i.scdn.co/image/$imgId"
+            } else {
+                rawUrl
+            }
+        }
+    val mediaId = "spotify:track:$id"
+
+    return MediaMetadata(
+        id = mediaId,
+        title = meta?.title.orEmpty(),
+        artists = artistsList,
+        duration = durationSec,
+        thumbnailUrl = thumb,
+        album = albumMeta,
+        explicit = false,
+        spotifyTrackId = id,
+    )
+}
+

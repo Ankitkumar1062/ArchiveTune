@@ -47,6 +47,7 @@ import moe.rukamori.archivetune.spotify.models.SpotifyPlaylist
 import moe.rukamori.archivetune.spotify.models.SpotifyPlaylistOwner
 import moe.rukamori.archivetune.spotify.models.SpotifyPlaylistTrack
 import moe.rukamori.archivetune.spotify.models.SpotifyPlaylistTracksRef
+import moe.rukamori.archivetune.spotify.models.SpotifyRadioStation
 import moe.rukamori.archivetune.spotify.models.SpotifyRecommendations
 import moe.rukamori.archivetune.spotify.models.SpotifySavedTrack
 import moe.rukamori.archivetune.spotify.models.SpotifySearchResult
@@ -1141,6 +1142,23 @@ object Spotify {
     suspend fun track(trackId: String): Result<SpotifyTrack> =
         runCatching {
             authenticatedGet("tracks/$trackId")
+        }
+
+    // ── Radio Stations (Internal radio-apollo microservice) ───────────────
+
+    suspend fun radioStation(
+        seedTrackId: String,
+        count: Int = 50,
+    ): Result<SpotifyRadioStation> =
+        runCatching {
+            authenticatedGet("https://spclient.wg.spotify.com/radio-apollo/v3/stations/spotify:track:$seedTrackId?count=$count")
+        }
+
+    suspend fun radioNextPage(
+        nextPageUrl: String,
+    ): Result<SpotifyRadioStation> =
+        runCatching {
+            authenticatedGet(nextPageUrl)
         }
 
     // ── Recommendations (REST fallback — no GQL equivalent) ─────────────

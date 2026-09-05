@@ -22,6 +22,7 @@ class SpotifyRadioQueue(
     override val preloadItem: MediaMetadata? = null,
 ) : Queue {
     private val seenTrackIds = mutableSetOf(seedTrackId)
+    private var nextPageUrl: String? = null
     private var hasMore = true
     private var pagesLoaded = 0
 
@@ -37,61 +38,78 @@ class SpotifyRadioQueue(
                 initialList.add(initialItem)
             }
 
-            val recResult =
-                Spotify.recommendations(
-                    seedTrackIds = listOf(seedTrackId),
-                    limit = 25,
-                ).getOrNull()
+            var queueTitle = seedTitle ?: preloadItem?.title ?: "Radio"
 
-            val recItems =
-                recResult?.tracks.orEmpty()
-                    .filter { seenTrackIds.add(it.id) }
-                    .map { it.toMediaItem() }
+            // Tier 1: Query official Spotify radio-apollo microservice
+            val station = Spotify.radioStation(seedTrackId = seedTrackId, count = 50).getOrNull()
+            if (station != null && station.tracks.isNotEmpty()) {
+                val radioItems =
+                    station.tracks
+                        .filter { seenTrackIds.add(it.id) }
+                        .map { it.toMediaItem() }
+                initialList.addAll(radioItems)
+                nextPageUrl = station.nextPageUrl
+                hasMore = !nextPageUrl.isNullOrBlank()
+                val stationTitle = station.title
+                if (!stationTitle.isNullOrBlank()) {
+                    queueTitle = stationTitle
+                }
+            } else {
+                // Tier 2 Fallback: Spotify Radio Playlist via Search / GraphQL
+                val query = (seedTitle ?: preloadItem?.title ?: seedTrack?.name)?.let { "$it Radio" } ?: "Radio"
+                val searchResult = Spotify.search(query = query, types = listOf("playlist"), limit = 5).getOrNull()
+                val radioPlaylist =
+                    searchResult?.playlists?.items?.firstOrNull {
+                        it.name.contains("Radio", ignoreCase = true) || it.name.contains("Mix", ignoreCase = true)
+                    } ?: searchResult?.playlists?.items?.firstOrNull()
 
-            initialList.addAll(recItems)
-            if (recItems.isEmpty()) {
-                hasMore = false
+                if (radioPlaylist != null) {
+                    val result = Spotify.playlistTracks(playlistId = radioPlaylist.id, limit = 50, offset = 0).getOrNull()
+                    val plTracks = result?.items.orEmpty().mapNotNull { it.track?.takeUnless(SpotifyTrack::isLocal) }
+                    val plItems =
+                        plTracks
+                            .filter { seenTrackIds.add(it.id) }
+                            .map { it.toMediaItem() }
+                    initialList.addAll(plItems)
+                    hasMore = false
+                    queueTitle = radioPlaylist.name
+                } else {
+                    hasMore = false
+                }
             }
 
             Queue.Status(
-                title = seedTitle ?: preloadItem?.title ?: "Radio",
+                title = queueTitle,
                 items = initialList,
                 mediaItemIndex = 0,
             )
         }
 
-    override fun hasNextPage(): Boolean = hasMore
+    override fun hasNextPage(): Boolean = hasMore && !nextPageUrl.isNullOrBlank()
 
     override suspend fun nextPage(): List<MediaItem> =
         withContext(Dispatchers.IO) {
-            if (!hasMore) return@withContext emptyList()
+            val url = nextPageUrl
+            if (!hasMore || url.isNullOrBlank()) {
+                hasMore = false
+                return@withContext emptyList()
+            }
             pagesLoaded++
             if (pagesLoaded > 10) {
                 hasMore = false
                 return@withContext emptyList()
             }
 
-            val seeds = seenTrackIds.toList().takeLast(5)
-            if (seeds.isEmpty()) {
-                hasMore = false
-                return@withContext emptyList()
-            }
-
-            val recResult =
-                Spotify.recommendations(
-                    seedTrackIds = seeds,
-                    limit = 20,
-                ).getOrNull()
-
-            val recItems =
-                recResult?.tracks.orEmpty()
+            val nextStation = Spotify.radioNextPage(url).getOrNull()
+            if (nextStation != null && nextStation.tracks.isNotEmpty()) {
+                nextPageUrl = nextStation.nextPageUrl
+                hasMore = !nextPageUrl.isNullOrBlank()
+                nextStation.tracks
                     .filter { seenTrackIds.add(it.id) }
                     .map { it.toMediaItem() }
-
-            if (recItems.isEmpty()) {
+            } else {
                 hasMore = false
+                emptyList()
             }
-
-            recItems
         }
 }

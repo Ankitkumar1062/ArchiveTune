@@ -131,3 +131,5 @@ private fun SongItem.isMusicVideo(): Boolean {
 
 fun moe.rukamori.archivetune.spotify.models.SpotifyTrack.toMediaItem(): MediaItem = toMediaMetadata().toMediaItem()
 
+fun moe.rukamori.archivetune.spotify.models.SpotifyRadioTrack.toMediaItem(): MediaItem = toMediaMetadata().toMediaItem()
+
