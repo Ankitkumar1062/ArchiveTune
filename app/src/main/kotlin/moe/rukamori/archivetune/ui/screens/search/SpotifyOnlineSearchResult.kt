@@ -263,10 +263,10 @@ private fun SpotifySearchResultRow(
                 } else if (playerConnection != null) {
                     menuState.dismiss()
                     playerConnection.playQueue(
-                        moe.rukamori.archivetune.spotify.SpotifyTracksQueue(
-                            title = track.name,
-                            initialTracks = listOf(track),
-                            startIndex = 0,
+                        moe.rukamori.archivetune.spotify.SpotifyRadioQueue(
+                            seedTrackId = track.id,
+                            seedTitle = track.name,
+                            seedTrack = track,
                             preloadItem = track.toMediaMetadata(),
                         ),
                     )

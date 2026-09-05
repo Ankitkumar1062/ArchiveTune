@@ -310,6 +310,7 @@ import moe.rukamori.archivetune.models.MediaMetadata
 import moe.rukamori.archivetune.models.PersistPlayerState
 import moe.rukamori.archivetune.spotify.SpotifyLibraryRepository
 import moe.rukamori.archivetune.spotify.SpotifyPlaybackResolver
+import moe.rukamori.archivetune.spotify.SpotifyRadioQueue
 import moe.rukamori.archivetune.models.PersistQueue
 import moe.rukamori.archivetune.models.toMediaMetadata
 import moe.rukamori.archivetune.playback.queues.EmptyQueue
@@ -4426,11 +4427,26 @@ class MusicService :
                 try {
                     val hideExplicit = dataStore.get(HideExplicitKey, false)
                     val hideVideo = dataStore.get(HideVideoKey, false)
-                    val radioQueue =
-                        YouTubeQueue(
-                            WatchEndpoint(videoId = resolvedSeedMediaId),
-                            followAutomixPreview = true,
-                        )
+                    val isSpotifySeed =
+                        resolvedSeedMediaId.startsWith("spotify:track:") ||
+                            resolvedSeedMediaId.startsWith("spotify:") ||
+                            currentQueue is moe.rukamori.archivetune.spotify.SpotifyPlaylistQueue ||
+                            currentQueue is moe.rukamori.archivetune.spotify.SpotifyTracksQueue ||
+                            currentQueue is SpotifyRadioQueue
+                    val radioQueue: Queue =
+                        if (isSpotifySeed) {
+                            val spotifyId =
+                                resolvedSeedMediaId.removePrefix("spotify:track:").removePrefix("spotify:")
+                            SpotifyRadioQueue(
+                                seedTrackId = spotifyId,
+                                preloadItem = currentMeta,
+                            )
+                        } else {
+                            YouTubeQueue(
+                                WatchEndpoint(videoId = resolvedSeedMediaId),
+                                followAutomixPreview = true,
+                            )
+                        }
                     val status =
                         withContext(Dispatchers.IO) {
                             radioQueue

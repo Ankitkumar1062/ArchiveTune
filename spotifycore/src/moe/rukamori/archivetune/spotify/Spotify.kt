@@ -1136,6 +1136,13 @@ object Spotify {
             }
         }
 
+    // ── Track ─────────────────────────────────────────────────────────
+
+    suspend fun track(trackId: String): Result<SpotifyTrack> =
+        runCatching {
+            authenticatedGet("tracks/$trackId")
+        }
+
     // ── Recommendations (REST fallback — no GQL equivalent) ─────────────
 
     suspend fun recommendations(
