@@ -337,11 +337,10 @@ object IsrcResolver {
             return false
         }
 
-        // 3. Physical Duration Gate (with TV Size tolerance when candidate is the full official studio version)
+        // 3. Physical Duration Gate
         if (wantedDurationMs != null && candidateDurationMs != null) {
             val diff = abs(wantedDurationMs - candidateDurationMs)
-            val isTvSizeDiscrepancy = wantedDurationMs in 70_000L..115_000L && candidateDurationMs >= 180_000L
-            if (diff > DURATION_GATE_MS && !isTvSizeDiscrepancy) {
+            if (diff > DURATION_GATE_MS) {
                 Timber.tag(TAG).v("Rejected candidate \"%s\": Duration diff %d ms > gate", candidateTitle, diff)
                 return false
             }
