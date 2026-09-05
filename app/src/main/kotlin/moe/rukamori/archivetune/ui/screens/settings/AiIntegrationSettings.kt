@@ -42,6 +42,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -50,6 +51,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
@@ -64,6 +66,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SearchBar
 import androidx.compose.material3.SearchBarDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -87,6 +90,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -195,6 +199,7 @@ fun AiIntegrationSettings(
         }
     }
 
+<<<<<<< HEAD
     val hasCustomEndpoint = provider != AiProvider.CUSTOM || customEndpoint.isNotBlank()
     val hasApiConfiguration =
         when (provider) {
@@ -350,6 +355,13 @@ fun AiIntegrationSettings(
                 label = { Text(stringResource(R.string.translate_language_hint)) },
             )
         }
+    }
+
+    actionState.apiTestError?.let { details ->
+        AiApiTestErrorDialog(
+            details = details,
+            onClose = viewModel::dismissApiTestError,
+        )
     }
 
     // Mini-player aware bottom padding — keeps the last settings row from being
@@ -832,6 +844,54 @@ fun AiIntegrationSettings(
         },
     )
     } // end full-screen haze Box
+}
+
+@Composable
+private fun AiApiTestErrorDialog(
+    details: String,
+    onClose: () -> Unit,
+) {
+    val scrollState = rememberScrollState()
+    val dialogModifier = remember { Modifier.widthIn(max = 760.dp).fillMaxWidth() }
+    val detailsModifier = remember { Modifier.fillMaxWidth() }
+    val textModifier =
+        remember(scrollState) {
+            Modifier.verticalScroll(scrollState).padding(16.dp)
+        }
+
+    DefaultDialog(
+        onDismiss = onClose,
+        modifier = dialogModifier,
+        icon = {
+            Icon(
+                painter = painterResource(R.drawable.error),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(24.dp),
+            )
+        },
+        title = { Text(stringResource(R.string.ai_api_test_failed)) },
+        buttons = {
+            TextButton(onClick = onClose, shapes = ButtonDefaults.shapes()) {
+                Text(stringResource(android.R.string.ok))
+            }
+        },
+    ) {
+        Surface(
+            modifier = detailsModifier,
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        ) {
+            SelectionContainer(modifier = textModifier) {
+                Text(
+                    text = details,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontFamily = FontFamily.Monospace,
+                )
+            }
+        }
+    }
 }
 
 @Composable
