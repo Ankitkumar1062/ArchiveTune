@@ -126,11 +126,140 @@ object SpotifyPlaybackResolver {
                     localizedTitle = track.name,
                     localizedArtist = track.artists.joinToString(", ") { it.name }.takeIf { it.isNotBlank() },
                 )
+                moe.rukamori.archivetune.audiosource.IsrcResolver.cacheIsrc(
+                    mediaId = "spotify:track:${track.id}",
+                    title = metadata.title,
+                    artists = metadata.artists.map { it.name },
+                    isrc = track.isrc!!,
+                    isExplicit = metadata.explicit,
+                    localizedTitle = track.name,
+                    localizedArtist = track.artists.joinToString(", ") { it.name }.takeIf { it.isNotBlank() },
+                )
             }
 
             mutex.withLock {
                 cache[cacheKey] = metadata
+                cache[track.id] = metadata
+                cache["yt:${track.id}"] = metadata
+                cache["spotify:track:${track.id}"] = metadata
             }
             metadata
         }
+
+    suspend fun resolveToYouTubeVideoId(
+        mediaId: String,
+        title: String,
+        artists: List<String>,
+        durationMs: Long,
+        isrc: String? = null,
+    ): String? =
+        withContext(Dispatchers.IO) {
+            val spotifyId = mediaId.removePrefix("spotify:track:").removePrefix("spotify:")
+            val cacheKey = "yt:$spotifyId"
+            mutex.withLock {
+                cache[cacheKey]?.let { return@withContext it.id }
+                cache[spotifyId]?.let { return@withContext it.id }
+                cache[mediaId]?.let { return@withContext it.id }
+            }
+
+            val youtubeQuery = buildString {
+                append(title)
+                if (artists.isNotEmpty()) {
+                    append(" ")
+                    append(artists.joinToString(" "))
+                }
+            }.trim()
+
+            if (youtubeQuery.isBlank()) return@withContext null
+
+            val searchResult =
+                YouTube
+                    .search(
+                        query = youtubeQuery,
+                        filter = YouTube.SearchFilter.FILTER_SONG,
+                        useAccountContext = false,
+                    ).getOrNull()
+                    ?: YouTube
+                        .search(
+                            query = youtubeQuery,
+                            filter = YouTube.SearchFilter.FILTER_SONG,
+                        ).getOrNull()
+                    ?: return@withContext null
+
+            val candidates =
+                searchResult.items
+                    .filterIsInstance<SongItem>()
+                    .distinctBy { it.id }
+            if (candidates.isEmpty()) return@withContext null
+
+            val precomputed =
+                mutex.withLock {
+                    SpotifyMapper.precompute(
+                        title = title,
+                        artist = artists.joinToString(" "),
+                        durationMs = durationMs.toInt(),
+                    )
+                }
+
+            val (best, score) =
+                mutex.withLock {
+                    candidates
+                        .map { candidate ->
+                            candidate to
+                                SpotifyMapper.matchScorePrecomputed(
+                                    precomputed = precomputed,
+                                    candidateTitle = candidate.title,
+                                    candidateArtist = candidate.artists.joinToString(" ") { it.name },
+                                    candidateDurationSec = candidate.duration,
+                                )
+                        }.maxByOrNull { it.second }
+                } ?: return@withContext null
+            if (score < MIN_MATCH_THRESHOLD) return@withContext null
+
+            val bestMetadata = best.toMediaMetadata()
+            val metadata =
+                bestMetadata.copy(
+                    title = title.takeIf(String::isNotBlank) ?: best.title,
+                    artists =
+                        artists
+                            .filter { it.isNotBlank() }
+                            .map { artistName ->
+                                MediaMetadata.Artist(
+                                    id = null,
+                                    name = artistName,
+                                )
+                            }.ifEmpty { bestMetadata.artists },
+                    duration = if (durationMs > 0) (durationMs / 1000).toInt() else best.duration ?: -1,
+                    spotifyTrackId = spotifyId.takeIf(String::isNotBlank),
+                )
+
+            if (!isrc.isNullOrBlank()) {
+                moe.rukamori.archivetune.audiosource.IsrcResolver.cacheIsrc(
+                    mediaId = best.id,
+                    title = metadata.title,
+                    artists = metadata.artists.map { it.name },
+                    isrc = isrc,
+                    isExplicit = metadata.explicit,
+                    localizedTitle = title,
+                    localizedArtist = artists.joinToString(", ").takeIf { it.isNotBlank() },
+                )
+                moe.rukamori.archivetune.audiosource.IsrcResolver.cacheIsrc(
+                    mediaId = mediaId,
+                    title = metadata.title,
+                    artists = metadata.artists.map { it.name },
+                    isrc = isrc,
+                    isExplicit = metadata.explicit,
+                    localizedTitle = title,
+                    localizedArtist = artists.joinToString(", ").takeIf { it.isNotBlank() },
+                )
+            }
+
+            mutex.withLock {
+                cache[cacheKey] = metadata
+                cache[spotifyId] = metadata
+                cache[mediaId] = metadata
+            }
+            best.id
+        }
 }
+

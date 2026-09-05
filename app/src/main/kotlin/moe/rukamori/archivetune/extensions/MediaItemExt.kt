@@ -128,3 +128,6 @@ private fun SongItem.isMusicVideo(): Boolean {
     val musicVideoType = endpoint?.watchEndpointMusicSupportedConfigs?.watchEndpointMusicConfig?.musicVideoType
     return musicVideoType == MUSIC_VIDEO_TYPE_OMV || musicVideoType == MUSIC_VIDEO_TYPE_UGC
 }
+
+fun moe.rukamori.archivetune.spotify.models.SpotifyTrack.toMediaItem(): MediaItem = toMediaMetadata().toMediaItem()
+

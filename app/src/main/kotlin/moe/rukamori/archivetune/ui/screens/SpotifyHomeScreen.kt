@@ -62,6 +62,7 @@ import coil3.compose.AsyncImage
 import moe.rukamori.archivetune.LocalPlayerAwareWindowInsets
 import moe.rukamori.archivetune.LocalPlayerConnection
 import moe.rukamori.archivetune.R
+import moe.rukamori.archivetune.models.toMediaMetadata
 import moe.rukamori.archivetune.ui.component.pressScaleClickable
 import moe.rukamori.archivetune.innertube.models.AlbumItem
 import moe.rukamori.archivetune.innertube.models.Artist
@@ -273,12 +274,14 @@ fun SpotifyHomeScreen(
                                                     SpotifyTracksQueue(
                                                         title = section.title,
                                                         initialTracks = section.tracks,
-                                                        startIndex = section.tracks.indexOf(track)
+                                                        startIndex = section.tracks.indexOf(track),
+                                                        preloadItem = track.toMediaMetadata(),
                                                     )
                                                 )
                                             },
                                             modifier = Modifier.animateItem()
                                         )
+
                                     }
                                     SectionType.ARTISTS -> {
                                         SpotifyArtistSectionRow(

@@ -61,6 +61,7 @@ import moe.rukamori.archivetune.LocalPlayerConnection
 import moe.rukamori.archivetune.R
 import moe.rukamori.archivetune.constants.AppBarHeight
 import moe.rukamori.archivetune.extensions.togglePlayPause
+import moe.rukamori.archivetune.models.toMediaMetadata
 import moe.rukamori.archivetune.playback.queues.YouTubeQueue
 import moe.rukamori.archivetune.spotify.SpotifyPlaybackResolver
 import moe.rukamori.archivetune.spotify.SpotifySearchItem
@@ -259,28 +260,16 @@ private fun SpotifySearchResultRow(
                 val track = item.value
                 if (mediaMetadata?.spotifyTrackId == track.id && playerConnection != null) {
                     playerConnection.player.togglePlayPause()
-                } else if (playerConnection != null && !resolving) {
-                    resolving = true
+                } else if (playerConnection != null) {
                     menuState.dismiss()
-                    coroutineScope.launch {
-                        try {
-                            val metadata =
-                                withContext(Dispatchers.IO) {
-                                    SpotifyPlaybackResolver.resolveToMetadata(track)
-                                }
-                            if (metadata != null) {
-                                playerConnection.playQueue(YouTubeQueue.radio(metadata))
-                            } else {
-                                Toast.makeText(
-                                    context,
-                                    context.getString(R.string.spotify_track_unavailable),
-                                    Toast.LENGTH_SHORT,
-                                ).show()
-                            }
-                        } finally {
-                            resolving = false
-                        }
-                    }
+                    playerConnection.playQueue(
+                        moe.rukamori.archivetune.spotify.SpotifyTracksQueue(
+                            title = track.name,
+                            initialTracks = listOf(track),
+                            startIndex = 0,
+                            preloadItem = track.toMediaMetadata(),
+                        ),
+                    )
                 }
             }
 
@@ -294,9 +283,7 @@ private fun SpotifySearchResultRow(
         item = item,
         isActive = item is SpotifySearchItem.Track && mediaMetadata?.spotifyTrackId == item.id,
         isPlaying = isPlaying,
-        trailingContent = {
-            if (resolving) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-        },
         modifier = Modifier.clickable(onClick = onClick),
     )
 }
+

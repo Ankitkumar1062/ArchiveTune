@@ -135,3 +135,48 @@ fun SongItem.toMediaMetadata() =
             endpoint?.watchEndpointMusicSupportedConfigs?.watchEndpointMusicConfig?.musicVideoType in
                 listOf(MUSIC_VIDEO_TYPE_OMV, MUSIC_VIDEO_TYPE_UGC),
     )
+
+fun moe.rukamori.archivetune.spotify.models.SpotifyTrack.toMediaMetadata(): MediaMetadata {
+    val durationSec = if (durationMs > 0) durationMs / 1000 else -1
+    val artistsList =
+        artists.map {
+            MediaMetadata.Artist(
+                id = it.id,
+                name = it.name,
+                thumbnailUrl = null,
+            )
+        }
+    val albumMeta =
+        album?.let {
+            MediaMetadata.Album(
+                id = it.id,
+                title = it.name,
+            )
+        }
+    val thumb = moe.rukamori.archivetune.spotify.SpotifyMapper.getTrackThumbnail(this)
+    val mediaId = "spotify:track:$id"
+
+    if (!isrc.isNullOrBlank()) {
+        moe.rukamori.archivetune.audiosource.IsrcResolver.cacheIsrc(
+            mediaId = mediaId,
+            title = name,
+            artists = artistsList.map { it.name },
+            isrc = isrc!!,
+            isExplicit = explicit,
+            localizedTitle = name,
+            localizedArtist = artistsList.joinToString(", ") { it.name }.takeIf { it.isNotBlank() },
+        )
+    }
+
+    return MediaMetadata(
+        id = mediaId,
+        title = name,
+        artists = artistsList,
+        duration = durationSec,
+        thumbnailUrl = thumb,
+        album = albumMeta,
+        explicit = explicit,
+        spotifyTrackId = id,
+    )
+}
+

@@ -82,7 +82,9 @@ import moe.rukamori.archivetune.LocalPlayerConnection
 import moe.rukamori.archivetune.R
 import moe.rukamori.archivetune.extensions.togglePlayPause
 import moe.rukamori.archivetune.models.MediaMetadata
+import moe.rukamori.archivetune.models.toMediaMetadata
 import moe.rukamori.archivetune.spotify.SpotifyMapper
+
 import moe.rukamori.archivetune.spotify.SpotifyDownloadItem
 import moe.rukamori.archivetune.spotify.SPOTIFY_LIKED_SONGS_ID
 import moe.rukamori.archivetune.spotify.SpotifyPlaybackResolver
@@ -232,9 +234,9 @@ fun SpotifyPlaylistScreen(
     }
 
     var isSearching by rememberSaveable { mutableStateOf(false) }
-    var resolvingTrackId by remember { mutableStateOf<String?>(null) }
     var query by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue()) }
     val focusRequester = remember { FocusRequester() }
+
 
     val filteredTracks =
         remember(tracks, query.text) {
@@ -328,26 +330,18 @@ fun SpotifyPlaylistScreen(
         if (queueTracks.isEmpty()) return
         val boundedStartIndex = startIndex.coerceIn(queueTracks.indices)
         val preloadTrack = queueTracks[boundedStartIndex]
-        if (resolvingTrackId != null) return
 
-        coroutineScope.launch {
-            resolvingTrackId = preloadTrack.id
-            try {
-                val preloadItem = SpotifyPlaybackResolver.resolveToMetadata(preloadTrack)
-                playerConnection?.playQueue(
-                    SpotifyPlaylistQueue(
-                        playlistId = currentPlaylist.id,
-                        title = currentPlaylist.name,
-                        initialTracks = queueTracks,
-                        startIndex = boundedStartIndex,
-                        preloadItem = preloadItem,
-                    ),
-                )
-            } finally {
-                resolvingTrackId = null
-            }
-        }
+        playerConnection?.playQueue(
+            SpotifyPlaylistQueue(
+                playlistId = currentPlaylist.id,
+                title = currentPlaylist.name,
+                initialTracks = queueTracks,
+                startIndex = boundedStartIndex,
+                preloadItem = preloadTrack.toMediaMetadata(),
+            ),
+        )
     }
+
 
     // Liquid Glass backdrop: created unconditionally (cheap — just a GraphicsLayer
     // handle). The actual content recording happens when
@@ -575,21 +569,15 @@ fun SpotifyPlaylistScreen(
                     remember(track, mediaMetadata) {
                         track.isResolvedAs(mediaMetadata)
                     }
-                val trackIsResolving = resolvingTrackId == track.id
 
                 SpotifyTrackListItem(
                     track = track,
-                    isActive = trackIsActive || trackIsResolving,
-                    isPlaying = isPlaying && !trackIsResolving,
-                    trailingContent = {
-                        if (trackIsResolving) {
-                            CircularWavyProgressIndicator(modifier = Modifier.size(24.dp))
-                        }
-                    },
+                    isActive = trackIsActive,
+                    isPlaying = isPlaying,
                     modifier =
                         Modifier
                             .fillMaxWidth()
-                            .clickable(enabled = resolvingTrackId == null || trackIsActive) {
+                            .clickable {
                                 if (trackIsActive) {
                                     playerConnection?.player?.togglePlayPause()
                                 } else {
@@ -602,6 +590,7 @@ fun SpotifyPlaylistScreen(
                                 }
                             },
                 )
+
             }
         }
 

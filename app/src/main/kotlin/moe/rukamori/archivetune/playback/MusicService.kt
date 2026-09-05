@@ -309,6 +309,7 @@ import moe.rukamori.archivetune.lyrics.LyricsPreloadManager
 import moe.rukamori.archivetune.models.MediaMetadata
 import moe.rukamori.archivetune.models.PersistPlayerState
 import moe.rukamori.archivetune.spotify.SpotifyLibraryRepository
+import moe.rukamori.archivetune.spotify.SpotifyPlaybackResolver
 import moe.rukamori.archivetune.models.PersistQueue
 import moe.rukamori.archivetune.models.toMediaMetadata
 import moe.rukamori.archivetune.playback.queues.EmptyQueue
@@ -4039,10 +4040,12 @@ class MusicService :
             song?.song?.duration?.takeIf { it != -1 }
                 ?: effectiveMetadata.duration.takeIf { it != -1 }
                 ?: (
-                    playbackData?.videoDetails ?: YTPlayerUtils
-                        .playerResponseForMetadata(mediaId)
-                        .getOrNull()
-                        ?.videoDetails
+                    playbackData?.videoDetails ?: if (!mediaId.startsWith("spotify:")) {
+                        YTPlayerUtils
+                            .playerResponseForMetadata(mediaId)
+                            .getOrNull()
+                            ?.videoDetails
+                    } else null
                 )?.lengthSeconds?.toInt()
                 ?: -1
         database.query {
@@ -4052,7 +4055,7 @@ class MusicService :
                 update(song.song.copy(duration = duration))
             }
         }
-        if (!database.hasRelatedSongs(mediaId)) {
+        if (!mediaId.startsWith("spotify:") && !database.hasRelatedSongs(mediaId)) {
             val relatedEndpoint =
                 YouTube.next(WatchEndpoint(videoId = mediaId)).getOrNull()?.relatedEndpoint
                     ?: return
@@ -10628,6 +10631,7 @@ class MusicService :
             return dataSpec
         }
         val mediaId = dataSpec.key ?: return dataSpec
+        val isSpotifyTrack = mediaId.startsWith("spotify:track:") || mediaId.startsWith("spotify:") || queuedMetadataByMediaId[mediaId]?.spotifyTrackId != null
         val lowDataModeActive = isLowDataModeActive()
         val storedFormat =
             runBlocking(Dispatchers.IO) {
@@ -10696,8 +10700,46 @@ class MusicService :
             return sourceDataSpec
         }
 
+        val effectiveYouTubeId =
+            if (isSpotifyTrack) {
+                val meta =
+                    queuedMetadataByMediaId[mediaId]
+                        ?: currentMediaMetadata.value?.takeIf { it.id == mediaId }
+                        ?: player.findNextMediaItemById(mediaId)?.metadata
+                val title = meta?.title ?: ""
+                val artists = meta?.artists?.map { it.name } ?: emptyList()
+                val durationMs = meta?.duration?.takeIf { it > 0 }?.toLong()?.times(1000L) ?: 0L
+                val isrc = meta?.let {
+                    moe.rukamori.archivetune.audiosource.IsrcResolver.resolveBlocking(
+                        mediaId,
+                        title,
+                        artists,
+                        durationMs,
+                        it.explicit,
+                    )?.isrc
+                }
+                runBlocking(Dispatchers.IO) {
+                    SpotifyPlaybackResolver.resolveToYouTubeVideoId(
+                        mediaId = mediaId,
+                        title = title,
+                        artists = artists,
+                        durationMs = durationMs,
+                        isrc = isrc,
+                    )
+                } ?: throw PlaybackException(
+                    getString(R.string.error_no_stream),
+                    null,
+                    PlaybackException.ERROR_CODE_REMOTE_ERROR,
+                )
+            } else {
+                mediaId
+            }
+
         val authFingerprint = YouTube.currentPlaybackAuthState().fingerprint
-        playbackUrlCache[mediaId]
+        val cachedStream =
+            playbackUrlCache[mediaId] ?: playbackUrlCache[effectiveYouTubeId]
+
+        cachedStream
             ?.takeUnless { lowDataModeActive }
             ?.takeIf {
                 it.isValidFor(
@@ -10724,7 +10766,7 @@ class MusicService :
             runBlocking(Dispatchers.IO) {
                 retryWithoutPlaybackLoginContext {
                     YTPlayerUtils.playerResponseForPlayback(
-                        mediaId,
+                        effectiveYouTubeId,
                         audioQuality = if (lowDataModeActive) AudioQuality.LOW else audioQuality,
                         connectivityManager = connectivityManager,
                         preferredStreamClient = preferredStreamClient,
@@ -10735,7 +10777,8 @@ class MusicService :
 
                     Timber.tag("MusicService").w(
                         youtubeFailure,
-                        "YouTube stream clients hit bot detection for %s; trying external audio fallback",
+                        "YouTube stream clients hit bot detection for %s (spotifyId=%s); trying external audio fallback",
+                        effectiveYouTubeId,
                         mediaId,
                     )
                     throw youtubeFailure
@@ -10743,7 +10786,7 @@ class MusicService :
             }.getOrElse { throwable ->
                 when {
                     throwable is YTPlayerUtils.InvalidPlaybackLoginContextException -> {
-                        promptLoginRecovery(mediaId, throwable.targetUrl)
+                        promptLoginRecovery(effectiveYouTubeId, throwable.targetUrl)
                         throw PlaybackException(
                             getString(R.string.playback_requires_youtube_music_login_refresh),
                             throwable,
@@ -10811,7 +10854,10 @@ class MusicService :
             }
         nonNullPlayback.playbackTracking
             ?.remotePlaybackTrackingUrl()
-            ?.let { remotePlaybackTrackingUrlCache[mediaId] = it }
+            ?.let {
+                remotePlaybackTrackingUrlCache[mediaId] = it
+                remotePlaybackTrackingUrlCache[effectiveYouTubeId] = it
+            }
         val format = nonNullPlayback.format
         val loudnessDb = nonNullPlayback.audioConfig?.loudnessDb
         val perceptualLoudnessDb = nonNullPlayback.audioConfig?.perceptualLoudnessDb
@@ -10821,14 +10867,17 @@ class MusicService :
                 .substringAfter("codecs=", "")
                 .removeSurrounding("\"")
                 .substringBefore("\"")
-        resolvedContentLength.takeIf { it > 0L }?.let { contentLengthCache[mediaId] = it }
+        resolvedContentLength.takeIf { it > 0L }?.let {
+            contentLengthCache[mediaId] = it
+            contentLengthCache[effectiveYouTubeId] = it
+        }
 
         Timber
             .tag(
                 "AudioNormalization",
-            ).d("Storing format for $mediaId with loudnessDb: $loudnessDb, perceptualLoudnessDb: $perceptualLoudnessDb")
+            ).d("Storing format for $mediaId (yt=$effectiveYouTubeId) with loudnessDb: $loudnessDb, perceptualLoudnessDb: $perceptualLoudnessDb")
         if (loudnessDb == null && perceptualLoudnessDb == null) {
-            Timber.tag("AudioNormalization").w("No loudness data available from YouTube for video: $mediaId")
+            Timber.tag("AudioNormalization").w("No loudness data available from YouTube for video: $effectiveYouTubeId")
         }
 
         val formatEntity =
@@ -10846,6 +10895,7 @@ class MusicService :
             )
         val resolvedNormalizationFactor = calculateAudioNormalizationFactor(formatEntity, normalizeAudio = true)
         audioNormalizationFactorCache[mediaId] = resolvedNormalizationFactor
+        audioNormalizationFactorCache[effectiveYouTubeId] = resolvedNormalizationFactor
         scope.launch {
             if (currentMediaMetadata.value?.id == mediaId &&
                 dataStore.get(AudioNormalizationKey, true)
@@ -10855,9 +10905,10 @@ class MusicService :
         }
 
         database.query {
-            upsert(
-                formatEntity,
-            )
+            upsert(formatEntity)
+            if (mediaId != effectiveYouTubeId) {
+                upsert(formatEntity.copy(id = effectiveYouTubeId))
+            }
         }
         scope.launch(Dispatchers.IO) { recoverSong(mediaId, nonNullPlayback) }
 
@@ -10866,12 +10917,14 @@ class MusicService :
         val trackingExpiryMs = System.currentTimeMillis() + (nonNullPlayback.streamExpiresInSeconds * 1000L)
 
         if (!lowDataModeActive) {
-            playbackUrlCache[mediaId] =
+            val cacheEntry =
                 AuthScopedCacheValue(
                     url = streamUrl,
                     expiresAtMs = trackingExpiryMs,
                     authFingerprint = nonNullPlayback.authFingerprint,
                 )
+            playbackUrlCache[mediaId] = cacheEntry
+            playbackUrlCache[effectiveYouTubeId] = cacheEntry
         }
         val resolvedDataSpec = dataSpec.withUri(streamUrl.toUri())
         val length =
@@ -11579,10 +11632,12 @@ class MusicService :
         val id = this?.trim()?.takeIf { it.isNotBlank() } ?: return false
         return !id.isLocalMediaId() &&
             !id.isTelegramMediaId() &&
+            !id.startsWith("spotify:") &&
             !id.startsWith("LOCAL_ARTIST_") &&
             !id.startsWith("LA") &&
             !id.contains("privately_owned_artist", ignoreCase = true)
     }
+
 
     // Create a transient Song object from current Player MediaMetadata when the DB doesn't have it.
     private fun createTransientSongFromMedia(media: MediaMetadata): Song {
