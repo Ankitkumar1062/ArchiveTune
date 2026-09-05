@@ -9,6 +9,13 @@
 
 package moe.rukamori.archivetune.ui.component
 
+import moe.rukamori.archivetune.utils.rememberPreference
+import moe.rukamori.archivetune.constants.LiquidGlassEnabledKey
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.foundation.border
+import android.os.Build
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -17,6 +24,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -174,19 +182,33 @@ fun PreferenceEntry(
 ) {
     val inGroup = LocalPreferenceInGroup.current
     val groupPosition = LocalPreferenceGroupPosition.current
-    val preferenceIconShape = rememberPreferenceIconShape()
     val preferenceItemShape =
         remember(groupPosition) {
             preferenceItemShapeForPosition(groupPosition)
         }
+    val preferenceIconShape = rememberPreferenceIconShape()
     val resolvedShape = shape ?: preferenceItemShape
+    // Only rows that can actually be pressed pay for the press animation. It costs an
+    // InteractionSource, a coroutine collecting it, an Animatable and a render node PER ROW, and
+    // roughly half the rows on a settings page are switches and sliders with no onClick at all —
+    // for those the whole thing animated nothing.
+    val clickable = isEnabled && onClick != null
     val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.98f else 1f,
-        animationSpec = spring(stiffness = Spring.StiffnessHigh),
-        label = "prefScale",
-    )
+    val pressScale =
+        if (clickable) {
+            val isPressed by interactionSource.collectIsPressedAsState()
+            val scale by animateFloatAsState(
+                targetValue = if (isPressed) 0.98f else 1f,
+                animationSpec = spring(stiffness = Spring.StiffnessHigh),
+                label = "prefScale",
+            )
+            Modifier.graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+        } else {
+            Modifier
+        }
 
     val rowContent: @Composable () -> Unit = {
         Row(
@@ -195,11 +217,11 @@ fun PreferenceEntry(
                 Modifier
                     .fillMaxWidth()
                     .heightIn(min = PreferenceEntryMinHeight)
-                    .then(if (isEnabled && onClick != null) Modifier.focusable() else Modifier)
+                    .then(if (clickable) Modifier.focusable() else Modifier)
                     .clickable(
                         interactionSource = interactionSource,
                         indication = LocalIndication.current,
-                        enabled = isEnabled && onClick != null,
+                        enabled = clickable,
                         onClick = onClick ?: {},
                     ).alpha(if (isEnabled) 1f else 0.5f)
                     .padding(
@@ -227,6 +249,14 @@ fun PreferenceEntry(
                 verticalArrangement = Arrangement.Center,
                 modifier = Modifier.weight(1f),
             ) {
+                // Neither line scrolls. A settings row is a static label, not a now-playing
+                // ticker: sideways motion on something you are trying to read down a list is
+                // noise, and every visible row doing it at once is worse. Titles are short and
+                // simply wrap on the rare occasion they need to.
+                //
+                // Row height is bounded by clamping the description instead — two lines and an
+                // ellipsis, which is the shape the rest of the app already uses for prose under a
+                // heading. That keeps rows near-uniform without taking the text away.
                 ProvideTextStyle(MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)) {
                     title()
                 }
@@ -236,6 +266,8 @@ fun PreferenceEntry(
                         text = description,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
                 content?.invoke()
@@ -250,11 +282,17 @@ fun PreferenceEntry(
         }
     }
 
+    val glass = rememberSettingsGlassEnabled()
+
     Card(
         shape = resolvedShape,
         colors =
             CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                // Transparent under glass: the tint and the hairline are drawn by the modifier
+                // below, which needs to paint them itself to get the vertical gradient on the
+                // border. Card's own container colour would sit on top of that.
+                containerColor =
+                    if (glass) Color.Transparent else MaterialTheme.colorScheme.surfaceContainerLow,
             ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         modifier =
@@ -263,14 +301,72 @@ fun PreferenceEntry(
                 .padding(
                     horizontal = if (inGroup) 0.dp else 16.dp,
                     vertical = if (inGroup) 0.dp else 3.dp,
-                ).graphicsLayer {
-                    scaleX = scale
-                    scaleY = scale
-                },
+                ).then(pressScale)
+                .then(if (glass) Modifier.preferenceGlass(resolvedShape, groupPosition) else Modifier),
     ) {
         rowContent()
     }
 }
+
+/**
+ * True when settings rows should wear the glass treatment.
+ *
+ * Tied to the Liquid Glass switch in Appearance rather than a setting of its own: it is the same
+ * decision, and two toggles for one look is how the glass options got scattered in the first
+ * place. Below Android 12 the app's glass effects are unsupported, so the rows stay solid there.
+ */
+@Composable
+private fun rememberSettingsGlassEnabled(): Boolean {
+    val (enabled) = rememberPreference(LiquidGlassEnabledKey, defaultValue = false)
+    return enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+}
+
+/**
+ * The glass surface: a translucent fill and a hairline that fades from bright at the top of the
+ * row to almost nothing at the bottom, so a group of rows reads as one pane catching light down
+ * its leading edge rather than four separate outlined boxes.
+ *
+ * The alphas vary by the row's position in its group — a first row is bright at the top and half
+ * as bright where it meets the next, a middle row is even, a last row fades out — which is what
+ * makes a stack of them look continuous. Same treatment as Yuma's settings, driven off the
+ * position this file already tracks for the corner radii.
+ */
+@Composable
+private fun Modifier.preferenceGlass(
+    shape: Shape,
+    position: PreferenceGroupPosition?,
+): Modifier {
+    val dark = !MaterialTheme.colorScheme.surface.isLight()
+    val fill =
+        if (dark) {
+            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+        } else {
+            Color.White.copy(alpha = 0.65f)
+        }
+    val stroke = MaterialTheme.colorScheme.primary.copy(alpha = if (dark) 0.10f else 0.14f)
+    val (topAlpha, bottomAlpha) =
+        when (position) {
+            null, PreferenceGroupPosition.Single -> 0.20f to 0.04f
+            PreferenceGroupPosition.First -> 0.20f to 0.08f
+            PreferenceGroupPosition.Middle -> 0.08f to 0.08f
+            PreferenceGroupPosition.Last -> 0.08f to 0.04f
+        }
+
+    return this
+        .background(fill, shape)
+        .border(
+            width = 1.dp,
+            brush =
+                Brush.verticalGradient(
+                    0f to stroke.copy(alpha = stroke.alpha * topAlpha / 0.20f),
+                    1f to stroke.copy(alpha = stroke.alpha * bottomAlpha / 0.20f),
+                ),
+            shape = shape,
+        )
+}
+
+/** Luminance test, so the glass fill can lighten a light theme and darken a dark one. */
+private fun Color.isLight(): Boolean = luminance() > 0.5f
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1139,6 +1235,65 @@ fun PreferenceGroup(
                 ) {
                     itemContent()
                 }
+            }
+        }
+    }
+}
+
+/**
+ * [PreferenceGroup] for a `LazyColumn`: same DSL, same shapes and spacing, but every row is its own
+ * lazy item so a long settings page composes only what is on screen.
+ *
+ * The `verticalScroll` version composes every row before the first frame — sixty of them on
+ * Appearance, each with a vector icon to inflate and text to lay out — which is why that screen was
+ * slow to open and why its enter animation looked like it was missing: the slide had finished
+ * before the content existed.
+ *
+ * [modifier] is applied to the group's leading item (the title, or the first row when there is
+ * none), which is where a group-level [PreferencePositions.modifierFor] anchor wants to be — the
+ * deep link scrolls to the top of the group. `scrollToKey` already copes with lazy lists: it walks
+ * the list a viewport at a time to bring an uncomposed target into composition.
+ */
+fun LazyListScope.preferenceGroup(
+    modifier: Modifier = Modifier,
+    title: String? = null,
+    content: PreferenceGroupScope.() -> Unit,
+) {
+    val items = PreferenceGroupScope().apply(content).items
+    if (items.isEmpty()) return
+
+    if (title != null) {
+        item(contentType = "preference_group_title") {
+            PreferenceGroupTitle(
+                title = title,
+                modifier = modifier.padding(horizontal = PreferenceGroupHorizontalPadding),
+            )
+        }
+    }
+
+    itemsIndexed(items, contentType = { _, _ -> "preference_row" }) { index, itemContent ->
+        val position =
+            when {
+                items.size == 1 -> PreferenceGroupPosition.Single
+                index == 0 -> PreferenceGroupPosition.First
+                index == items.lastIndex -> PreferenceGroupPosition.Last
+                else -> PreferenceGroupPosition.Middle
+            }
+        CompositionLocalProvider(
+            LocalPreferenceInGroup provides true,
+            LocalPreferenceGroupPosition provides position,
+        ) {
+            Box(
+                modifier =
+                    Modifier
+                        // The Column version used Arrangement.spacedBy(2.dp); lazy items have no
+                        // arrangement, so the gap becomes padding on every row but the first.
+                        .padding(top = if (index == 0) 0.dp else 2.dp)
+                        .then(if (title == null && index == 0) modifier else Modifier)
+                        .fillMaxWidth()
+                        .padding(horizontal = PreferenceGroupHorizontalPadding),
+            ) {
+                itemContent()
             }
         }
     }

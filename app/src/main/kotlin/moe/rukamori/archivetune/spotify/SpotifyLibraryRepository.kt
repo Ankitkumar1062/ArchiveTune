@@ -15,10 +15,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
@@ -34,6 +38,8 @@ import moe.rukamori.archivetune.constants.SpotifyAccountNameKey
 import moe.rukamori.archivetune.constants.SpotifyLibraryPlaylistsCacheKey
 import moe.rukamori.archivetune.constants.SpotifySpDcKey
 import moe.rukamori.archivetune.constants.SpotifySpKeyKey
+import moe.rukamori.archivetune.spotify.models.SpotifyPaging
+import moe.rukamori.archivetune.spotify.models.SpotifyPlayHistory
 import moe.rukamori.archivetune.spotify.models.SpotifyPlaylist
 import moe.rukamori.archivetune.spotify.models.SpotifyAlbum
 import moe.rukamori.archivetune.spotify.models.SpotifyArtist
@@ -61,6 +67,11 @@ class SpotifyLibraryRepository
 
         private val _errorMessage = MutableStateFlow<String?>(null)
         val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
+
+        internal val accountChanges = context.dataStore.data
+            .map { it[SpotifySpDcKey].orEmpty() }
+            .distinctUntilChanged()
+            .map { Unit }
 
         private val tokenRefreshMutex = Mutex()
         private data class CachedSearch(
@@ -272,15 +283,63 @@ class SpotifyLibraryRepository
                                     offset = offset,
                                 ).getOrThrow()
                         }
-                    if (page.items.isEmpty()) break
-                    val pageTracks = page.items.mapNotNull { it.track?.takeUnless(SpotifyTrack::isLocal) }
-                    tracks += pageTracks
-                    offset += page.items.size
-                    if (offset >= page.total || page.items.size < limit) break
+                    currentCoroutineContext().ensureActive()
+                    tracks += page.items.mapNotNull { it.track?.takeUnless(SpotifyTrack::isLocal) }
+                    offset = page.nextOffset?.takeIf { it > offset } ?: break
                 }
 
                 tracks
             }
+
+        /**
+         * Every artist the user follows, paged out. Backs the Library's Artists section on the
+         * Spotify source — the same shape [likedSongs] has, and for the same reason: the Library
+         * shows one list, not one page of one.
+         */
+        suspend fun libraryArtists(): List<SpotifyArtist> =
+            withContext(Dispatchers.IO) {
+                ensureAuthenticated()
+                collectPages { limit, offset ->
+                    spotifyCallWithTokenRetry { Spotify.myArtists(limit = limit, offset = offset).getOrThrow() }
+                }
+            }
+
+        /**
+         * The user's play history, most recent first. Not paged: Spotify caps this endpoint at the
+         * last 50 plays and offers no way further back, so [collectPages] would spin on one page.
+         */
+        suspend fun recentlyPlayed(): List<SpotifyPlayHistory> =
+            withContext(Dispatchers.IO) {
+                ensureAuthenticated()
+                spotifyCallWithTokenRetry { Spotify.recentlyPlayed().getOrThrow() }.items
+            }
+
+        /** Every album the user has saved. Backs the Library's Albums section on the Spotify source. */
+        suspend fun libraryAlbums(): List<SpotifyAlbum> =
+            withContext(Dispatchers.IO) {
+                ensureAuthenticated()
+                collectPages { limit, offset ->
+                    spotifyCallWithTokenRetry { Spotify.myAlbums(limit = limit, offset = offset).getOrThrow() }
+                }
+            }
+
+        /**
+         * Drains a paged Spotify endpoint. Stops on an empty page, on reaching the reported total,
+         * or on a short page — the last of those matters because `total` is not always accurate on
+         * the libraryV3 responses, and without it the loop would spin on the final page.
+         */
+        private suspend fun <T> collectPages(page: suspend (limit: Int, offset: Int) -> SpotifyPaging<T>): List<T> {
+            val all = ArrayList<T>()
+            var offset = 0
+            val limit = 50
+            while (true) {
+                val result = page(limit, offset)
+                currentCoroutineContext().ensureActive()
+                all += result.items
+                offset = result.nextOffset?.takeIf { it > offset } ?: break
+            }
+            return all
+        }
 
         suspend fun likedSongs(): List<SpotifyTrack> =
             withContext(Dispatchers.IO) {
@@ -294,10 +353,9 @@ class SpotifyLibraryRepository
                         spotifyCallWithTokenRetry {
                             Spotify.likedSongs(limit = limit, offset = offset).getOrThrow()
                         }
-                    if (page.items.isEmpty()) break
+                    currentCoroutineContext().ensureActive()
                     tracks += page.items.mapNotNull { it.track.takeUnless(SpotifyTrack::isLocal) }
-                    offset += page.items.size
-                    if (offset >= page.total || page.items.size < limit) break
+                    offset = page.nextOffset?.takeIf { it > offset } ?: break
                 }
 
                 tracks

@@ -146,6 +146,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
+import moe.rukamori.archivetune.ui.screens.HomeSourceToggleButton
 import moe.rukamori.archivetune.ui.screens.HomeTopFadeBlur
 import moe.rukamori.archivetune.ui.screens.LocalHomeHazeState
 import dev.chrisbanes.haze.HazeState
@@ -1127,10 +1128,17 @@ class MainActivity : ComponentActivity() {
                                 .windowSizeClass
                                 .isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND)
 
-                    // UI scale (DPI-like) — applied via a LocalDensity override so the entire
-                    // Compose tree scales together (text, icons, paddings, etc.). The slider in
-                    // Appearance Settings clamps to [0.85, 1.30]; we additionally guard here in
-                    // case a backup-restore injects an out-of-range value.
+                    // UI scale — applied via a LocalDensity override. It scales TEXT ONLY: only
+                    // `fontScale` is touched, so `dp` sizes (icons, paddings, artwork) are
+                    // unchanged and text grows or shrinks within the existing layout. The comment
+                    // here used to claim it scaled the whole tree; scaling `density` as well would
+                    // make it genuinely DPI-like, but that would resize every screen for everyone
+                    // already running a non-default value, so it stays text-only until asked for.
+                    //
+                    // Multiplied onto the system font scale rather than replacing it, so the
+                    // device's own font-size setting still applies. The slider in Appearance
+                    // Settings clamps to [0.85, 1.30]; we additionally guard here in case a
+                    // backup-restore injects an out-of-range value.
                     val (uiScaleRaw) = rememberPreference(UiScaleFactorKey, defaultValue = 1.0f)
                     val uiScale = uiScaleRaw.coerceIn(0.85f, 1.30f)
                     val scaledDensity = remember(density, uiScale) {
@@ -2399,6 +2407,14 @@ class MainActivity : ComponentActivity() {
                                                     }
                                                 },
                                                 actions = {
+                                                    // Home only, and only with a Spotify session:
+                                                    // the toggle swaps which home page the tab
+                                                    // shows, which means nothing anywhere else.
+                                                    // Sits left of the avatar, and carries the
+                                                    // logo of the page it switches TO.
+                                                    if (isHomeRoute) {
+                                                        HomeSourceToggleButton()
+                                                    }
                                                     Box(
                                                         modifier = Modifier.padding(end = 4.dp),
                                                     ) {

@@ -89,6 +89,8 @@ import moe.rukamori.archivetune.LocalDatabase
 import moe.rukamori.archivetune.LocalPlayerAwareWindowInsets
 import moe.rukamori.archivetune.LocalPlayerConnection
 import moe.rukamori.archivetune.R
+import moe.rukamori.archivetune.spotify.SPOTIFY_LIKED_SONGS_ID
+import moe.rukamori.archivetune.constants.LibrarySource
 import moe.rukamori.archivetune.constants.HideAiMixKey
 import moe.rukamori.archivetune.constants.HideCachedCardKey
 import moe.rukamori.archivetune.constants.HideLikedSongsCardKey
@@ -185,6 +187,7 @@ fun LibraryMixScreen(
     val spotifyPlaylists by spotifyLibraryViewModel.playlists.collectAsStateWithLifecycle()
     val (showSpotifyPlaylists) = rememberPreference(ShowSpotifyPlaylistsKey, false)
     val (hideAiMix) = rememberPreference(HideAiMixKey, false)
+    val librarySource = rememberLibrarySource()
     val (hideLikedSongsCard) = rememberPreference(HideLikedSongsCardKey, false)
     val (hideOfflineCard) = rememberPreference(HideOfflineCardKey, false)
     val (hideCachedCard) = rememberPreference(HideCachedCardKey, false)
@@ -243,6 +246,13 @@ fun LibraryMixScreen(
                     ),
                 modifier = Modifier.fillMaxSize(),
             ) {
+                // The source pills come first: they decide what the whole screen is showing, and a
+                // control that governs the page belongs above the page, not buried under the first
+                // card. Renders nothing without a usable Spotify session.
+                item(key = "library_source_pills", contentType = "library_source_pills") {
+                    LibrarySourcePills()
+                }
+
                 item(key = "most_played_album_spotlight", contentType = "spotlight") {
                     val state = mostPlayedAlbumUiState
                     if (state is MostPlayedAlbumUiState.Success) {
@@ -292,14 +302,33 @@ fun LibraryMixScreen(
                                     modifier = Modifier.fillMaxWidth(),
                                 ) {
                                     if (!hideLikedSongsCard) {
+                                        // Spotify's liked songs used to be a row inside the
+                                        // Spotify playlists tab. They belong on the same card as
+                                        // everything else called "Liked songs", so the card
+                                        // follows the source pills: the count is only meaningful
+                                        // for the local library, and Spotify's is named instead.
+                                        val likedOnSpotify = librarySource == LibrarySource.SPOTIFY
                                         ShortcutCard(
                                             title = stringResource(R.string.liked_songs),
-                                            countText = "$likedSongsCount ${stringResource(R.string.tracks_label)}",
+                                            countText =
+                                                if (likedOnSpotify) {
+                                                    stringResource(R.string.home_source_spotify)
+                                                } else {
+                                                    "$likedSongsCount ${stringResource(R.string.tracks_label)}"
+                                                },
                                             iconRes = R.drawable.favorite,
                                             containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f),
                                             iconColor = MaterialTheme.colorScheme.error,
                                             modifier = Modifier.weight(1f),
-                                            onClick = { navController.navigate("auto_playlist/liked") },
+                                            onClick = {
+                                                if (likedOnSpotify) {
+                                                    navController.navigate(
+                                                        "spotify_playlist/$SPOTIFY_LIKED_SONGS_ID",
+                                                    )
+                                                } else {
+                                                    navController.navigate("auto_playlist/liked")
+                                                }
+                                            },
                                         )
                                     } else {
                                         Spacer(Modifier.weight(1f))

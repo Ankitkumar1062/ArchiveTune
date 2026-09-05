@@ -394,6 +394,12 @@
     <string name="music_player">Music Player</string>
     <string name="settings">Settings</string>
     <string name="appearance">Appearance</string>
+    <string name="appearance_theme">Theme &amp; colours</string>
+    <string name="appearance_theme_desc">Colour palette, dark mode, fonts, Liquid Glass</string>
+    <string name="appearance_player">Player</string>
+    <string name="appearance_player_desc">Player style, backgrounds, artwork, controls</string>
+    <string name="appearance_interface">Interface</string>
+    <string name="appearance_interface_desc">Home, navigation bar, library layout, extras</string>
     <string name="app_icon_description">Choose the launcher icon</string>
     <string name="app_icon_default">Default</string>
     <string name="app_icon_subtitle">Personalize your launcher</string>
@@ -1309,6 +1315,7 @@
     <string name="onboarding_community_title">Stay connected</string>
     <string name="onboarding_community_subtitle">Follow development, report issues, or support ArchiveTune.</string>
     <string name="onboarding_finish">Start listening</string>
+    <string name="onboarding_lets_go">Let\u2019s go</string>
     <string name="onboarding_gms_variant">GMS edition</string>
     <string name="onboarding_foss_variant">FOSS edition</string>
     <string name="onboarding_version_label">Version %1$s</string>
@@ -1714,6 +1721,14 @@
     <string name="home_screen_style_spotify">Spotify</string>
     <string name="home_source_youtube">YouTube</string>
     <string name="home_source_spotify">Spotify</string>
+    <string name="home_source_switch_to">Switch to %1$s</string>
+    <string name="library_source_ytm">YTM</string>
+    <string name="spotify_dj_unsupported">Spotify\u2019s DJ is built by Spotify as you listen \u2014 the running order and the spoken bits between tracks only exist inside their app. Opening it there.</string>
+    <string name="spotify_history">Spotify</string>
+    <string name="history_spotify_summary">The last 50 tracks played on your Spotify account. Spotify does not offer any further back.</string>
+    <string name="lyrics_mode_simpmusic">SimpMusic</string>
+    <string name="apple_music_experience">Apple Music Experience</string>
+    <string name="apple_music_experience_desc">Replaces the artwork header on playlist, album and library pages with Apple Music\u2019s: a large title over the page, pink accent pills, no backdrop. Turning it on also switches the player to the Apple Music style.</string>
     <string name="spotify_home_style">Spotify home style</string>
     <string name="spotify_home_style_desc">Layout of the Spotify home page</string>
 </resources>

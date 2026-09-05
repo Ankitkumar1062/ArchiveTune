@@ -43,6 +43,7 @@ import moe.rukamori.archivetune.spotify.models.SpotifyArtist
 import moe.rukamori.archivetune.spotify.models.SpotifyArtistOverview
 import moe.rukamori.archivetune.spotify.models.SpotifyImage
 import moe.rukamori.archivetune.spotify.models.SpotifyPaging
+import moe.rukamori.archivetune.spotify.models.SpotifyPlayHistory
 import moe.rukamori.archivetune.spotify.models.SpotifyPlaylist
 import moe.rukamori.archivetune.spotify.models.SpotifyPlaylistOwner
 import moe.rukamori.archivetune.spotify.models.SpotifyPlaylistTrack
@@ -333,7 +334,7 @@ object Spotify {
         for (attempt in 0 until maxRetries) {
             log(
                 "D",
-                "REST GET $endpoint (token: ${token.take(8)}...)" +
+                "REST GET $endpoint" +
                     if (attempt > 0) " [retry $attempt]" else "",
             )
             val response =
@@ -815,6 +816,96 @@ object Spotify {
                 total = totalCount,
                 limit = pagingInfo?.int("limit") ?: limit,
                 offset = pagingInfo?.int("offset") ?: offset,
+                rawItemCount = libraryData.arr("items")?.size ?: 0,
+            )
+        }
+
+    // ── Library Albums (GQL: libraryV3 with Albums filter) ─────────────
+
+    /**
+     * The user's saved albums, straight from the same libraryV3 query [myArtists] uses — only the
+     * filter differs. Written out rather than folded into one parameterised helper because the two
+     * responses shape their item wrappers differently: an artist carries `profile.name` and an
+     * avatar image, an album carries a name, its artists and cover art, and the union of both
+     * inside one mapper reads worse than the duplication.
+     */
+    suspend fun myAlbums(
+        limit: Int = 50,
+        offset: Int = 0,
+    ): Result<SpotifyPaging<SpotifyAlbum>> =
+        runCatching {
+            val vars =
+                buildJsonObject {
+                    putJsonArray("filters") { add("Albums") }
+                    put("order", null as String?)
+                    put("textFilter", "")
+                    putJsonArray("features") {
+                        add("LIKED_SONGS")
+                        add("YOUR_EPISODES_V2")
+                        add("PRERELEASES")
+                        add("EVENTS")
+                    }
+                    put("limit", limit)
+                    put("offset", offset)
+                    put("flatten", false)
+                    putJsonArray("expandedFolders") {}
+                    put("folderUri", null as String?)
+                    put("includeFoldersWhenFlattening", true)
+                }
+
+            val response =
+                graphqlPost(
+                    operationName = "libraryV3",
+                    variables = vars,
+                )
+
+            val libraryData =
+                response.obj("data")?.obj("me")?.obj("libraryV3")
+                    ?: throw SpotifyException(500, "Invalid libraryV3 response")
+
+            val totalCount = libraryData.int("totalCount") ?: 0
+            val pagingInfo = libraryData.obj("pagingInfo")
+
+            val albums =
+                libraryData.arr("items")?.mapNotNull { itemElem ->
+                    val wrapper = itemElem.jsonObject.obj("item") ?: return@mapNotNull null
+                    val typeName = wrapper.str("__typename") ?: ""
+                    if (!typeName.contains("Album", ignoreCase = true)) return@mapNotNull null
+                    val data = wrapper.obj("data") ?: return@mapNotNull null
+
+                    val albumUri = wrapper.str("_uri") ?: data.str("uri") ?: return@mapNotNull null
+                    val albumId = albumUri.substringAfterLast(":")
+                    val name = data.str("name") ?: return@mapNotNull null
+
+                    val images =
+                        data
+                            .obj("coverArt")
+                            ?.arr("sources")
+                            ?.let { parseGqlImages(it) }
+                            ?: emptyList()
+
+                    val artists =
+                        data
+                            .obj("artists")
+                            ?.arr("items")
+                            ?.mapNotNull { parseGqlSimpleArtist(it.jsonObject) }
+                            .orEmpty()
+
+                    SpotifyAlbum(
+                        id = albumId,
+                        name = name,
+                        artists = artists,
+                        images = images,
+                        uri = albumUri,
+                    )
+                } ?: emptyList()
+
+            SpotifyPaging(
+                items = albums,
+                total = totalCount,
+                limit = pagingInfo?.int("limit") ?: limit,
+                offset = pagingInfo?.int("offset") ?: offset,
+                rawItemCount = libraryData.arr("items")?.size ?: 0,
             )
         }
 
@@ -905,6 +996,7 @@ object Spotify {
                 total = content.int("totalCount") ?: 0,
                 limit = limit,
                 offset = offset,
+                rawItemCount = content.arr("items")?.size ?: 0,
             )
         }
 
@@ -1070,6 +1162,7 @@ object Spotify {
                 total = tracksData.int("totalCount") ?: 0,
                 limit = limit,
                 offset = offset,
+                rawItemCount = tracksData.arr("items")?.size ?: 0,
             )
         }
 
@@ -1125,6 +1218,23 @@ object Spotify {
                 parameter("time_range", timeRange)
                 parameter("limit", limit)
                 parameter("offset", offset)
+            }
+        }
+
+    // ── Recently played (REST — no GQL equivalent) ──────────────────────
+
+    /**
+     * The user's play history, most recent first. Spotify caps this at the last 50 plays and
+     * pages it by cursor rather than offset, so there is no `offset` here and no way to reach
+     * further back — the endpoint simply does not offer it.
+     *
+     * `failFastOn429` for the same reason [topTracks] uses it: this is a nice-to-have panel, and
+     * a rate-limited retry storm is worse than an empty one.
+     */
+    suspend fun recentlyPlayed(limit: Int = 50): Result<SpotifyPaging<SpotifyPlayHistory>> =
+        runCatching {
+            authenticatedGet("me/player/recently-played", failFastOn429 = true) {
+                parameter("limit", limit.coerceIn(1, 50))
             }
         }
 
@@ -1184,7 +1294,7 @@ object Spotify {
             }
         }
 
-    // ── Search (GQL: searchDesktop) ─────────────────────────────────────
+    // ── Search (GQL: searchDesktop) ────────────────���────────────────────
 
     suspend fun search(
         query: String,
@@ -1589,6 +1699,19 @@ object Spotify {
                 parseHomeItem(itemElem.jsonObject)
             }
 
+        // Named, and counted against what came in: a section that arrives with tiles and leaves
+        // with fewer says exactly which wrapper was thrown away, which is the only way to find a
+        // tile that never appears. Spotify renames these periodically.
+        if (items.size != itemElements.size) {
+            val seen =
+                itemElements.mapNotNull {
+                    it.jsonObject
+                        .obj("content")
+                        ?.str("__typename")
+                }
+            log("W", "parseHomeSection('$title'): kept ${items.size}/${itemElements.size} — wrappers=$seen")
+        }
+
         if (items.isEmpty()) return null
 
         return moe.rukamori.archivetune.spotify.models.SpotifyHomeFeedSection(
@@ -1606,10 +1729,19 @@ object Spotify {
         val data = content.obj("data") ?: return null
 
         return when (wrapper) {
-            "PlaylistResponseWrapper" -> parseHomePlaylist(data)
+            // PseudoPlaylist is how Spotify ships the tiles that are not really playlists — DJ,
+            // Liked Songs, daylist. Same uri/name/images shape as a playlist, so it parses the
+            // same way; whether the app can DO anything with one is decided at the tap, not here.
+            // Dropping them meant those tiles silently never appeared at all.
+            "PlaylistResponseWrapper", "PseudoPlaylistResponseWrapper" -> parseHomePlaylist(data)
             "AlbumResponseWrapper" -> parseHomeAlbum(data)
             "ArtistResponseWrapper" -> parseHomeArtist(data)
-            else -> null
+            else -> {
+                // Logged rather than dropped in silence: a tile that vanishes leaves no trace to
+                // debug from, and Spotify has renamed these wrappers before.
+                log("D", "parseHomeItem: unhandled content __typename='$wrapper'")
+                null
+            }
         }
     }
 

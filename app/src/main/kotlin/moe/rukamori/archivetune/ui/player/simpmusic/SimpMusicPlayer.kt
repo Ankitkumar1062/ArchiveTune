@@ -51,6 +51,7 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.draw.clipToBounds
 import moe.rukamori.archivetune.ui.menu.AddToPlaylistDialog
+import moe.rukamori.archivetune.lyrics.LyricsEntry
 import moe.rukamori.archivetune.lyrics.LyricsUtils
 import moe.rukamori.archivetune.extensions.toMediaItem
 import androidx.room.withTransaction
@@ -142,7 +143,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import moe.rukamori.archivetune.LocalDatabase
 import moe.rukamori.archivetune.R
-import moe.rukamori.archivetune.constants.SimpMusicLyricsKey
+import moe.rukamori.archivetune.constants.LyricsMode
+import moe.rukamori.archivetune.constants.LyricsModeKey
 import moe.rukamori.archivetune.db.entities.FormatEntity
 import moe.rukamori.archivetune.db.entities.LyricsEntity.Companion.LYRICS_NOT_FOUND
 import moe.rukamori.archivetune.extensions.metadata
@@ -155,6 +157,7 @@ import moe.rukamori.archivetune.playback.PlayerConnection
 import moe.rukamori.archivetune.ui.component.BottomSheetPageState
 import moe.rukamori.archivetune.ui.component.BottomSheetState
 import moe.rukamori.archivetune.ui.component.LyricsEnhanced
+import moe.rukamori.archivetune.ui.component.MarqueeText
 import moe.rukamori.archivetune.ui.component.MenuState
 import moe.rukamori.archivetune.ui.menu.PlayerMenu
 import moe.rukamori.archivetune.ui.player.AppleMusicQueueSheet
@@ -162,6 +165,7 @@ import moe.rukamori.archivetune.ui.player.LosslessOrStats
 import moe.rukamori.archivetune.ui.player.rememberInlineLyricLines
 import moe.rukamori.archivetune.ui.utils.ShowMediaInfo
 import moe.rukamori.archivetune.ui.utils.highRes
+import moe.rukamori.archivetune.utils.rememberEnumPreference
 import moe.rukamori.archivetune.utils.rememberPreference
 import java.util.Locale
 
@@ -219,6 +223,28 @@ private val Gutter = 20.dp
 private val MinGap = 30.dp
 
 /**
+ * Artwork width as a fraction of the screen.
+ *
+ * SimpMusic sizes its sleeve to the full width minus its gutters, which on a phone is around 90%
+ * and reads noticeably bigger than Spotify's — the complaint that prompted this. Spotify's sleeve
+ * leaves a clear margin either side; 0.84 matches it and keeps the square from crowding the title
+ * row underneath.
+ */
+private const val ARTWORK_WIDTH_FRACTION = 0.84f
+
+/**
+ * The band reserved for the current lyric line, between the artwork and the title row.
+ *
+ * Two lines of `labelMedium` plus the padding around them. It used to be nothing — the line lived
+ * inside the lower gap so the controls could not move when a line arrived — but that capped it at
+ * one line, and a long line then marqueed sideways across the player instead of wrapping. Spotify
+ * wraps to a second line, so the band is real height now and the artwork gives it up, which is also
+ * what Spotify does. Reserved only when the track HAS synced lyrics, so a track without them keeps
+ * the larger sleeve; the size therefore changes per track, never per line.
+ */
+private val LyricBandHeight = 48.dp
+
+/**
  * The SimpMusic style. Parameters mirror the other self-contained styles so Player.kt dispatches
  * every style the same way.
  */
@@ -269,6 +295,10 @@ fun SimpMusicPlayerContent(
         mediaInfo = runCatching { YouTube.getMediaInfo(mediaMetadata.id).getOrNull() }.getOrNull()
     }
 
+    // Hoisted out of SimpMusicLyricLine: the layout below has to know whether this track has synced
+    // lyrics AT ALL before it can size the artwork, and parsing is cheap and keyed on the text.
+    val lyricLines = rememberInlineLyricLines(playerConnection)
+
     val scrollState = rememberScrollState()
     // Latched, not a live predicate: once the reader has gone below the fold, keep the card's
     // contents mounted rather than tearing the renderer down every time they scroll back up.
@@ -277,6 +307,13 @@ fun SimpMusicPlayerContent(
         snapshotFlow { scrollState.value > 0 }.first { it }
         hasScrolled = true
     }
+    // Reopening the player must land on the hero, not two screens down where it was left. Keyed on
+    // `isExpandedOrExpanding` rather than `isExpanded` so this fires the moment the collapse starts
+    // — by the time the sheet has finished shrinking there is nothing left to hide the jump.
+    LaunchedEffect(state.isExpandedOrExpanding) {
+        if (!state.isExpandedOrExpanding) scrollState.scrollTo(0)
+    }
+
     var queueOpen by rememberSaveable { mutableStateOf(false) }
     BackHandler(enabled = queueOpen) { queueOpen = false }
 
@@ -294,12 +331,13 @@ fun SimpMusicPlayerContent(
         // plus the two rows and their minimum gaps, in which case the square gives way rather than
         // the controls sliding off the bottom. SimpMusic sizes the artwork on width alone and
         // clips the controls on a short screen; there is no reason to reproduce that.
+        val lyricBand = if (lyricLines.isEmpty()) 0.dp else LyricBandHeight
         val artworkSide =
-            (maxWidth - Gutter * 2)
-                .coerceAtMost(screenHeight - topBarHeight - infoHeight - MinGap * 2)
+            (maxWidth * ARTWORK_WIDTH_FRACTION)
+                .coerceAtMost(screenHeight - topBarHeight - infoHeight - lyricBand - MinGap * 2)
                 .coerceAtLeast(0.dp)
         val gap =
-            ((screenHeight - topBarHeight - artworkSide - infoHeight - MinGap) / 2)
+            ((screenHeight - topBarHeight - artworkSide - lyricBand - infoHeight - MinGap) / 2)
                 .coerceAtLeast(MinGap)
         val screenHeightPx = with(density) { screenHeight.toPx() }
 
@@ -312,7 +350,15 @@ fun SimpMusicPlayerContent(
                     // Gated on the sheet being expanded, so a drag on the collapsed mini-player is
                     // never eaten by this. Up-drags at the top still reach the sheet through the
                     // nested-scroll connection the caller attached.
-                    .verticalScroll(scrollState, enabled = state.isExpanded),
+                    //
+                    // `isExpandedOrExpanding`, NOT `isExpanded`: the latter is exact equality with
+                    // the upper bound, so the first pixel of a drag that pulls the sheet down makes
+                    // it false and disables this scrollable MID-GESTURE. The drag it owned is
+                    // cancelled with it, the sheet stops receiving deltas through onPostScroll, and
+                    // onPreFling never runs — leaving the sheet stranded part-way instead of
+                    // collapsing. The anchor stays EXPANDED for the whole drag and only flips when
+                    // the fling resolves, which is exactly the window this needs to stay alive for.
+                    .verticalScroll(scrollState, enabled = state.isExpandedOrExpanding),
         ) {
             // ── HERO: exactly one screen ─────────────────────────────────────────────────────
             Box(modifier = Modifier.fillMaxWidth().height(screenHeight)) {
@@ -334,15 +380,18 @@ fun SimpMusicPlayerContent(
                     // pixels. A Spacer takes no pointer input, so swipes fall through to the pager.
                     Spacer(Modifier.fillMaxWidth().height(artworkSide))
 
-                    // The current lyric line lives INSIDE the lower gap rather than adding height
-                    // of its own, so the controls below never move when a line arrives or leaves.
+                    // Its own band between the sleeve and the title row, sized by the layout above
+                    // and zero-height on a track with no synced lyrics.
                     SimpMusicLyricLine(
+                        lines = lyricLines,
                         playerConnection = playerConnection,
                         // Collapsed, this composable stays composed but nothing it draws is on
                         // screen, so the poll below is pure background cost. `active` stops it.
                         active = isPlaying && state.isExpanded,
-                        modifier = Modifier.fillMaxWidth().height(gap),
+                        modifier = Modifier.fillMaxWidth().height(lyricBand),
                     )
+
+                    Spacer(Modifier.height(gap))
 
                     Column(
                         modifier =
@@ -458,6 +507,9 @@ fun SimpMusicPlayerContent(
                 mediaMetadata = mediaMetadata,
                 isPlaying = isPlaying,
                 playerConnection = playerConnection,
+                // The hero's own chevron has scrolled away by the time this appears, so the
+                // toolbar has to carry one: without it the only way back is the system gesture.
+                onCollapse = state::collapseSoft,
                 containerColor = lerp(startColor, Color.Black, 0.18f),
             )
         }
@@ -669,11 +721,11 @@ private fun SimpMusicArtwork(
  */
 @Composable
 private fun SimpMusicLyricLine(
+    lines: List<LyricsEntry>,
     playerConnection: PlayerConnection,
     active: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val lines = rememberInlineLyricLines(playerConnection)
     var line by remember(lines) { mutableStateOf("") }
 
     // Polled rather than derived from a recomposing position: a line changes a few times a minute,
@@ -697,15 +749,13 @@ private fun SimpMusicLyricLine(
                 text = text,
                 style = MaterialTheme.typography.labelMedium,
                 color = Color.White,
-                maxLines = 1,
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = Gutter)
-                        .basicMarquee(
-                            iterations = Int.MAX_VALUE,
-                            animationMode = MarqueeAnimationMode.Immediately,
-                        ),
+                textAlign = TextAlign.Center,
+                // Wraps rather than marquees. A long line used to scroll sideways across the
+                // player, which is both harder to read than a second line and unlike every
+                // reference player; two lines is what the band above is sized for.
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = Gutter),
             )
         }
     }
@@ -739,14 +789,14 @@ private fun SimpMusicTrackInfoRow(
 
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
         Column(modifier = Modifier.weight(1f)) {
-            SimpMusicMarqueeText(
+            MarqueeText(
                 text = mediaMetadata.title,
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White,
             )
             Spacer(Modifier.height(3.dp))
-            SimpMusicMarqueeText(
+            MarqueeText(
                 text = mediaMetadata.artists.joinToString { it.name },
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Normal,
@@ -773,49 +823,6 @@ private fun SimpMusicTrackInfoRow(
                 modifier = Modifier.size(32.dp),
             )
         }
-    }
-}
-
-/**
- * One marquee line with the same edge fade every other player style uses.
- *
- * The fade sits on the BOX (the line's viewport), not the Text: the Text scrolls inside it, so a
- * mask on the Text would travel with the glyphs and leave the visible edge hard-clipped — the boxy
- * cut this style had. [viewportEdgeFade] is the shared helper PlayerComponents applies for exactly
- * this, and as there it is only applied while the line actually overflows, because basicMarquee
- * measures its child unbounded so `hasVisualOverflow` never fires.
- */
-@Composable
-private fun SimpMusicMarqueeText(
-    text: String,
-    fontSize: androidx.compose.ui.unit.TextUnit,
-    fontWeight: FontWeight,
-    color: Color,
-) {
-    val layout = remember { mutableStateOf<TextLayoutResult?>(null) }
-    val viewportWidth = remember { mutableStateOf(0) }
-    val shouldFade = viewportWidth.value > 0 && (layout.value?.size?.width ?: 0) > viewportWidth.value
-
-    Box(
-        modifier =
-            (if (shouldFade) Modifier.viewportEdgeFade(24.dp) else Modifier)
-                .clipToBounds()
-                .onSizeChanged { viewportWidth.value = it.width },
-    ) {
-        Text(
-            text = text,
-            fontSize = fontSize,
-            fontWeight = fontWeight,
-            color = color,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            onTextLayout = { layout.value = it },
-            modifier =
-                Modifier.fillMaxWidth().basicMarquee(
-                    iterations = Int.MAX_VALUE,
-                    animationMode = MarqueeAnimationMode.Immediately,
-                ),
-        )
     }
 }
 
@@ -1099,7 +1106,7 @@ private fun SimpMusicLyricsCard(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
-    val (simpMusicLyrics) = rememberPreference(SimpMusicLyricsKey, defaultValue = false)
+    val lyricsMode by rememberEnumPreference(LyricsModeKey, defaultValue = LyricsMode.ENHANCED)
     val lyricsPositionProvider = remember { { null as Long? } }
 
     // A renderer with nothing to render still fills its 300dp box, so without this the card was a
@@ -1170,7 +1177,7 @@ private fun SimpMusicLyricsCard(
                 if (!renderLyrics) {
                     // Deliberately empty, and deliberately still 300dp: the height is what keeps
                     // the page scrollable so `renderLyrics` can ever become true.
-                } else if (simpMusicLyrics) {
+                } else if (lyricsMode == LyricsMode.SIMPMUSIC) {
                     SimpMusicLyrics(
                         sliderPositionProvider = lyricsPositionProvider,
                         lyricsSyncOffset = 0,
@@ -1178,6 +1185,9 @@ private fun SimpMusicLyricsCard(
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else {
+                    // Every other mode renders as Enhanced here on purpose: the card is a 300dp
+                    // preview, and the karaoke sweep the other renderers are built around needs a
+                    // full screen to read as anything but flicker.
                     LyricsEnhanced(
                         sliderPositionProvider = lyricsPositionProvider,
                         lyricsSyncOffset = 0,
@@ -1338,6 +1348,7 @@ private fun SimpMusicStickyToolbar(
     mediaMetadata: MediaMetadata,
     isPlaying: Boolean,
     playerConnection: PlayerConnection,
+    onCollapse: () -> Unit,
     containerColor: Color,
 ) {
     val currentSong by playerConnection.currentSong.collectAsStateWithLifecycle(initialValue = null)
@@ -1353,9 +1364,16 @@ private fun SimpMusicStickyToolbar(
             modifier =
                 Modifier
                     .padding(WindowInsets.statusBars.asPaddingValues())
-                    .padding(start = Gutter, end = 8.dp, top = 8.dp, bottom = 8.dp),
+                    .padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            IconButton(onClick = onCollapse) {
+                Icon(
+                    painter = painterResource(R.drawable.player_expand_more),
+                    contentDescription = stringResource(R.string.collapse),
+                    tint = Color.White,
+                )
+            }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = mediaMetadata.title,
