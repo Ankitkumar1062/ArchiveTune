@@ -116,12 +116,23 @@ object SpotifyPlaybackResolver {
                 )
 
             // Direct 0ms fast-path: Prime IsrcResolver so lossless chain has the verified ISRC instantly
-            track.isrc?.takeIf { it.isNotBlank() }?.let { isrc ->
+            if (track.isrc?.isNotBlank() == true) {
                 moe.rukamori.archivetune.audiosource.IsrcResolver.cacheIsrc(
                     mediaId = best.id,
                     title = metadata.title,
                     artists = metadata.artists.map { it.name },
-                    isrc = isrc,
+                    isrc = track.isrc!!,
+                    isExplicit = metadata.explicit,
+                    localizedTitle = track.name,
+                    localizedArtist = track.artists.joinToString(", ") { it.name }.takeIf { it.isNotBlank() },
+                )
+            } else {
+                // If ISRC was missing from Spotify track payload, pre-warm IsrcResolver using clean studio metadata
+                moe.rukamori.archivetune.audiosource.IsrcResolver.resolve(
+                    mediaId = best.id,
+                    title = metadata.title,
+                    artists = metadata.artists.map { it.name },
+                    durationMs = track.durationMs.toLong().takeIf { it > 0 },
                     isExplicit = metadata.explicit,
                 )
             }

@@ -9568,6 +9568,7 @@ class MusicService :
                                                 wantedIsExplicit = query.isExplicit,
                                                 wantedIsrc = query.isrc,
                                                 localizedTitle = query.localizedTitle,
+                                                localizedArtist = query.localizedArtist,
                                             )
                                         if (match.accepted) {
                                             Timber.tag("MusicService").d(
@@ -9623,6 +9624,7 @@ class MusicService :
                             wantedIsExplicit = query.isExplicit,
                             wantedIsrc = query.isrc,
                             localizedTitle = query.localizedTitle,
+                            localizedArtist = query.localizedArtist,
                         )
                     if (match.accepted) {
                         Timber.tag("MusicService").d(
@@ -9864,6 +9866,7 @@ class MusicService :
                         wantedIsExplicit = query.isExplicit,
                         wantedIsrc = query.isrc,
                         localizedTitle = query.localizedTitle,
+                        localizedArtist = query.localizedArtist,
                     )
                 }
             if (match.accepted && match.score > bestScore) {
@@ -10312,10 +10315,12 @@ class MusicService :
         // Build a search query from title + primary artist (+ album as a soft hint).
         val artistHint = query.artists.firstOrNull()?.takeIf { it.isNotBlank() } ?: ""
         val albumHint = query.album?.takeIf { it.isNotBlank() } ?: ""
+        val titleForSearch = query.localizedTitle?.takeIf(String::isNotBlank) ?: query.title
+        val artistForSearch = query.localizedArtist?.takeIf(String::isNotBlank) ?: artistHint
         val searchQuery =
             buildString {
-                append(query.title)
-                if (artistHint.isNotBlank()) append(" ").append(artistHint)
+                append(titleForSearch)
+                if (artistForSearch.isNotBlank()) append(" ").append(artistForSearch)
                 if (albumHint.isNotBlank()) append(" ").append(albumHint)
             }.trim()
 

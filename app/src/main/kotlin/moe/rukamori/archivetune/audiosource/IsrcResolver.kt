@@ -40,7 +40,7 @@ import kotlin.math.abs
 object IsrcResolver {
     private const val TAG = "IsrcResolver"
     private const val CACHE_TTL_MS = 24 * 60 * 60 * 1000L // 24 hours
-    private const val DURATION_GATE_MS = 3_000L // 3 seconds physical gate
+    private const val DURATION_GATE_MS = 12_000L // 12 seconds physical gate (tolerates video intro/outro silence)
     private const val MIN_ARTIST_OVERLAP = 0.70
 
     private val STOP_WORDS =
@@ -154,7 +154,7 @@ object IsrcResolver {
             resolve(mediaId, title, artists, durationMs, isExplicit)
         }
 
-    /** Manually primes the cache with a known ISRC and optional localized title (e.g., from DB or Spotify). */
+    /** Manually primes the cache with a known ISRC and optional localized metadata (e.g., from DB or Spotify). */
     fun cacheIsrc(
         mediaId: String?,
         title: String,
@@ -162,10 +162,15 @@ object IsrcResolver {
         isrc: String,
         isExplicit: Boolean? = null,
         localizedTitle: String? = null,
+        localizedArtist: String? = null,
     ) {
         val normalized = normalizeIsrc(isrc) ?: return
         val key = cacheKey(mediaId, title, artists, isExplicit)
-        val result = MatchResult(isrc = normalized, localizedTitle = localizedTitle?.takeIf(String::isNotBlank) ?: title)
+        val result = MatchResult(
+            isrc = normalized,
+            localizedTitle = localizedTitle?.takeIf(String::isNotBlank) ?: title,
+            localizedArtist = localizedArtist?.takeIf(String::isNotBlank) ?: artists.firstOrNull(),
+        )
         cache[key] = CachedIsrc(result, System.currentTimeMillis() + CACHE_TTL_MS)
     }
 
@@ -359,7 +364,12 @@ object IsrcResolver {
                 wantedTokens.isNotEmpty() && (wantedTokens.all { it in candidateTokens } || tokenOverlap(wantedTokens, candidateTokens) >= MIN_ARTIST_OVERLAP)
             }
 
-            if (fullOverlap < MIN_ARTIST_OVERLAP && !anyArtistContained) {
+            // Cross-script tolerance (e.g. Japanese Kanji "美波" vs Romanized "Minami"):
+            // If the wanted artist is in a non-Latin script and candidate is Latin (or vice versa),
+            // string distance will yield 0.0 overlap across different alphabets.
+            val isCrossScript = wantedArtists.any { isNonLatin(it) } != isNonLatin(candidateArtist)
+
+            if (fullOverlap < MIN_ARTIST_OVERLAP && !anyArtistContained && !isCrossScript) {
                 Timber.tag(TAG).v("Rejected candidate \"%s\": Artist mismatch (fullOverlap=%.2f, contained=%s)", candidateTitle, fullOverlap, anyArtistContained)
                 return false
             }
@@ -376,6 +386,9 @@ object IsrcResolver {
         val compact = value?.uppercase(Locale.US)?.replace(Regex("[^A-Z0-9]"), "") ?: return null
         return ISRC_REGEX.find(compact)?.value
     }
+
+    private fun isNonLatin(text: String): Boolean =
+        text.contains(Regex("""[^\p{IsLatin}\p{Punct}\p{Digit}\s]"""))
 
     private fun cacheKey(
         mediaId: String?,

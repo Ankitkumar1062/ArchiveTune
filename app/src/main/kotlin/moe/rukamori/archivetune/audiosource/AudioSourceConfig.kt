@@ -74,7 +74,7 @@ object TitleMatch {
     private const val TITLE_ONLY_THRESHOLD = 0.95
     private const val MIN_TITLE_WITH_METADATA = 0.84
     private const val MIN_ARTIST = 0.72
-    private const val DURATION_HARD_GATE_MS = 3_000L
+    private const val DURATION_HARD_GATE_MS = 15_000L
 
     data class Result(
         val accepted: Boolean,
@@ -161,6 +161,7 @@ object TitleMatch {
         wantedIsExplicit: Boolean? = null,
         wantedIsrc: String? = null,
         localizedTitle: String? = null,
+        localizedArtist: String? = null,
     ): Result {
         if (stream.trustedDirectId) return Result(true, 1.0, 1.0, 1.0, 1.0, "trusted catalog id")
         if (TrackMatching.hasExplicitMismatch(wantedIsExplicit, stream.matchedIsExplicit)) {
@@ -189,8 +190,12 @@ object TitleMatch {
 
         val wantedArtist = wantedArtists.joinToString(", ").takeIf { it.isNotBlank() }
         val candidateArtist = stream.matchedArtist?.takeIf { it.isNotBlank() }
-        val artistScore =
+        val directArtistScore =
             if (wantedArtist != null && candidateArtist != null) artistRatio(wantedArtist, candidateArtist) else null
+        val localizedArtistScore =
+            if (localizedArtist != null && candidateArtist != null) artistRatio(localizedArtist, candidateArtist) else null
+        val artistScore = maxOf(directArtistScore ?: 0.0, localizedArtistScore ?: 0.0)
+            .takeIf { directArtistScore != null || localizedArtistScore != null }
 
         // Artist is gated before duration. Both gates reject, so this does not change
         // WHETHER a stream is accepted — only the reason reported for it. That matters
@@ -259,8 +264,12 @@ object TitleMatch {
 
     private fun artistParts(value: String): List<String> =
         value
-            .split(Regex("""\s*[,;&/]\s*|\s+(?:and|x)\s+""", RegexOption.IGNORE_CASE))
-            .map(::normalize)
+            .split(Regex("""\s*[,;&/|]\s*|\s+(?:and|x)\s+|\s*[－／｜：]\s*|\s*[\(（].*?[\)）]""", RegexOption.IGNORE_CASE))
+            .flatMap { raw ->
+                val base = normalize(raw)
+                val segmentAliases = splitRawTitleSegments(raw).map(::normalize)
+                listOf(base) + segmentAliases
+            }
             .filter { it.isNotBlank() }
 
     private fun containsTokenRun(haystack: String, needle: String): Boolean {
