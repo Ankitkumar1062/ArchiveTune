@@ -126,15 +126,6 @@ object SpotifyPlaybackResolver {
                     localizedTitle = track.name,
                     localizedArtist = track.artists.joinToString(", ") { it.name }.takeIf { it.isNotBlank() },
                 )
-            } else {
-                // If ISRC was missing from Spotify track payload, pre-warm IsrcResolver using clean studio metadata
-                moe.rukamori.archivetune.audiosource.IsrcResolver.resolve(
-                    mediaId = best.id,
-                    title = metadata.title,
-                    artists = metadata.artists.map { it.name },
-                    durationMs = track.durationMs.toLong().takeIf { it > 0 },
-                    isExplicit = metadata.explicit,
-                )
             }
 
             mutex.withLock {
