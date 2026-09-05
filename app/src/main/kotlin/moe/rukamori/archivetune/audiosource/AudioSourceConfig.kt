@@ -74,7 +74,7 @@ object TitleMatch {
     private const val TITLE_ONLY_THRESHOLD = 0.95
     private const val MIN_TITLE_WITH_METADATA = 0.84
     private const val MIN_ARTIST = 0.72
-    private const val DURATION_HARD_GATE_MS = 15_000L
+    private const val DURATION_HARD_GATE_MS = 6_000L
 
     data class Result(
         val accepted: Boolean,
@@ -207,7 +207,7 @@ object TitleMatch {
             return Result(false, 0.0, titleScore, artistScore, durationScore, "artist mismatch")
         }
         if (durationScore == 0.0) {
-            return Result(false, 0.0, titleScore, artistScore, durationScore, "duration differs by more than 15s")
+            return Result(false, 0.0, titleScore, artistScore, durationScore, "duration differs by more than 6s")
         }
 
         // Deliberately AFTER the duration gate: with no artist to compare against, the
@@ -236,9 +236,9 @@ object TitleMatch {
         val difference = abs(wantedMs - candidateMs)
         return when {
             difference > DURATION_HARD_GATE_MS -> 0.0
-            difference <= 3_000L -> 1.0
-            difference <= 10_000L -> 0.8
-            else -> 0.6
+            difference <= 2_000L -> 1.0
+            difference <= 4_000L -> 0.8
+            else -> 0.5
         }
     }
 

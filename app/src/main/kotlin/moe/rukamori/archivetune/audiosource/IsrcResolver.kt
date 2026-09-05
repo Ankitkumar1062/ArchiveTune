@@ -40,7 +40,7 @@ import kotlin.math.abs
 object IsrcResolver {
     private const val TAG = "IsrcResolver"
     private const val CACHE_TTL_MS = 24 * 60 * 60 * 1000L // 24 hours
-    private const val DURATION_GATE_MS = 12_000L // 12 seconds physical gate (tolerates video intro/outro silence)
+    private const val DURATION_GATE_MS = 5_000L // 5 seconds physical gate
     private const val MIN_ARTIST_OVERLAP = 0.70
 
     private val STOP_WORDS =

@@ -222,9 +222,8 @@ object SpotifyMapper {
         val diff = kotlin.math.abs(spotifyDurationMs / 1000 - candidateDurationSec)
         return when {
             diff <= 2 -> 1.0
-            diff <= 5 -> 0.8
-            diff <= 10 -> 0.5
-            diff <= 30 -> 0.2
+            diff <= 4 -> 0.8
+            diff <= 6 -> 0.4
             else -> 0.0
         }
     }
