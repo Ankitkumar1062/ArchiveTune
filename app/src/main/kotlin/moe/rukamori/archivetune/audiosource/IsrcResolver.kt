@@ -42,6 +42,7 @@ object IsrcResolver {
     private const val CACHE_TTL_MS = 24 * 60 * 60 * 1000L // 24 hours
     private const val DURATION_GATE_MS = 5_000L // 5 seconds physical gate
     private const val MIN_ARTIST_OVERLAP = 0.70
+    private const val MIN_TITLE_OVERLAP = 0.35
 
     private val STOP_WORDS =
         setOf("the", "a", "an", "of", "and", "feat", "ft", "featuring", "with")
@@ -354,7 +355,25 @@ object IsrcResolver {
             return false
         }
 
-        // 5. Artist Similarity Overlap
+        // 5. Title Similarity Gate
+        val cleanWantedTitle = cleanSearchTitle(wantedTitle)
+        val cleanCandidateTitle = cleanSearchTitle(candidateTitle)
+        val normWantedTitle = normalize(cleanWantedTitle)
+        val normCandidateTitle = normalize(cleanCandidateTitle)
+
+        val wantedTitleTokens = significantTokens(normWantedTitle)
+        val candidateTitleTokens = significantTokens(normCandidateTitle)
+        val titleOverlap = tokenOverlap(wantedTitleTokens, candidateTitleTokens)
+        val isCrossScriptTitle = isNonLatin(cleanWantedTitle) != isNonLatin(cleanCandidateTitle)
+        val titleContained = normWantedTitle.isNotBlank() && normCandidateTitle.isNotBlank() &&
+            (normWantedTitle.contains(normCandidateTitle) || normCandidateTitle.contains(normWantedTitle))
+
+        if (!isCrossScriptTitle && titleOverlap < MIN_TITLE_OVERLAP && !titleContained) {
+            Timber.tag(TAG).v("Rejected candidate \"%s\": Title mismatch with \"%s\" (overlap=%.2f, contained=%s)", candidateTitle, wantedTitle, titleOverlap, titleContained)
+            return false
+        }
+
+        // 6. Artist Similarity Overlap
         if (wantedArtists.isNotEmpty() && candidateArtist.isNotBlank()) {
             val candidateTokens = significantTokens(candidateArtistNorm)
             val wantedAllTokens = wantedArtists.flatMap { significantTokens(normalize(it)) }.toSet()
@@ -442,7 +461,7 @@ object IsrcResolver {
             ?.lowercase(Locale.US)
             ?.let { Normalizer.normalize(it, Normalizer.Form.NFD) }
             ?.replace(Regex("\\p{Mn}+"), "")
-            ?.replace(Regex("[^a-z0-9]+"), " ")
+            ?.replace(Regex("""[^\p{L}\p{Nd}]+"""), " ")
             ?.trim()
             .orEmpty()
 }
