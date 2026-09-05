@@ -108,7 +108,7 @@ import moe.rukamori.archivetune.models.MediaMetadata
 import moe.rukamori.archivetune.ui.component.PlatformBackdrop
 import moe.rukamori.archivetune.ui.component.layerBackdrop
 import moe.rukamori.archivetune.ui.component.rememberBackdrop
-import moe.rukamori.archivetune.ui.menu.AnchoredLyricsOverflowMenu
+import moe.rukamori.archivetune.ui.menu.LyricsMenu
 import moe.rukamori.archivetune.utils.rememberPreference
 import moe.rukamori.archivetune.viewmodels.LyricsMenuViewModel
 
@@ -503,14 +503,12 @@ internal fun SpatialFlowLyricsOverlay(
         // above everything else (title header, lyrics). Same menu the Apple
         // Music and SimpMusic player styles show over their lyrics.
         if (showLyricsMenu) {
-            AnchoredLyricsOverflowMenu(
-                iconBoundsInRoot = moreIconBounds,
+            LyricsMenu(
                 lyricsProvider = { currentLyricsEntity },
                 mediaMetadataProvider = { currentSong },
                 lyricsSyncOffset = 0,
                 onLyricsSyncOffsetChange = {},
                 onDismiss = { showLyricsMenu = false },
-                backdrop = popupBackdrop,
             )
         }
     }

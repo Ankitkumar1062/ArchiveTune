@@ -125,7 +125,7 @@ import moe.rukamori.archivetune.ui.component.LocalMenuState
 import moe.rukamori.archivetune.ui.component.PlatformBackdrop
 import moe.rukamori.archivetune.ui.component.layerBackdrop
 import moe.rukamori.archivetune.ui.component.rememberBackdrop
-import moe.rukamori.archivetune.ui.menu.AnchoredLyricsOverflowMenu
+import moe.rukamori.archivetune.ui.menu.LyricsMenu
 import moe.rukamori.archivetune.ui.utils.ShowMediaInfo
 import android.os.Build
 import androidx.media3.common.Player
@@ -814,14 +814,12 @@ internal fun SimpMusicFullscreenLyricsSheet(
             // This is the exact pattern AppleMusicPlayer.kt uses — the same
             // menu the Apple Music player style shows over its lyrics.
             if (showAnchoredLyricsMenu) {
-                AnchoredLyricsOverflowMenu(
-                    iconBoundsInRoot = moreIconBounds,
+                LyricsMenu(
                     lyricsProvider = { currentLyricsEntity },
                     mediaMetadataProvider = { mediaMetadata },
                     lyricsSyncOffset = 0,
                     onLyricsSyncOffsetChange = {},
                     onDismiss = { showAnchoredLyricsMenu = false },
-                    backdrop = popupBackdrop,
                 )
             }
         }

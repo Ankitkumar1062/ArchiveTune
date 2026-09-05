@@ -38,28 +38,7 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.ColorScheme
-import androidx.compose.runtime.ProvidableCompositionLocal
-import androidx.compose.runtime.compositionLocalOf
-
-val LocalUnglassColorScheme: ProvidableCompositionLocal<ColorScheme?> =
-    compositionLocalOf { null }
-
-/**
- * Restores the standard opaque Material theme inside a dialog if that
- * dialog was spawned inside a glass menu's [MaterialTheme] overlay — see
- * [LocalUnglassColorScheme]. Outside a glass menu this is a no-op (the
- * current scheme is re-provided unchanged).
- */
-@Composable
-fun UnglassedDialogTheme(content: @Composable () -> Unit) {
-    val unglassed = LocalUnglassColorScheme.current
-    MaterialTheme(
-        colorScheme = unglassed ?: MaterialTheme.colorScheme,
-        shapes = MaterialTheme.shapes,
-        typography = MaterialTheme.typography,
-        content = content,
-    )
-}
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.Surface
@@ -70,6 +49,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.ProvidableCompositionLocal
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -96,6 +77,26 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.delay
 import moe.rukamori.archivetune.R
+
+val LocalUnglassColorScheme: ProvidableCompositionLocal<ColorScheme?> =
+    compositionLocalOf { null }
+
+/**
+ * Restores the standard opaque Material theme inside a dialog if that
+ * dialog was spawned inside a glass menu's [MaterialTheme] overlay — see
+ * [LocalUnglassColorScheme]. Outside a glass menu this is a no-op (the
+ * current scheme is re-provided unchanged).
+ */
+@Composable
+fun UnglassedDialogTheme(content: @Composable () -> Unit) {
+    val unglassed = LocalUnglassColorScheme.current
+    MaterialTheme(
+        colorScheme = unglassed ?: MaterialTheme.colorScheme,
+        shapes = MaterialTheme.shapes,
+        typography = MaterialTheme.typography,
+        content = content,
+    )
+}
 
 @Composable
 fun DefaultDialog(

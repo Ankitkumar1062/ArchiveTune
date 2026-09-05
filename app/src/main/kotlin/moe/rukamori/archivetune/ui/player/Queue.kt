@@ -694,6 +694,10 @@ fun Queue(
                     // Same for the SimpMusic style: its artwork pager is a page per queue entry,
                     // and its collapsed peek height is 0dp.
                 }
+
+                PlayerDesignStyle.SPATIALFLOW -> {
+                    // SpatialFlow renders its own queue UI inline or via its own sheets.
+                }
             }
 
             if (showSleepTimerDialog) {

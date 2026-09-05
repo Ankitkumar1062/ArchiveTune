@@ -76,6 +76,23 @@ import kotlin.math.roundToInt
 
 @Composable
 fun MiniPlayer(
+    positionProvider: () -> Long,
+    durationProvider: () -> Long,
+    modifier: Modifier = Modifier,
+    pureBlack: Boolean,
+    isPairedWithNavigation: Boolean = false,
+) {
+    NewMiniPlayer(
+        position = positionProvider(),
+        duration = durationProvider(),
+        modifier = modifier,
+        pureBlack = pureBlack,
+        isPairedWithNavigation = isPairedWithNavigation,
+    )
+}
+
+@Composable
+fun MiniPlayer(
     position: Long,
     duration: Long,
     modifier: Modifier = Modifier,

@@ -74,7 +74,6 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.navigation.NavController
 import moe.rukamori.archivetune.LocalPlayerAwareWindowInsets
-import moe.rukamori.archivetune.LocalMiniPlayerVisible
 import moe.rukamori.archivetune.LocalStableSystemBarsTopPadding
 import moe.rukamori.archivetune.LocalPlayerConnection
 import moe.rukamori.archivetune.R
@@ -96,12 +95,10 @@ import moe.rukamori.archivetune.extensions.toMediaItem
 import moe.rukamori.archivetune.extensions.togglePlayPause
 import moe.rukamori.archivetune.playback.queues.ListQueue
 import moe.rukamori.archivetune.ui.component.AppleMusicPlaylistHero
-import moe.rukamori.archivetune.ui.component.BottomFadeOverlay
 import moe.rukamori.archivetune.ui.component.DraggableScrollbar
 import moe.rukamori.archivetune.ui.component.EmptyPlaceholder
 import moe.rukamori.archivetune.ui.component.MediaDetailAction
 import moe.rukamori.archivetune.ui.component.IconButton
-import moe.rukamori.archivetune.ui.component.LibraryHomeDockButton
 import moe.rukamori.archivetune.ui.component.LiquidGlassActionPill
 import moe.rukamori.archivetune.ui.component.GlassPillTitleText
 import moe.rukamori.archivetune.ui.component.LocalMenuState

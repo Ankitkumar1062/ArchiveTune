@@ -593,16 +593,22 @@ fun LyricsSettings(
 
 internal fun PreferredLyricsProvider.displayName(): String =
     when (this) {
-        PreferredLyricsProvider.LRCLIB -> "LrcLib"
-        PreferredLyricsProvider.KUGOU -> "KuGou"
         PreferredLyricsProvider.BETTER_LYRICS -> "BetterLyrics"
         PreferredLyricsProvider.BETTER_LYRICS_PORTATO -> "BetterLyrics Portato"
         PreferredLyricsProvider.YOULY_PLUS -> "YouLyPlus"
-        // SIMPMUSIC and BINI_LYRICS cases removed per user request (2026-08-30).
+        PreferredLyricsProvider.LRCLIB -> "LrcLib"
+        PreferredLyricsProvider.KUGOU -> "KuGou"
+        PreferredLyricsProvider.MEGALOBIZ -> "Megalobiz"
+        PreferredLyricsProvider.SIMPMUSIC -> "SimpMusic"
         PreferredLyricsProvider.UNISON -> "Unison"
-        // Ported from upstream 2026-08-31 window: Apple Music account lyrics
-        // (via the logged-in Apple Music/pool account).
+        PreferredLyricsProvider.PAXSENIX_APPLE_MUSIC -> "Paxsenix: Apple Music"
         PreferredLyricsProvider.APPLE_MUSIC -> "Apple Music (account)"
+        PreferredLyricsProvider.PAXSENIX_NETEASE -> "Paxsenix: NetEase"
+        PreferredLyricsProvider.PAXSENIX_SPOTIFY -> "Paxsenix: Spotify"
+        PreferredLyricsProvider.PAXSENIX_MUSIXMATCH -> "Paxsenix: Musixmatch"
+        PreferredLyricsProvider.PAXSENIX_YOUTUBE -> "Paxsenix: YouTube"
+        PreferredLyricsProvider.TIDAL -> "Tidal"
+        PreferredLyricsProvider.DEEZER -> "Deezer"
         PreferredLyricsProvider.MUSIXMATCH_EXPERIMENTAL -> "Musixmatch (experimental)"
     }
 

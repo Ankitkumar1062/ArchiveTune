@@ -219,6 +219,16 @@ val LocalIsInPipMode = compositionLocalOf { false }
 val LocalPlayerLyricsFullScreen = compositionLocalOf { false }
 
 /**
+ * Tracks whether the mini player should dock to the corner on scrolling screens.
+ */
+val LocalMiniPlayerDocked = compositionLocalOf { false }
+
+/**
+ * Tracks whether a root overlay (dialog, full screen sheet, etc.) is currently active.
+ */
+val LocalRootOverlayActive = compositionLocalOf { false }
+
+/**
  * Provides a [VideoFullscreenStateHolder] to the content subtree.
  *
  * The holder is created with `remember` (not `rememberSaveable`) because

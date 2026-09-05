@@ -99,7 +99,6 @@ import kotlinx.coroutines.withContext
 import moe.rukamori.archivetune.LocalDatabase
 import moe.rukamori.archivetune.LocalDownloadUtil
 import moe.rukamori.archivetune.LocalPlayerAwareWindowInsets
-import moe.rukamori.archivetune.LocalMiniPlayerVisible
 import moe.rukamori.archivetune.LocalPlayerConnection
 import moe.rukamori.archivetune.LocalStableSystemBarsTopPadding
 import moe.rukamori.archivetune.R
@@ -118,7 +117,6 @@ import moe.rukamori.archivetune.playback.queues.ListQueue
 import moe.rukamori.archivetune.playback.queues.LocalMixQueue
 import moe.rukamori.archivetune.playback.queues.YouTubeQueue
 import moe.rukamori.archivetune.ui.component.AssignTagsDialog
-import moe.rukamori.archivetune.ui.component.BottomFadeOverlay
 import moe.rukamori.archivetune.ui.component.DefaultDialog
 import moe.rukamori.archivetune.ui.component.DraggableScrollbar
 import moe.rukamori.archivetune.ui.component.EditPlaylistDialog
@@ -127,7 +125,6 @@ import moe.rukamori.archivetune.ui.component.ExpressivePullToRefreshBox
 import moe.rukamori.archivetune.ui.component.FrostedHeaderPill
 import moe.rukamori.archivetune.ui.component.IconButton
 import moe.rukamori.archivetune.ui.component.AppleMusicPlaylistHero
-import moe.rukamori.archivetune.ui.component.LibraryHomeDockButton
 import moe.rukamori.archivetune.ui.component.LiquidGlassActionPill
 import moe.rukamori.archivetune.ui.component.GlassPillTitleText
 import moe.rukamori.archivetune.ui.component.LiquidGlassIconButton

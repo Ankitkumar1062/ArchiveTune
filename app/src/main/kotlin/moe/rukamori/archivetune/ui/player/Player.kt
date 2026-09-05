@@ -1491,7 +1491,6 @@ fun BottomSheetPlayer(
                         allowNetwork = true,
                         albumTitle = next.album?.title,
                         trySpotifyCanvas = spotifyCanvasEffective,
-                        spotifyTrackId = next.spotifyTrackId,
                     )
                 }
             }
@@ -1541,7 +1540,6 @@ fun BottomSheetPlayer(
                         allowNetwork = shouldFetchV7Canvas,
                         albumTitle = metadata.album?.title,
                         trySpotifyCanvas = spotifyCanvasEffective,
-                        spotifyTrackId = metadata.spotifyTrackId,
                     )
                 if (requestRevision == canvasArtworkRevision) {
                     v7CanvasArtwork = resolvedArtwork
@@ -1581,7 +1579,6 @@ fun BottomSheetPlayer(
                         allowNetwork = shouldFetchArtworkCanvas,
                         albumTitle = metadata.album?.title,
                         trySpotifyCanvas = spotifyCanvasEffective,
-                        spotifyTrackId = metadata.spotifyTrackId,
                     )
                 if (requestRevision == canvasArtworkRevision) {
                     artworkCanvas = resolvedArtwork
@@ -1759,10 +1756,6 @@ fun BottomSheetPlayer(
                             lyricsVisible = isLyricsScreenVisible,
                             lyricsSyncOffset = lyricsSyncOffset,
                             onLyricsSyncOffsetChange = { lyricsSyncOffset = it },
-                            // Vertical canvas (same resolver the V7 style uses): the current
-                            // page's hero artwork becomes the looping canvas video.
-                            canvasPrimaryUrl = v7CanvasArtwork?.animatedVertical,
-                            canvasFallbackUrl = v7CanvasArtwork?.videoUrlVertical,
                             modifier =
                                 Modifier
                                     .fillMaxSize()
@@ -2258,10 +2251,6 @@ fun BottomSheetPlayer(
                             lyricsVisible = isLyricsScreenVisible,
                             lyricsSyncOffset = lyricsSyncOffset,
                             onLyricsSyncOffsetChange = { lyricsSyncOffset = it },
-                            // Vertical canvas (same resolver the V7 style uses): the current
-                            // page's hero artwork becomes the looping canvas video.
-                            canvasPrimaryUrl = v7CanvasArtwork?.animatedVertical,
-                            canvasFallbackUrl = v7CanvasArtwork?.videoUrlVertical,
                             modifier =
                                 Modifier
                                     .fillMaxSize()

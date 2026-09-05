@@ -762,7 +762,7 @@ fun PlayerTopActions(
         // through to them would render a second set on top of its own.
         PlayerDesignStyle.V7, PlayerDesignStyle.V8, PlayerDesignStyle.V9, PlayerDesignStyle.V10,
         PlayerDesignStyle.APPLE_MUSIC, PlayerDesignStyle.BITCHORD, PlayerDesignStyle.TIKTOK,
-        PlayerDesignStyle.SIMPMUSIC,
+        PlayerDesignStyle.SIMPMUSIC, PlayerDesignStyle.SPATIALFLOW,
         -> {
             Unit
         }
@@ -1839,7 +1839,7 @@ fun PlayerPlaybackControls(
         // through to them would render a second set on top of its own.
         PlayerDesignStyle.V7, PlayerDesignStyle.V8, PlayerDesignStyle.V9, PlayerDesignStyle.V10,
         PlayerDesignStyle.APPLE_MUSIC, PlayerDesignStyle.BITCHORD, PlayerDesignStyle.TIKTOK,
-        PlayerDesignStyle.SIMPMUSIC,
+        PlayerDesignStyle.SIMPMUSIC, PlayerDesignStyle.SPATIALFLOW,
         -> {
             Unit
         }

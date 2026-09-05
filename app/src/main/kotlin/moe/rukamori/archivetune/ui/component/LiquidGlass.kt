@@ -29,8 +29,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton as Material3IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -65,6 +69,30 @@ fun rememberBackdrop(color: Color): PlatformBackdrop =
     }
 
 fun Modifier.layerBackdrop(backdrop: PlatformBackdrop): Modifier = this.layerBackdrop(backdrop)
+
+/**
+ * Delays activating a screen's [layerBackdrop] until its entrance transition
+ * finishes. Prevents mid-transition hitching.
+ */
+@Composable
+fun rememberLayerBackdropSettled(delayMillis: Long = 250L): Boolean {
+    var settled by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(delayMillis)
+        settled = true
+    }
+    return settled
+}
+
+private val LiquidGlassLightContentColor = Color(0xFF1C1B1F)
+
+/**
+ * Theme-aware content color (icon tint / label color) for elements rendered
+ * inside a Liquid Glass surface that samples page content.
+ */
+@Composable
+fun liquidGlassContentColor(): Color =
+    if (isSystemInDarkTheme()) Color.White else LiquidGlassLightContentColor
 
 /**
  * App-content [LayerBackdrop] used by the Liquid Glass mini player and the Liquid

@@ -368,6 +368,8 @@ object IsrcResolver {
         val isCrossScriptTitle = isNonLatin(cleanWantedTitle) != isNonLatin(cleanCandidateTitle)
         val hasArtist = wantedArtists.isNotEmpty() && wantedArtists.any { it.isNotBlank() }
         val requiredTitleOverlap = if (hasArtist) MIN_TITLE_OVERLAP else MIN_TITLE_OVERLAP_NO_ARTIST
+        val titleContained = normWantedTitle.isNotBlank() && normCandidateTitle.isNotBlank() &&
+            (normWantedTitle.contains(normCandidateTitle) || normCandidateTitle.contains(normWantedTitle))
 
         if (!isCrossScriptTitle && titleOverlap < requiredTitleOverlap && !(titleContained && (candidateTitleTokens.size >= 2 || titleOverlap >= 0.60))) {
             Timber.tag(TAG).v("Rejected candidate \"%s\": Title mismatch with \"%s\" (overlap=%.2f, contained=%s, required=%.2f)", candidateTitle, wantedTitle, titleOverlap, titleContained, requiredTitleOverlap)
