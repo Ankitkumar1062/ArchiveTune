@@ -42,7 +42,8 @@ object IsrcResolver {
     private const val CACHE_TTL_MS = 24 * 60 * 60 * 1000L // 24 hours
     private const val DURATION_GATE_MS = 5_000L // 5 seconds physical gate
     private const val MIN_ARTIST_OVERLAP = 0.70
-    private const val MIN_TITLE_OVERLAP = 0.35
+    private const val MIN_TITLE_OVERLAP = 0.75
+    private const val MIN_TITLE_OVERLAP_NO_ARTIST = 0.85
 
     private val STOP_WORDS =
         setOf("the", "a", "an", "of", "and", "feat", "ft", "featuring", "with")
@@ -365,11 +366,11 @@ object IsrcResolver {
         val candidateTitleTokens = significantTokens(normCandidateTitle)
         val titleOverlap = tokenOverlap(wantedTitleTokens, candidateTitleTokens)
         val isCrossScriptTitle = isNonLatin(cleanWantedTitle) != isNonLatin(cleanCandidateTitle)
-        val titleContained = normWantedTitle.isNotBlank() && normCandidateTitle.isNotBlank() &&
-            (normWantedTitle.contains(normCandidateTitle) || normCandidateTitle.contains(normWantedTitle))
+        val hasArtist = wantedArtists.isNotEmpty() && wantedArtists.any { it.isNotBlank() }
+        val requiredTitleOverlap = if (hasArtist) MIN_TITLE_OVERLAP else MIN_TITLE_OVERLAP_NO_ARTIST
 
-        if (!isCrossScriptTitle && titleOverlap < MIN_TITLE_OVERLAP && !titleContained) {
-            Timber.tag(TAG).v("Rejected candidate \"%s\": Title mismatch with \"%s\" (overlap=%.2f, contained=%s)", candidateTitle, wantedTitle, titleOverlap, titleContained)
+        if (!isCrossScriptTitle && titleOverlap < requiredTitleOverlap && !(titleContained && (candidateTitleTokens.size >= 2 || titleOverlap >= 0.60))) {
+            Timber.tag(TAG).v("Rejected candidate \"%s\": Title mismatch with \"%s\" (overlap=%.2f, contained=%s, required=%.2f)", candidateTitle, wantedTitle, titleOverlap, titleContained, requiredTitleOverlap)
             return false
         }
 

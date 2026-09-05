@@ -3768,6 +3768,20 @@ class MusicService :
         player.pause()
     }
 
+    private fun safePrepareAndResume(
+        targetIndex: Int = player.currentMediaItemIndex,
+        targetPosition: Long = player.currentPosition.coerceAtLeast(0L),
+        shouldPlay: Boolean = player.playWhenReady,
+    ) {
+        if (targetIndex in 0 until player.mediaItemCount) {
+            player.seekTo(targetIndex, targetPosition)
+        }
+        player.prepare()
+        if (shouldPlay) {
+            player.play()
+        }
+    }
+
     private fun findStreamHttpFailure(
         error: PlaybackException,
     ): androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException? {
@@ -3898,9 +3912,7 @@ class MusicService :
             responseException.responseCode,
             requestProfile.variantLabel,
         )
-        val shouldResume = player.playWhenReady
-        player.prepare()
-        if (shouldResume) player.play()
+        safePrepareAndResume()
         return true
     }
 
@@ -3939,8 +3951,7 @@ class MusicService :
                 playbackUrlCache.remove(mediaId)
                 YTPlayerUtils.invalidateCachedStreamUrls(mediaId)
                 if (playbackStreamRecoveryTracker.registerRetryAttempt(mediaId)) {
-                    player.prepare()
-                    if (player.playWhenReady) player.play()
+                    safePrepareAndResume()
                 }
             }
     }
@@ -8357,7 +8368,7 @@ class MusicService :
             // to consult the cache first on the next prepare.
             playbackUrlCache.remove(currentMediaId)
             if (playbackStreamRecoveryTracker.registerRetryAttempt(currentMediaId)) {
-                player.prepare()
+                safePrepareAndResume()
                 return
             }
         }
@@ -8428,7 +8439,7 @@ class MusicService :
             YTPlayerUtils.clearPlaybackAuthCaches()
             if (playbackStreamRecoveryTracker.registerRetryAttempt(currentMediaId)) {
                 Timber.tag("MusicService").i("Retrying playback for %s after bot-detection source error", currentMediaId)
-                player.prepare()
+                safePrepareAndResume()
                 return
             }
         }
@@ -8454,7 +8465,7 @@ class MusicService :
                                 "Retrying playback for %s after refreshing stream session",
                                 currentMediaId,
                             )
-                            player.prepare()
+                            safePrepareAndResume()
                         }
                     }
                 }
@@ -8485,7 +8496,7 @@ class MusicService :
                     currentMediaId,
                     error.errorCode,
                 )
-                player.prepare()
+                safePrepareAndResume()
                 return
             }
         }
@@ -8580,7 +8591,6 @@ class MusicService :
                 !isFullyDownloadedMedia &&
                 playbackStreamRecoveryTracker.registerRetryAttempt(currentMediaId)
         ) {
-            val shouldResume = player.playWhenReady
             playbackUrlCache.remove(currentMediaId)
             directStreamCache.remove(currentMediaId)
             contentLengthCache.remove(currentMediaId)
@@ -8591,8 +8601,7 @@ class MusicService :
                 error.errorCodeName,
                 describeCauseChain(error),
             )
-            player.prepare()
-            if (shouldResume) player.play()
+            safePrepareAndResume()
             return
         }
 
