@@ -52,21 +52,10 @@ class SpotifyPlaylistQueue(
             }
 
             val targetIndex = startIndex.coerceIn(allTracks.indices)
-            val initialWindowEnd = (targetIndex + INITIAL_RESOLVE_WINDOW).coerceAtMost(allTracks.size)
-            val initialBatch = allTracks.subList(targetIndex, initialWindowEnd)
+            val resolvedEntries = resolveTrackEntries(allTracks)
+            val resolvedItems = resolvedEntries.map { it.second }
 
-            val initialResolved = resolveTrackEntries(initialBatch, offset = targetIndex)
-            val resolvedItems = initialResolved.map { it.second }.toMutableList()
-
-            resolveOffset = initialWindowEnd
-
-            if (resolvedItems.isEmpty()) {
-                val remaining = allTracks.drop(initialWindowEnd)
-                val remainingResolved = resolveTrackEntries(remaining, offset = initialWindowEnd)
-                resolvedItems.addAll(remainingResolved.map { it.second })
-                resolveOffset = allTracks.size
-            }
-
+            resolveOffset = allTracks.size
             if (resolvedItems.isEmpty()) {
                 return@withContext Queue.Status(title = title, items = emptyList(), mediaItemIndex = 0)
             }
@@ -74,7 +63,11 @@ class SpotifyPlaylistQueue(
             Queue.Status(
                 title = title,
                 items = resolvedItems,
-                mediaItemIndex = 0,
+                mediaItemIndex =
+                    resolvedEntries
+                        .indexOfFirst { it.first >= targetIndex }
+                        .takeIf { it >= 0 }
+                        ?: resolvedItems.lastIndex,
             )
         }
 
@@ -89,18 +82,16 @@ class SpotifyPlaylistQueue(
 
             val end = (resolveOffset + RESOLVE_BATCH_SIZE).coerceAtMost(allTracks.size)
             val batch = allTracks.subList(resolveOffset, end)
-            val currentOffset = resolveOffset
             resolveOffset = end
-            resolveTracks(batch, offset = currentOffset)
+            resolveTracks(batch)
         }
 
-    private suspend fun resolveTracks(tracks: List<SpotifyTrack>, offset: Int = 0): List<MediaItem> =
-        resolveTrackEntries(tracks, offset).map { it.second }
+    private suspend fun resolveTracks(tracks: List<SpotifyTrack>): List<MediaItem> = resolveTrackEntries(tracks).map { it.second }
 
-    private suspend fun resolveTrackEntries(tracks: List<SpotifyTrack>, offset: Int = 0): List<Pair<Int, MediaItem>> =
+    private suspend fun resolveTrackEntries(tracks: List<SpotifyTrack>): List<Pair<Int, MediaItem>> =
         buildList {
             tracks.chunked(RESOLVE_BATCH_SIZE).forEachIndexed { chunkIndex, chunk ->
-                val chunkOffset = offset + chunkIndex * RESOLVE_BATCH_SIZE
+                val chunkOffset = chunkIndex * RESOLVE_BATCH_SIZE
                 val resolvedChunk =
                     coroutineScope {
                         chunk
@@ -143,7 +134,6 @@ class SpotifyPlaylistQueue(
 
     companion object {
         private const val SPOTIFY_PAGE_SIZE = 50
-        private const val INITIAL_RESOLVE_WINDOW = 3
-        private const val RESOLVE_BATCH_SIZE = 10
+        private const val RESOLVE_BATCH_SIZE = 20
     }
 }
