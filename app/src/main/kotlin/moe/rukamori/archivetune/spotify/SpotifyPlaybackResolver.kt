@@ -24,7 +24,7 @@ import moe.rukamori.archivetune.utils.PreferenceStore
 import moe.rukamori.archivetune.spotify.models.SpotifyTrack
 
 object SpotifyPlaybackResolver {
-    private const val MIN_MATCH_THRESHOLD = 0.70
+    private const val MIN_MATCH_THRESHOLD = 0.55
     private const val CACHE_MAX_SIZE = 512
 
     private val mutex = Mutex()

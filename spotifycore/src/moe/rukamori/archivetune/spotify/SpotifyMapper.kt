@@ -144,16 +144,25 @@ object SpotifyMapper {
                 cachedBigrams(normCandidateTitle),
             )
         if (titleScore < MIN_TITLE_SCORE) return 0.0
-
-        val artistScore =
+        val rawArtistScore =
             bigramSimilarity(
                 normSpotifyArtist,
                 cachedBigrams(normSpotifyArtist),
                 normCandidateArtist,
                 cachedBigrams(normCandidateArtist),
             )
-
         val durationScore = durationScore(spotifyDurationMs, candidateDurationSec)
+
+        // Cross-script tolerance: If title matches strongly (>= 0.75) and duration matches (>= 0.50),
+        // but artist strings use different scripts (e.g. Latin "Rokudenashi" vs Japanese "ロクデナシ"),
+        // grant a neutral artist score of 0.60 instead of 0.0.
+        val isCrossScript = isNonLatin(normSpotifyArtist) != isNonLatin(normCandidateArtist)
+        val artistScore = if (rawArtistScore < 0.20 && isCrossScript && titleScore >= 0.75 && durationScore >= 0.50) {
+            0.60
+        } else {
+            rawArtistScore
+        }
+
         return titleScore * 0.45 + artistScore * 0.35 + durationScore * 0.20
     }
 
@@ -180,20 +189,30 @@ object SpotifyMapper {
             )
         if (titleScore < MIN_TITLE_SCORE) return 0.0
 
-        val artistScore =
+        val rawArtistScore =
             bigramSimilarity(
                 precomputed.normalizedArtist,
                 precomputed.artistBigrams,
                 normCandidateArtist,
                 cachedBigrams(normCandidateArtist),
             )
-
         val durationScore = durationScore(precomputed.durationMs, candidateDurationSec)
+
+        val isCrossScript = isNonLatin(precomputed.normalizedArtist) != isNonLatin(normCandidateArtist)
+        val artistScore = if (rawArtistScore < 0.20 && isCrossScript && titleScore >= 0.75 && durationScore >= 0.50) {
+            0.60
+        } else {
+            rawArtistScore
+        }
+
         return titleScore * 0.45 + artistScore * 0.35 + durationScore * 0.20
     }
 
     /** Threshold above which we consider a match good enough to skip remaining candidates. */
     fun earlyExitThreshold(): Double = EARLY_EXIT_THRESHOLD
+
+    private fun isNonLatin(text: String): Boolean =
+        text.any { it.code > 0x024F }
 
     private fun durationScore(
         spotifyDurationMs: Int,
