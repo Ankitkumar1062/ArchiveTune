@@ -463,14 +463,20 @@ object Spotify {
     /**
      * Extracts track duration in ms from GQL track payload.
      * Tries multiple keys because different operations may return duration
-     * as nested (duration.totalMilliseconds) or flat (durationMs / duration_ms).
+     * as nested (trackDuration.totalMilliseconds / duration.totalMilliseconds)
+     * or flat (durationMs / trackDurationMs / duration_ms).
      */
     private fun parseGqlTrackDurationMs(trackData: JsonObject): Int {
+        trackData.obj("trackDuration")?.int("totalMilliseconds")?.let { if (it > 0) return it }
+        trackData.obj("trackDuration")?.int("milliseconds")?.let { if (it > 0) return it }
         trackData.obj("duration")?.int("totalMilliseconds")?.let { if (it > 0) return it }
+        trackData.obj("duration")?.int("milliseconds")?.let { if (it > 0) return it }
+        trackData.int("trackDurationMs")?.let { if (it > 0) return it }
         trackData.int("durationMs")?.let { if (it > 0) return it }
         trackData.int("duration_ms")?.let { if (it > 0) return it }
         // Some APIs return duration in seconds
         trackData.int("duration")?.let { sec -> if (sec > 0) return sec * 1000 }
+        trackData.int("trackDuration")?.let { sec -> if (sec > 0) return sec * 1000 }
         return 0
     }
 
@@ -691,7 +697,7 @@ object Spotify {
         return SpotifyPlaylist(
             id = playlistId,
             name = data.str("name") ?: "",
-            description = data.str("description"),
+            description = SpotifyHtmlSanitizer.clean(data.str("description")),
             images = parseGqlPlaylistImages(data.obj("images")),
             owner =
                 SpotifyPlaylistOwner(
@@ -845,7 +851,7 @@ object Spotify {
             SpotifyPlaylist(
                 id = playlistId,
                 name = playlist.str("name") ?: "",
-                description = playlist.str("description"),
+                description = SpotifyHtmlSanitizer.clean(playlist.str("description")),
                 images = images,
                 owner =
                     SpotifyPlaylistOwner(
@@ -1426,7 +1432,7 @@ object Spotify {
         return SpotifyPlaylist(
             id = uri.substringAfterLast(":"),
             name = data.str("name") ?: "",
-            description = data.str("description"),
+            description = SpotifyHtmlSanitizer.clean(data.str("description")),
             images = parseGqlPlaylistImages(data.obj("images")),
             owner =
                 SpotifyPlaylistOwner(
@@ -1628,7 +1634,7 @@ object Spotify {
             uri = uri,
             id = uri.substringAfterLast(":"),
             name = data.str("name") ?: "",
-            description = data.str("description"),
+            description = SpotifyHtmlSanitizer.clean(data.str("description")),
             format = data.str("format"),
             totalCount = data.obj("content")?.int("totalCount") ?: 0,
             imageUrl = imageUrl,
@@ -1860,7 +1866,7 @@ object Spotify {
 
             val profile = artistUnion.obj("profile")
             val name = profile?.str("name") ?: ""
-            val biography = profile?.obj("biography")?.str("text")
+            val biography = SpotifyHtmlSanitizer.clean(profile?.obj("biography")?.str("text"))
             val visuals = artistUnion.obj("visuals")
             val avatarImageUrl = largestGqlSourceUrl(visuals?.obj("avatarImage")?.arr("sources"))
             val headerImageUrl = largestGqlSourceUrl(visuals?.obj("headerImage")?.arr("sources"))

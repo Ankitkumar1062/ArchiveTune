@@ -212,7 +212,7 @@ public fun MediaDetailHero(
                 )
             }
 
-            description?.takeIf(String::isNotBlank)?.let {
+            description?.let(moe.rukamori.archivetune.spotify.SpotifyHtmlSanitizer::clean)?.let {
                 Text(
                     text = it,
                     style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 20.sp),
