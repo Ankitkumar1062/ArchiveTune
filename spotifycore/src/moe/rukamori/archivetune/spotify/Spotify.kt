@@ -40,6 +40,7 @@ import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 import moe.rukamori.archivetune.spotify.models.SpotifyAlbum
 import moe.rukamori.archivetune.spotify.models.SpotifyArtist
+import moe.rukamori.archivetune.spotify.models.SpotifyArtistOverview
 import moe.rukamori.archivetune.spotify.models.SpotifyImage
 import moe.rukamori.archivetune.spotify.models.SpotifyPaging
 import moe.rukamori.archivetune.spotify.models.SpotifyPlaylist
@@ -163,6 +164,13 @@ object Spotify {
     private fun JsonObject.int(key: String): Int? =
         try {
             this[key]?.takeIf { it !is JsonNull }?.jsonPrimitive?.intOrNull
+        } catch (_: Exception) {
+            null
+        }
+
+    private fun JsonObject.long(key: String): Long? =
+        try {
+            this[key]?.takeIf { it !is JsonNull }?.jsonPrimitive?.contentOrNull?.toLongOrNull()
         } catch (_: Exception) {
             null
         }
@@ -1695,7 +1703,7 @@ object Spotify {
             )
         }
 
-    // ── Artists (GQL: queryArtistOverview) ───────────────────────────────
+    // ── Artists (GQL: queryArtistOverview & REST fallbacks) ─────────────
 
     suspend fun artist(artistId: String): Result<SpotifyArtist> =
         runCatching {
@@ -1800,6 +1808,173 @@ object Spotify {
                             ?.arr("sources"),
                     )
                 SpotifyArtist(id = id, name = name, images = images, uri = uri)
+            }
+        }
+
+    /**
+     * Returns full artist overview including profile, monthly listeners, top tracks,
+     * albums, singles, appears_on, compilations, and related artists.
+     */
+    suspend fun artistOverview(artistId: String): Result<SpotifyArtistOverview> =
+        runCatching {
+            val vars =
+                buildJsonObject {
+                    put("uri", "spotify:artist:$artistId")
+                    put("locale", "")
+                }
+
+            val response =
+                graphqlPost(
+                    operationName = "queryArtistOverview",
+                    variables = vars,
+                )
+
+            val artistUnion =
+                response.obj("data")?.obj("artistUnion")
+                    ?: throw SpotifyException(500, "Invalid queryArtistOverview response")
+
+            val profile = artistUnion.obj("profile")
+            val name = profile?.str("name") ?: ""
+            val biography = profile?.obj("biography")?.str("text")
+            val visuals = artistUnion.obj("visuals")
+            val avatarImageUrl = largestGqlSourceUrl(visuals?.obj("avatarImage")?.arr("sources"))
+            val headerImageUrl = largestGqlSourceUrl(visuals?.obj("headerImage")?.arr("sources"))
+            val stats = artistUnion.obj("stats")
+            val monthlyListeners = stats?.long("monthlyListeners")
+            val worldRank = stats?.int("worldRank")
+
+            val simpleArtist =
+                SpotifySimpleArtist(
+                    id = artistId,
+                    name = name,
+                    uri = "spotify:artist:$artistId",
+                )
+
+            val topTracksItems =
+                artistUnion
+                    .obj("discography")
+                    ?.obj("topTracks")
+                    ?.arr("items") ?: JsonArray(emptyList())
+
+            val topTracks =
+                topTracksItems.mapNotNull { elem ->
+                    val trackObj = elem.jsonObject.obj("track") ?: elem.jsonObject
+                    val wrapperUri = elem.jsonObject.str("uri") ?: elem.jsonObject.str("_uri")
+                    parseGqlTrack(trackObj, uriOverride = wrapperUri)
+                }
+
+            val disco = artistUnion.obj("discography")
+            val albums = parseGqlReleases(disco?.obj("albums")?.arr("items"), simpleArtist)
+            val singles = parseGqlReleases(disco?.obj("singles")?.arr("items"), simpleArtist)
+            val compilations = parseGqlReleases(disco?.obj("compilations")?.arr("items"), simpleArtist)
+
+            val relatedContent = artistUnion.obj("relatedContent")
+            val appearsOn = parseGqlReleases(relatedContent?.obj("appearsOn")?.arr("items"), simpleArtist)
+
+            val relatedArtistsItems =
+                relatedContent
+                    ?.obj("relatedArtists")
+                    ?.arr("items")
+                    ?: JsonArray(emptyList())
+
+            val relatedArtists =
+                relatedArtistsItems.mapNotNull { elem ->
+                    val uri = elem.jsonObject.str("uri") ?: return@mapNotNull null
+                    val id = uri.substringAfterLast(":")
+                    val artistName = elem.jsonObject.obj("profile")?.str("name") ?: return@mapNotNull null
+                    val images =
+                        parseGqlImages(
+                            elem.jsonObject
+                                .obj("visuals")
+                                ?.obj("avatarImage")
+                                ?.arr("sources"),
+                        )
+                    SpotifyArtist(id = id, name = artistName, images = images, uri = uri)
+                }
+
+            SpotifyArtistOverview(
+                id = artistId,
+                name = name,
+                uri = "spotify:artist:$artistId",
+                avatarImageUrl = avatarImageUrl,
+                headerImageUrl = headerImageUrl,
+                biography = biography,
+                monthlyListeners = monthlyListeners,
+                worldRank = worldRank,
+                topTracks = topTracks,
+                albums = albums,
+                singles = singles,
+                appearsOn = appearsOn,
+                compilations = compilations,
+                relatedArtists = relatedArtists,
+            )
+        }
+
+    private fun parseGqlReleases(
+        items: JsonArray?,
+        artistFallback: SpotifySimpleArtist? = null,
+    ): List<SpotifyAlbum> {
+        if (items == null) return emptyList()
+        val list = mutableListOf<SpotifyAlbum>()
+        for (elem in items) {
+            val obj = elem.jsonObject
+            val releases = obj.obj("releases")?.arr("items")
+            if (releases != null && releases.isNotEmpty()) {
+                for (rel in releases) {
+                    parseGqlReleaseObject(rel.jsonObject, artistFallback)?.let { list.add(it) }
+                }
+            } else {
+                val target = obj.obj("item") ?: obj.obj("data") ?: obj
+                parseGqlReleaseObject(target, artistFallback)?.let { list.add(it) }
+            }
+        }
+        return list.distinctBy { it.id }.filter { it.id.isNotEmpty() }
+    }
+
+    private fun parseGqlReleaseObject(
+        data: JsonObject,
+        artistFallback: SpotifySimpleArtist? = null,
+    ): SpotifyAlbum? {
+        val uri = data.str("uri") ?: data.str("_uri") ?: ""
+        val id = data.str("id") ?: uri.substringAfterLast(":")
+        if (id.isEmpty()) return null
+        val name = data.str("name") ?: return null
+        val albumType = data.str("type")?.lowercase() ?: data.str("albumType")?.lowercase()
+        val dateObj = data.obj("date")
+        val releaseDate =
+            dateObj?.str("isoString")
+                ?: dateObj?.int("year")?.toString()
+                ?: data.str("releaseDate")
+        val images = parseGqlImages(data.obj("coverArt")?.arr("sources") ?: data.arr("images"))
+        val artists =
+            data.obj("artists")?.arr("items")?.mapNotNull {
+                parseGqlSimpleArtist(it.jsonObject)
+            } ?: artistFallback?.let { listOf(it) } ?: emptyList()
+        val totalTracks = data.obj("tracks")?.int("totalCount") ?: data.int("totalTracks") ?: 0
+
+        return SpotifyAlbum(
+            id = id,
+            name = name,
+            albumType = albumType,
+            artists = artists,
+            images = images,
+            releaseDate = releaseDate,
+            totalTracks = totalTracks,
+            uri = if (uri.isNotEmpty()) uri else "spotify:album:$id",
+        )
+    }
+
+    suspend fun artistAlbums(
+        artistId: String,
+        includeGroups: String = "album,single,appears_on,compilation",
+        limit: Int = 50,
+        offset: Int = 0,
+    ): Result<SpotifyPaging<SpotifyAlbum>> =
+        runCatching {
+            authenticatedGet("artists/$artistId/albums") {
+                parameter("include_groups", includeGroups)
+                parameter("limit", limit)
+                parameter("offset", offset)
             }
         }
 

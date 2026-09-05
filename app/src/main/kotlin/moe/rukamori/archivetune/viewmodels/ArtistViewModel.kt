@@ -52,6 +52,8 @@ import moe.rukamori.archivetune.extensions.filterExplicitAlbums
 import moe.rukamori.archivetune.extensions.filterVideo
 import moe.rukamori.archivetune.innertube.YouTube
 import moe.rukamori.archivetune.innertube.models.Album
+import moe.rukamori.archivetune.innertube.models.AlbumItem
+import moe.rukamori.archivetune.innertube.models.AlbumReleaseType
 import moe.rukamori.archivetune.innertube.models.Artist
 import moe.rukamori.archivetune.innertube.models.ArtistItem
 import moe.rukamori.archivetune.innertube.models.SongItem
@@ -61,6 +63,7 @@ import moe.rukamori.archivetune.innertube.pages.ArtistPage
 import moe.rukamori.archivetune.innertube.pages.ArtistSection
 import moe.rukamori.archivetune.innertube.pages.ArtistSectionLayout
 import moe.rukamori.archivetune.spotify.Spotify
+import moe.rukamori.archivetune.ui.utils.formatCompactCount
 import moe.rukamori.archivetune.utils.dataStore
 import moe.rukamori.archivetune.utils.get
 import moe.rukamori.archivetune.utils.reportException
@@ -228,52 +231,150 @@ class ArtistViewModel
                     val spotifyPage =
                         withContext(Dispatchers.IO) {
                             runCatching {
-                                val spotifyArtist = Spotify.artist(cleanId).getOrThrow()
-                                val topTracks =
-                                    runCatching { Spotify.artistTopTracks(cleanId).getOrNull()?.tracks }
-                                        .getOrNull().orEmpty()
-                                val related =
-                                    runCatching { Spotify.artistRelatedArtists(cleanId).getOrNull() }
-                                        .getOrNull().orEmpty()
+                                val overview =
+                                    Spotify.artistOverview(cleanId).getOrNull()
+                                        ?: run {
+                                            // Fallback to basic artist info if overview query fails
+                                            val basicArtist = Spotify.artist(cleanId).getOrThrow()
+                                            val topTracks =
+                                                runCatching { Spotify.artistTopTracks(cleanId).getOrNull()?.tracks }
+                                                    .getOrNull().orEmpty()
+                                            val related =
+                                                runCatching { Spotify.artistRelatedArtists(cleanId).getOrNull() }
+                                                    .getOrNull().orEmpty()
+                                            val albums =
+                                                runCatching { Spotify.artistAlbums(cleanId).getOrNull()?.items }
+                                                    .getOrNull().orEmpty()
+                                            moe.rukamori.archivetune.spotify.models.SpotifyArtistOverview(
+                                                id = cleanId,
+                                                name = basicArtist.name,
+                                                avatarImageUrl = basicArtist.images.firstOrNull()?.url,
+                                                topTracks = topTracks,
+                                                albums = albums.filter { it.albumType == "album" },
+                                                singles = albums.filter { it.albumType == "single" || it.albumType == "ep" },
+                                                relatedArtists = related,
+                                            )
+                                        }
+
+                                val monthlyListenerText =
+                                    overview.monthlyListeners?.let { formatCompactCount(it) }
+                                val artistThumbnail =
+                                    overview.avatarImageUrl ?: overview.headerImageUrl
 
                                 val artistItem =
                                     ArtistItem(
-                                        id = artistId,
-                                        title = spotifyArtist.name,
-                                        thumbnail = spotifyArtist.images.firstOrNull()?.url,
+                                        id = "spotify:artist:$cleanId",
+                                        title = overview.name,
+                                        thumbnail = artistThumbnail,
+                                        monthlyListenerCountText = monthlyListenerText,
                                         shuffleEndpoint = null,
                                         radioEndpoint = null,
                                     )
+
+                                val sections = mutableListOf<ArtistSection>()
+
+                                // 1. Popular / Top Tracks
                                 val songItems =
-                                    topTracks.map { track ->
+                                    overview.topTracks.map { track ->
                                         SongItem(
                                             id = track.id,
                                             title = track.name,
-                                            artists = track.artists.map { Artist(name = it.name, id = it.id) },
-                                            album = track.album?.let { Album(name = it.name, id = it.id) },
+                                            artists =
+                                                track.artists.map {
+                                                    Artist(name = it.name, id = "spotify:artist:${it.id}")
+                                                },
+                                            album =
+                                                track.album?.let {
+                                                    Album(name = it.name, id = "spotify:album:${it.id}")
+                                                },
                                             duration = if (track.durationMs > 0) track.durationMs / 1000 else null,
                                             thumbnail = track.album?.images?.firstOrNull()?.url.orEmpty(),
                                             explicit = track.explicit,
                                         )
                                     }
-                                val sections = mutableListOf<ArtistSection>()
                                 if (songItems.isNotEmpty()) {
                                     sections +=
                                         ArtistSection(
-                                            title = context.getString(R.string.songs),
+                                            title = context.getString(R.string.popular),
                                             items = songItems,
                                             moreEndpoint = null,
                                             layout = ArtistSectionLayout.LIST,
                                         )
                                 }
-                                if (related.isNotEmpty()) {
+
+                                fun mapToAlbumItems(
+                                    albums: List<moe.rukamori.archivetune.spotify.models.SpotifyAlbum>,
+                                    releaseType: AlbumReleaseType,
+                                ): List<AlbumItem> =
+                                    albums.map { alb ->
+                                        val year = alb.releaseDate?.take(4)?.toIntOrNull()
+                                        AlbumItem(
+                                            browseId = "spotify:album:${alb.id}",
+                                            playlistId = "spotify:album:${alb.id}",
+                                            title = alb.name,
+                                            artists =
+                                                alb.artists.map {
+                                                    Artist(name = it.name, id = "spotify:artist:${it.id}")
+                                                },
+                                            year = year,
+                                            thumbnail = alb.images.firstOrNull()?.url.orEmpty(),
+                                            releaseType = releaseType,
+                                        )
+                                    }
+
+                                // 2. Albums
+                                if (overview.albums.isNotEmpty()) {
                                     sections +=
                                         ArtistSection(
-                                            title = context.getString(R.string.similar_to),
+                                            title = context.getString(R.string.albums),
+                                            items = mapToAlbumItems(overview.albums, AlbumReleaseType.ALBUM),
+                                            moreEndpoint = null,
+                                            layout = ArtistSectionLayout.GRID,
+                                        )
+                                }
+
+                                // 3. Singles & EPs
+                                if (overview.singles.isNotEmpty()) {
+                                    sections +=
+                                        ArtistSection(
+                                            title = context.getString(R.string.singles_and_eps),
+                                            items = mapToAlbumItems(overview.singles, AlbumReleaseType.SINGLE),
+                                            moreEndpoint = null,
+                                            layout = ArtistSectionLayout.GRID,
+                                        )
+                                }
+
+                                // 4. Appears On
+                                if (overview.appearsOn.isNotEmpty()) {
+                                    sections +=
+                                        ArtistSection(
+                                            title = context.getString(R.string.appears_on),
+                                            items = mapToAlbumItems(overview.appearsOn, AlbumReleaseType.ALBUM),
+                                            moreEndpoint = null,
+                                            layout = ArtistSectionLayout.GRID,
+                                        )
+                                }
+
+                                // 5. Compilations
+                                if (overview.compilations.isNotEmpty()) {
+                                    sections +=
+                                        ArtistSection(
+                                            title = context.getString(R.string.compilations),
+                                            items = mapToAlbumItems(overview.compilations, AlbumReleaseType.ALBUM),
+                                            moreEndpoint = null,
+                                            layout = ArtistSectionLayout.GRID,
+                                        )
+                                }
+
+                                // 6. Fans Also Like / Similar Artists
+                                if (overview.relatedArtists.isNotEmpty()) {
+                                    sections +=
+                                        ArtistSection(
+                                            title = context.getString(R.string.fans_also_like),
                                             items =
-                                                related.map { rel ->
+                                                overview.relatedArtists.map { rel ->
                                                     ArtistItem(
-                                                        id = rel.id,
+                                                        id = "spotify:artist:${rel.id}",
                                                         title = rel.name,
                                                         thumbnail = rel.images.firstOrNull()?.url,
                                                         shuffleEndpoint = null,
@@ -284,10 +385,11 @@ class ArtistViewModel
                                             layout = ArtistSectionLayout.GRID,
                                         )
                                 }
+
                                 ArtistPage(
                                     artist = artistItem,
                                     sections = sections,
-                                    description = null,
+                                    description = overview.biography,
                                 )
                             }.getOrNull()
                         }
