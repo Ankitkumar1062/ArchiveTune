@@ -10923,7 +10923,7 @@ class MusicService :
 
                     throwable.isNetworkConnectionFailure() -> {
                         throw PlaybackException(
-                            getString(R.string.error_no_internet),
+                            getString(R.string.playback_error_no_internet),
                             throwable,
                             PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
                         )
@@ -10939,7 +10939,7 @@ class MusicService :
 
                     else -> {
                         throw PlaybackException(
-                            getString(R.string.error_unknown),
+                            getString(R.string.playback_error_unknown),
                             throwable,
                             PlaybackException.ERROR_CODE_REMOTE_ERROR,
                         )
@@ -10949,7 +10949,7 @@ class MusicService :
 
         val nonNullPlayback =
             requireNotNull(playbackData) {
-                getString(R.string.error_unknown)
+                getString(R.string.playback_error_unknown)
             }
         nonNullPlayback.playbackTracking
             ?.remotePlaybackTrackingUrl()
