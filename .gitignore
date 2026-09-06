@@ -127,5 +127,7 @@ core.*
 /ARCHIVETUNE_CODE_MAP.md
 /.env
 /.cursor/
-/.windsurf/
 /scratch/
+
+# graphify knowledge-graph state (regenerable, ~60MB)
+.graphify/
