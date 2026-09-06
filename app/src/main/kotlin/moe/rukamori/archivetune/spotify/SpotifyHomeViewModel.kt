@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import moe.rukamori.archivetune.R
+import moe.rukamori.archivetune.models.toMediaMetadata
 import moe.rukamori.archivetune.innertube.YouTube
 import moe.rukamori.archivetune.innertube.models.AlbumItem
 import moe.rukamori.archivetune.innertube.models.ArtistItem
@@ -123,27 +124,26 @@ class SpotifyHomeViewModel @Inject constructor(
                 key = "track:${action.track.id}",
                 unavailableMessageResId = R.string.spotify_track_unavailable,
             ) {
-                SpotifyPlaybackResolver.resolveToMetadata(action.track)?.let { metadata ->
+                SpotifyPlaybackResolver.resolveToMetadata(action.track)?.let { _ ->
                     SpotifyHomeNavigationEvent.PlayTracks(
                         SpotifyTracksQueue(
                             title = action.title,
                             initialTracks = action.tracks,
                             startIndex = action.tracks.indexOf(action.track).coerceAtLeast(0),
-                            preloadItem = metadata,
+                            preloadItem = action.track.toMediaMetadata(),
                         ),
                     )
                 }
             }
-            is SpotifyHomeAction.AlbumClick -> resolveSelection("album:${action.id}") {
-                val query = listOfNotNull(action.name, action.artist)
-                    .filter(String::isNotBlank)
-                    .joinToString(" ")
-                searchCatalogItem<AlbumItem>(query, YouTube.SearchFilter.FILTER_ALBUM)
-                    ?.let { SpotifyHomeNavigationEvent.OpenAlbum(it.browseId) }
+            is SpotifyHomeAction.AlbumClick -> {
+                viewModelScope.launch {
+                    _navigationEvents.emit(SpotifyHomeNavigationEvent.OpenAlbum(action.id))
+                }
             }
-            is SpotifyHomeAction.ArtistClick -> resolveSelection("artist:${action.id}") {
-                searchCatalogItem<ArtistItem>(action.name, YouTube.SearchFilter.FILTER_ARTIST)
-                    ?.let { SpotifyHomeNavigationEvent.OpenArtist(it.id) }
+            is SpotifyHomeAction.ArtistClick -> {
+                viewModelScope.launch {
+                    _navigationEvents.emit(SpotifyHomeNavigationEvent.OpenArtist(action.id))
+                }
             }
         }
     }
@@ -178,18 +178,6 @@ class SpotifyHomeViewModel @Inject constructor(
                 if (currentCoroutineContext().isActive) _resolvingItemKey.value = null
             }
         }
-    }
-
-    private suspend inline fun <reified T : YTItem> searchCatalogItem(
-        query: String,
-        filter: YouTube.SearchFilter,
-    ): T? {
-        val anonymous = YouTube.search(query, filter, useAccountContext = false)
-        currentCoroutineContext().ensureActive()
-        anonymous.getOrNull()?.items?.filterIsInstance<T>()?.firstOrNull()?.let { return it }
-        val fallback = YouTube.search(query, filter)
-        currentCoroutineContext().ensureActive()
-        return fallback.getOrThrow().items.filterIsInstance<T>().firstOrNull()
     }
 
     private fun load() {
@@ -259,12 +247,16 @@ class SpotifyHomeViewModel @Inject constructor(
 
                 homeResult.onSuccess { feed ->
                     feed.sections.forEach { raw ->
-                        // Recognised by the section URI alone. It used to also match the title
-                        // against "Jump back in", "Recently" and five Russian phrases — which meant
-                        // the shelf was only ever recognised in two of the forty-odd languages the
-                        // app ships, and Spotify returns titles in the account's language. The URI
-                        // is the same string whatever the user reads.
-                        if (raw.sectionUri.contains("recent", ignoreCase = true)) {
+                        val isRecentSection =
+                            raw.sectionUri.contains("recent", ignoreCase = true) ||
+                                raw.sectionUri.contains("shortcut", ignoreCase = true) ||
+                                raw.sectionUri.contains("jump_back", ignoreCase = true) ||
+                                raw.sectionUri.contains("heavy_rotation", ignoreCase = true) ||
+                                raw.typename.contains("shortcut", ignoreCase = true) ||
+                                raw.title?.contains("jump back in", ignoreCase = true) == true ||
+                                raw.title?.contains("recently played", ignoreCase = true) == true
+
+                        if (isRecentSection && recentItems.isEmpty()) {
                             recentItems = raw.items.mapNotNull { item ->
                                 when (item) {
                                     is SpotifyHomeFeedItem.Album -> SpotifyRecentItem.Album(

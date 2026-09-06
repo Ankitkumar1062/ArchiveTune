@@ -85,6 +85,7 @@ import moe.rukamori.archivetune.LocalPlayerConnection
 import moe.rukamori.archivetune.R
 import moe.rukamori.archivetune.extensions.togglePlayPause
 import moe.rukamori.archivetune.models.MediaMetadata
+import moe.rukamori.archivetune.models.toMediaMetadata
 import moe.rukamori.archivetune.spotify.SpotifyMapper
 import moe.rukamori.archivetune.spotify.SpotifyDownloadItem
 import moe.rukamori.archivetune.spotify.SPOTIFY_LIKED_SONGS_ID
@@ -387,14 +388,14 @@ fun SpotifyPlaylistScreen(
         coroutineScope.launch {
             resolvingTrackId = preloadTrack.id
             try {
-                val preloadItem = SpotifyPlaybackResolver.resolveToMetadata(preloadTrack)
+                SpotifyPlaybackResolver.resolveToMetadata(preloadTrack)
                 playerConnection?.playQueue(
                     SpotifyPlaylistQueue(
                         playlistId = currentPlaylist.id,
                         title = currentPlaylist.name,
                         initialTracks = queueTracks,
                         startIndex = boundedStartIndex,
-                        preloadItem = preloadItem,
+                        preloadItem = preloadTrack.toMediaMetadata(),
                     ),
                 )
             } finally {

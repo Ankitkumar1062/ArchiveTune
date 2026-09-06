@@ -344,6 +344,7 @@ fun SpotifyHomeScreen(
                                                             title = section.title,
                                                             initialTracks = section.tracks,
                                                             startIndex = section.tracks.indexOf(track),
+                                                            preloadItem = track.toMediaMetadata(),
                                                         ),
                                                     )
                                                 }
