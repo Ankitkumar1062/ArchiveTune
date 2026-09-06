@@ -39,6 +39,8 @@ junit = "4.13.2"
 turbine = "1.2.1"
 timber = "5.0.1"
 kuromojiIpadic = "0.9.0"
+lottie = "6.6.6"
+profileinstaller = "1.4.1"
 # NewPipeExtractor's release tag. Kept because `newpipe-extractor` below still
 # points at it — :core has used either fork at different times.
 extractor = "0.26.5"
@@ -130,6 +132,8 @@ coil-gif = { module = "io.coil-kt.coil3:coil-gif", version.ref = "coil" }
 coil-network-okhttp = { module = "io.coil-kt.coil3:coil-network-okhttp", version.ref = "coil" }
 
 shimmer = { module = "com.valentinilk.shimmer:compose-shimmer", version.ref = "shimmer" }
+lottie-compose = { module = "com.airbnb.android:lottie-compose", version.ref = "lottie" }
+profileinstaller = { module = "androidx.profileinstaller:profileinstaller", version.ref = "profileinstaller" }
 
 palette = { module = "androidx.palette:palette-ktx", version.ref = "palette" }
 

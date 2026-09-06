@@ -469,6 +469,14 @@ private fun DownloadSections(
                         R.string.no_downloads
                     },
                 ),
+            // Subtle Lottie only for the truly-empty state (not for active
+            // search queries or in-progress screens).
+            lottieRes =
+                if (query.isBlank() && !inProgress) {
+                    moe.rukamori.archivetune.ui.lottie.ArchiveTuneLottie.EmptyStateRes
+                } else {
+                    null
+                },
             modifier = Modifier.padding(contentPadding),
         )
         return

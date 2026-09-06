@@ -450,6 +450,9 @@ fun AutoPlaylistScreen(
                     EmptyPlaceholder(
                         icon = R.drawable.music_note,
                         text = stringResource(R.string.playlist_is_empty),
+                        // Subtle looping music-note animation for the empty
+                        // liked-songs / auto-playlist state.
+                        lottieRes = moe.rukamori.archivetune.ui.lottie.ArchiveTuneLottie.EmptyStateRes,
                     )
                 }
             } else {

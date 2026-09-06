@@ -526,6 +526,8 @@ dependencies {
     implementation("androidx.compose.material3.adaptive:adaptive:1.3.0-rc01")
     implementation(libs.accompanist.lyrics.ui)
     implementation(libs.accompanist.lyrics.core)
+    implementation(libs.lottie.compose)
+    implementation(libs.profileinstaller)
 
 
     // PRDownloader — lightweight (~45 KB) file download library with
