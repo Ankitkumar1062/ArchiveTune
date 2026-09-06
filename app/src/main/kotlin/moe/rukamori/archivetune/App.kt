@@ -60,6 +60,7 @@ import moe.rukamori.archivetune.ui.screens.settings.ThemePalettes
 import moe.rukamori.archivetune.ui.theme.ThemeSeedPalette
 import moe.rukamori.archivetune.ui.theme.ThemeSeedPaletteCodec
 import moe.rukamori.archivetune.utils.CanvasResolverEndpoints
+import moe.rukamori.archivetune.utils.PlaylistCoverInterceptor
 import moe.rukamori.archivetune.utils.PoolAccountManager
 import moe.rukamori.archivetune.utils.PreferenceStore
 import moe.rukamori.archivetune.utils.ProxyUtils
@@ -96,6 +97,9 @@ class App :
      */
     @Inject
     lateinit var spotifyLibraryRepository: SpotifyLibraryRepository
+
+    @Inject
+    lateinit var playlistCoverInterceptor: PlaylistCoverInterceptor
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -612,6 +616,7 @@ class App :
         return ImageLoader
             .Builder(this)
             .components {
+                add(playlistCoverInterceptor)
                 add(moe.rukamori.archivetune.telegram.TelegramThumbnailFetcher.Factory())
                 add(OkHttpNetworkFetcherFactory(imageHttpClient))
             }
