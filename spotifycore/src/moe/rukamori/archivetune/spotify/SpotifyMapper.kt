@@ -84,6 +84,36 @@ object SpotifyMapper {
     }
 
     /**
+     * Upgrades Spotify CDN artwork URLs to their maximum-quality (640x640) resolution variant.
+     */
+    fun toHighResSpotifyUrl(url: String): String {
+        return when {
+            url.contains("mosaic.scdn.co/") -> {
+                url.replace(Regex("mosaic\\.scdn\\.co/(60|300)/"), "mosaic.scdn.co/640/")
+            }
+            url.contains("ab67616d00001e02") -> url.replace("ab67616d00001e02", "ab67616d0000b273")
+            url.contains("ab67616d00004851") -> url.replace("ab67616d00004851", "ab67616d0000b273")
+            url.contains("ab67616100005174") -> url.replace("ab67616100005174", "ab6761610000e5eb")
+            url.contains("ab6761610000f08a") -> url.replace("ab6761610000f08a", "ab6761610000e5eb")
+            url.contains("ab67706c0000bebb") -> url.replace("ab67706c0000bebb", "ab67706c0000da84")
+            url.contains("ab67706c00004851") -> url.replace("ab67706c00004851", "ab67706c0000da84")
+            else -> url
+        }
+    }
+
+    /**
+     * Infers Spotify artwork dimensions from known CDN URL size hashes.
+     */
+    fun inferSpotifyImageDimension(url: String): Int {
+        return when {
+            url.contains("0000b273") || url.contains("0000e5eb") || url.contains("0000da84") || url.contains("mosaic.scdn.co/640") -> 640
+            url.contains("00001e02") || url.contains("00005174") || url.contains("0000bebb") || url.contains("mosaic.scdn.co/300") -> 300
+            url.contains("00004851") || url.contains("0000f08a") || url.contains("mosaic.scdn.co/60") -> 64
+            else -> 0
+        }
+    }
+
+    /**
      * The best artwork URL Spotify offers for a playlist.
      */
     fun getPlaylistThumbnail(playlist: SpotifyPlaylist): String? = largestImageUrl(playlist.images)
@@ -93,11 +123,13 @@ object SpotifyMapper {
      */
     fun getTrackThumbnail(track: SpotifyTrack): String? = largestImageUrl(track.album?.images)
 
-    private fun largestImageUrl(images: List<SpotifyImage>?): String? =
-        images
-            ?.maxByOrNull { it.width ?: 0 }
-            ?.url
-            ?.takeIf { it.isNotBlank() }
+    fun largestImageUrl(images: List<SpotifyImage>?): String? {
+        if (images.isNullOrEmpty()) return null
+        val best = images.maxByOrNull { image ->
+            image.width?.takeIf { it > 0 } ?: inferSpotifyImageDimension(image.url)
+        } ?: images.firstOrNull()
+        return best?.url?.takeIf { it.isNotBlank() }?.let { toHighResSpotifyUrl(it) }
+    }
 
     /**
      * Pre-computes normalized title/artist and their bigrams for a Spotify track.

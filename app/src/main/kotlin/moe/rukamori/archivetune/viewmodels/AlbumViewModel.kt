@@ -39,6 +39,7 @@ import moe.rukamori.archivetune.innertube.models.Artist
 import moe.rukamori.archivetune.innertube.models.SongItem
 import moe.rukamori.archivetune.innertube.pages.AlbumPage
 import moe.rukamori.archivetune.spotify.Spotify
+import moe.rukamori.archivetune.spotify.SpotifyMapper
 import moe.rukamori.archivetune.utils.dataStore
 import moe.rukamori.archivetune.utils.get
 import moe.rukamori.archivetune.utils.isLowDataModeActive
@@ -154,6 +155,7 @@ class AlbumViewModel
                         val albumArtists =
                             spotifyAlbum.artists.map { Artist(name = it.name, id = it.id) }
                         val trackItems = spotifyAlbum.tracks?.items.orEmpty()
+                        val albumThumbnail = SpotifyMapper.largestImageUrl(spotifyAlbum.images).orEmpty()
                         val albumItem =
                             AlbumItem(
                                 browseId = albumId,
@@ -161,7 +163,7 @@ class AlbumViewModel
                                 title = spotifyAlbum.name,
                                 artists = albumArtists,
                                 year = releaseYear,
-                                thumbnail = spotifyAlbum.images.firstOrNull()?.url.orEmpty(),
+                                thumbnail = albumThumbnail,
                                 explicit = trackItems.any { it.explicit },
                             )
                         val songItems =
@@ -175,7 +177,7 @@ class AlbumViewModel
                                             .ifEmpty { albumArtists },
                                     album = Album(name = spotifyAlbum.name, id = albumId),
                                     duration = if (track.durationMs > 0) track.durationMs / 1000 else null,
-                                    thumbnail = spotifyAlbum.images.firstOrNull()?.url.orEmpty(),
+                                    thumbnail = SpotifyMapper.getTrackThumbnail(track) ?: albumThumbnail,
                                     explicit = track.explicit,
                                 )
                             }

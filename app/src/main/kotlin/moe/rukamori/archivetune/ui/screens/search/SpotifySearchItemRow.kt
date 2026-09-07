@@ -56,7 +56,7 @@ internal fun SpotifySearchItemRow(
             SpotifyCatalogRow(
                 title = album.name,
                 subtitle = albumSubtitle(album),
-                thumbnailUrl = album.images.firstOrNull()?.url,
+                thumbnailUrl = moe.rukamori.archivetune.spotify.SpotifyMapper.largestImageUrl(album.images),
                 modifier = modifier,
                 trailingContent = trailingContent,
             )
@@ -67,7 +67,7 @@ internal fun SpotifySearchItemRow(
             SpotifyCatalogRow(
                 title = artist.name,
                 subtitle = stringResource(R.string.artist_subtitle),
-                thumbnailUrl = artist.images.firstOrNull()?.url,
+                thumbnailUrl = moe.rukamori.archivetune.spotify.SpotifyMapper.largestImageUrl(artist.images),
                 modifier = modifier,
                 trailingContent = trailingContent,
             )
@@ -78,7 +78,7 @@ internal fun SpotifySearchItemRow(
             SpotifyCatalogRow(
                 title = playlist.name,
                 subtitle = playlistSubtitle(playlist),
-                thumbnailUrl = playlist.images.firstOrNull()?.url,
+                thumbnailUrl = moe.rukamori.archivetune.spotify.SpotifyMapper.getPlaylistThumbnail(playlist),
                 modifier = modifier,
                 trailingContent = trailingContent,
             )

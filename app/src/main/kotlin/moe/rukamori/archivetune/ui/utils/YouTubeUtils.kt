@@ -96,6 +96,12 @@ fun String.resize(
 
     val isGoogleCdn = contains("googleusercontent.com") || contains("ggpht.com")
     val isYtimg = contains("i.ytimg.com")
+    val isSpotify = contains("scdn.co") || contains("spotifycdn.com")
+
+    if (isSpotify) {
+        val size = maxOf(width ?: 0, height ?: 0)
+        return resizeSpotifyUrl(this, size)
+    }
 
     if (isGoogleCdn) {
         val rawW = width ?: height!!
@@ -152,12 +158,42 @@ fun String.resize(
     return this
 }
 
+private fun resizeSpotifyUrl(url: String, size: Int): String {
+    return when {
+        size > 320 || size == 0 -> {
+            moe.rukamori.archivetune.spotify.SpotifyMapper.toHighResSpotifyUrl(url)
+        }
+        size <= 64 -> {
+            when {
+                url.contains("mosaic.scdn.co/") -> url.replace(Regex("mosaic\\.scdn\\.co/(300|640)/"), "mosaic.scdn.co/60/")
+                url.contains("ab67616d0000b273") || url.contains("ab67616d00001e02") -> url.replace(Regex("ab67616d0000(b273|1e02)"), "ab67616d00004851")
+                url.contains("ab6761610000e5eb") || url.contains("ab67616100005174") -> url.replace(Regex("ab6761610000(e5eb|5174)"), "ab6761610000f08a")
+                url.contains("ab67706c0000da84") || url.contains("ab67706c0000bebb") -> url.replace(Regex("ab67706c0000(da84|bebb)"), "ab67706c00004851")
+                else -> url
+            }
+        }
+        else -> {
+            when {
+                url.contains("mosaic.scdn.co/") -> url.replace(Regex("mosaic\\.scdn\\.co/(60|640)/"), "mosaic.scdn.co/300/")
+                url.contains("ab67616d0000b273") || url.contains("ab67616d00004851") -> url.replace(Regex("ab67616d0000(b273|4851)"), "ab67616d00001e02")
+                url.contains("ab6761610000e5eb") || url.contains("ab6761610000f08a") -> url.replace(Regex("ab6761610000(e5eb|f08a)"), "ab67616100005174")
+                url.contains("ab67706c0000da84") || url.contains("ab67706c00004851") -> url.replace(Regex("ab67706c0000(da84|4851)"), "ab67706c0000bebb")
+                else -> url
+            }
+        }
+    }
+}
+
 fun String.highRes(): String =
-    resize(
-        width = PlayerArtworkHighResPx,
-        height = PlayerArtworkHighResPx,
-        ytimgResizePolicy = YtimgResizePolicy.PreserveOriginal,
-    )
+    if (contains("scdn.co") || contains("spotifycdn.com")) {
+        moe.rukamori.archivetune.spotify.SpotifyMapper.toHighResSpotifyUrl(this)
+    } else {
+        resize(
+            width = PlayerArtworkHighResPx,
+            height = PlayerArtworkHighResPx,
+            ytimgResizePolicy = YtimgResizePolicy.PreserveOriginal,
+        )
+    }
 
 fun getMusicVideoYTThumbnail(
     videoId: String?,

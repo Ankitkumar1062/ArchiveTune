@@ -281,7 +281,7 @@ fun SpotifyPlaylistScreen(
 
     val thumbnailUrl =
         remember(playlist) {
-            playlist?.let { SpotifyMapper.getPlaylistThumbnail(it)?.resize(544, 544) }
+            playlist?.let { SpotifyMapper.getPlaylistThumbnail(it) }
         }
 
     val transparentAppBar by remember {

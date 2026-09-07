@@ -399,7 +399,8 @@ object Spotify {
         val entries = sources?.mapNotNull { it.jsonObject.takeIf { obj -> obj.str("url") != null } }
         if (entries.isNullOrEmpty()) return null
         val widest = entries.maxByOrNull { it.int("width") ?: 0 }
-        return (widest ?: entries.first()).str("url")
+        val rawUrl = (widest ?: entries.first()).str("url") ?: return null
+        return SpotifyMapper.toHighResSpotifyUrl(rawUrl)
     }
 
     private fun parseGqlSimpleArtist(artistObj: JsonObject): SpotifySimpleArtist? {
@@ -934,10 +935,7 @@ object Spotify {
             val ownerData = playlist.obj("ownerV2")?.obj("data")
             val ownerUri = ownerData?.str("uri") ?: ""
 
-            val images =
-                playlist.obj("images")?.arr("items")?.firstOrNull()?.let {
-                    parseGqlImages(it.jsonObject.arr("sources"))
-                } ?: emptyList()
+            val images = parseGqlPlaylistImages(playlist.obj("images"))
 
             SpotifyPlaylist(
                 id = playlistId,
