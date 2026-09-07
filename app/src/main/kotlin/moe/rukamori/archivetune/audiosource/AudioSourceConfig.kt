@@ -70,11 +70,11 @@ fun uncompressedPcmBitrate(
  * passing merely because its normalized title is identical.
  */
 object TitleMatch {
-    const val ACCEPT_THRESHOLD = 0.78
+    const val ACCEPT_THRESHOLD = 0.88
     private const val TITLE_ONLY_THRESHOLD = 0.95
-    private const val MIN_TITLE_WITH_METADATA = 0.84
-    private const val MIN_ARTIST = 0.72
-    private const val DURATION_HARD_GATE_MS = 6_000L
+    private const val MIN_TITLE_WITH_METADATA = 0.88
+    private const val MIN_ARTIST = 0.85
+    private const val DURATION_HARD_GATE_MS = 3_000L
 
     data class Result(
         val accepted: Boolean,
@@ -207,7 +207,7 @@ object TitleMatch {
             return Result(false, 0.0, titleScore, artistScore, durationScore, "artist mismatch")
         }
         if (durationScore == 0.0) {
-            return Result(false, 0.0, titleScore, artistScore, durationScore, "duration differs by more than 6s")
+            return Result(false, 0.0, titleScore, artistScore, durationScore, "duration differs by more than 3s")
         }
 
         // Deliberately AFTER the duration gate: with no artist to compare against, the
@@ -236,8 +236,8 @@ object TitleMatch {
         val difference = abs(wantedMs - candidateMs)
         return when {
             difference > DURATION_HARD_GATE_MS -> 0.0
-            difference <= 2_000L -> 1.0
-            difference <= 4_000L -> 0.8
+            difference <= 1_000L -> 1.0
+            difference <= 2_000L -> 0.8
             else -> 0.5
         }
     }
@@ -253,7 +253,7 @@ object TitleMatch {
         if (wantedParts.isEmpty() || candidateParts.isEmpty()) return 0.0
         return wantedParts.maxOf { target ->
             candidateParts.maxOf { option ->
-                if (target == option || (target.length >= 4 && option.length >= 4 && (target in option || option in target))) {
+                if (target == option) {
                     1.0
                 } else {
                     jaroWinkler(target, option)
@@ -275,9 +275,9 @@ object TitleMatch {
     private fun containsTokenRun(haystack: String, needle: String): Boolean {
         val target = normalize(needle)
         val candidate = normalize(haystack)
-        if (target.length < 3) return false
+        if (target.length < 5) return false
         if (candidate == target) return true
-        if (candidate.contains(target)) return true
+        if (candidate.contains(target) && target.length >= 8) return true
         // Symmetric multilingual check: if the needle contains a separator-delimited
         // segment (e.g. "忘れてください - Forget it" → ["忘れてください", "forget it"]),
         // a candidate equal to or containing any of those segments counts as a token
@@ -285,7 +285,7 @@ object TitleMatch {
         // title gate when the wanted title is "忘れてください - Forget it".
         return splitRawTitleSegments(needle).any { segment ->
             val n = normalize(segment)
-            n.length >= 3 && (candidate == n || candidate.contains(n))
+            n.length >= 4 && (candidate == n || (n.length >= 8 && candidate.contains(n)))
         }
     }
 

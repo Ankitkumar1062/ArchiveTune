@@ -40,10 +40,10 @@ import kotlin.math.abs
 object IsrcResolver {
     private const val TAG = "IsrcResolver"
     private const val CACHE_TTL_MS = 24 * 60 * 60 * 1000L // 24 hours
-    private const val DURATION_GATE_MS = 5_000L // 5 seconds physical gate
-    private const val MIN_ARTIST_OVERLAP = 0.70
-    private const val MIN_TITLE_OVERLAP = 0.75
-    private const val MIN_TITLE_OVERLAP_NO_ARTIST = 0.85
+    private const val DURATION_GATE_MS = 3_000L // 3 seconds physical gate
+    private const val MIN_ARTIST_OVERLAP = 0.85
+    private const val MIN_TITLE_OVERLAP = 0.85
+    private const val MIN_TITLE_OVERLAP_NO_ARTIST = 0.90
 
     private val STOP_WORDS =
         setOf("the", "a", "an", "of", "and", "feat", "ft", "featuring", "with")
