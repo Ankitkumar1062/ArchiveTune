@@ -50,8 +50,9 @@ class SpotifyPlaylistQueue(
         withContext(Dispatchers.IO) {
             if (initialTracks.isNotEmpty()) {
                 allTracks += initialTracks
-                apiFetchOffset = initialTracks.size
-                apiHasMore = initialTracks.size >= SPOTIFY_PAGE_SIZE
+                apiTotal = initialTracks.size
+                apiFetchOffset = apiTotal
+                apiHasMore = false
             } else {
                 fetchNextApiPage()
             }
@@ -92,7 +93,7 @@ class SpotifyPlaylistQueue(
             apiTotal = page.total
             allTracks += page.items.mapNotNull { it.track.takeUnless(SpotifyTrack::isLocal) }
             apiFetchOffset += page.items.size
-            apiHasMore = apiFetchOffset < apiTotal && page.items.isNotEmpty()
+            apiHasMore = apiFetchOffset < apiTotal
             return
         }
         val result =
@@ -106,7 +107,7 @@ class SpotifyPlaylistQueue(
         val fetched = result.items.mapNotNull { it.track?.takeUnless(SpotifyTrack::isLocal) }
         allTracks += fetched
         apiFetchOffset += result.items.size
-        apiHasMore = apiFetchOffset < apiTotal && result.items.isNotEmpty()
+        apiHasMore = apiFetchOffset < apiTotal
     }
 
     companion object {
