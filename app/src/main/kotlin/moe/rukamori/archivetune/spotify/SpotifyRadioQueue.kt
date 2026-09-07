@@ -16,7 +16,7 @@ import moe.rukamori.archivetune.playback.queues.Queue
 import moe.rukamori.archivetune.spotify.models.SpotifyTrack
 
 class SpotifyRadioQueue(
-    private val seedTrackId: String,
+    internal val seedTrackId: String,
     private val seedTitle: String? = null,
     private val seedTrack: SpotifyTrack? = null,
     override val preloadItem: MediaMetadata? = null,

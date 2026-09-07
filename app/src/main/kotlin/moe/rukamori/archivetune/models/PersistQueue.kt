@@ -38,6 +38,14 @@ sealed class QueueType : Serializable {
     object LOCAL_ALBUM_RADIO : QueueType() {
         private const val serialVersionUID = 1L
     }
+
+    object SPOTIFY_PLAYLIST : QueueType() {
+        private const val serialVersionUID = 1L
+    }
+
+    object SPOTIFY_RADIO : QueueType() {
+        private const val serialVersionUID = 1L
+    }
 }
 
 sealed class QueueData : Serializable {
@@ -69,6 +77,22 @@ sealed class QueueData : Serializable {
         val playlistId: String? = null,
         val continuation: String? = null,
         val firstTimeLoaded: Boolean = false,
+    ) : QueueData() {
+        companion object {
+            private const val serialVersionUID = 1L
+        }
+    }
+
+    data class SpotifyPlaylistData(
+        val playlistId: String,
+    ) : QueueData() {
+        companion object {
+            private const val serialVersionUID = 1L
+        }
+    }
+
+    data class SpotifyRadioData(
+        val seedTrackId: String,
     ) : QueueData() {
         companion object {
             private const val serialVersionUID = 1L

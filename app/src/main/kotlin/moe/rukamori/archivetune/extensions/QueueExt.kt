@@ -17,6 +17,8 @@ import moe.rukamori.archivetune.playback.queues.LocalAlbumRadio
 import moe.rukamori.archivetune.playback.queues.Queue
 import moe.rukamori.archivetune.playback.queues.YouTubeAlbumRadio
 import moe.rukamori.archivetune.playback.queues.YouTubeQueue
+import moe.rukamori.archivetune.spotify.SpotifyPlaylistQueue
+import moe.rukamori.archivetune.spotify.SpotifyRadioQueue
 
 fun Queue.toPersistQueue(
     title: String?,
@@ -84,6 +86,34 @@ fun Queue.toPersistQueue(
             )
         }
 
+        is SpotifyPlaylistQueue -> {
+            PersistQueue(
+                title = title,
+                items = items,
+                mediaItemIndex = mediaItemIndex,
+                position = position,
+                queueType = QueueType.SPOTIFY_PLAYLIST,
+                queueData =
+                    QueueData.SpotifyPlaylistData(
+                        playlistId = playlistId,
+                    ),
+            )
+        }
+
+        is SpotifyRadioQueue -> {
+            PersistQueue(
+                title = title,
+                items = items,
+                mediaItemIndex = mediaItemIndex,
+                position = position,
+                queueType = QueueType.SPOTIFY_RADIO,
+                queueData =
+                    QueueData.SpotifyRadioData(
+                        seedTrackId = seedTrackId,
+                    ),
+            )
+        }
+
         else -> {
             PersistQueue(
                 title = title,
@@ -147,6 +177,27 @@ fun PersistQueue.toContinuationQueue(): Queue =
                 items = items.map { it.toMediaItem() },
                 startIndex = mediaItemIndex,
                 position = position,
+            )
+        }
+
+        is QueueType.SPOTIFY_PLAYLIST -> {
+            val data =
+                queueData as? QueueData.SpotifyPlaylistData
+                    ?: return ListQueue(title, items.map { it.toMediaItem() }, mediaItemIndex, position)
+            SpotifyPlaylistQueue(
+                playlistId = data.playlistId,
+                title = title,
+                startIndex = mediaItemIndex,
+            )
+        }
+
+        is QueueType.SPOTIFY_RADIO -> {
+            val data =
+                queueData as? QueueData.SpotifyRadioData
+                    ?: return ListQueue(title, items.map { it.toMediaItem() }, mediaItemIndex, position)
+            SpotifyRadioQueue(
+                seedTrackId = data.seedTrackId,
+                seedTitle = title,
             )
         }
     }

@@ -66,7 +66,8 @@ class YouTubeAlbumRadio(
             continuation = nextResult.continuation
             if (!firstTimeLoaded) {
                 firstTimeLoaded = true
-                nextResult.items.subList(albumSongCount, nextResult.items.size).map { it.toMediaItem() }
+                val fromIndex = albumSongCount.coerceAtMost(nextResult.items.size)
+                nextResult.items.subList(fromIndex, nextResult.items.size).map { it.toMediaItem() }
             } else {
                 nextResult.items.map { it.toMediaItem() }
             }
