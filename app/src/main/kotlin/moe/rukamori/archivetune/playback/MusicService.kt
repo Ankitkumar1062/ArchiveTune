@@ -4362,11 +4362,22 @@ class MusicService :
         }
 
         scope.launch(SilentHandler) {
-            val radioQueue =
-                YouTubeQueue(
-                    endpoint = WatchEndpoint(videoId = currentMediaId),
-                    followAutomixPreview = true,
-                )
+            val isSpotify =
+                currentMediaId.startsWith("spotify:track:") ||
+                    currentMediaId.startsWith("spotify:") ||
+                    currentQueue is moe.rukamori.archivetune.spotify.SpotifyPlaylistQueue ||
+                    currentQueue is moe.rukamori.archivetune.spotify.SpotifyTracksQueue ||
+                    currentQueue is SpotifyRadioQueue
+            val radioQueue: Queue =
+                if (isSpotify) {
+                    val spotifyId = currentMediaId.removePrefix("spotify:track:").removePrefix("spotify:")
+                    SpotifyRadioQueue(
+                        seedTrackId = spotifyId,
+                        preloadItem = currentMediaMetadata,
+                    )
+                } else {
+                    YouTubeQueue.radio(currentMediaMetadata)
+                }
             val initialStatus =
                 withContext(Dispatchers.IO) {
                     radioQueue
@@ -4453,10 +4464,18 @@ class MusicService :
                                 preloadItem = currentMeta,
                             )
                         } else {
-                            YouTubeQueue(
-                                WatchEndpoint(videoId = resolvedSeedMediaId),
-                                followAutomixPreview = true,
-                            )
+                            if (currentMeta != null) {
+                                YouTubeQueue.radio(currentMeta)
+                            } else {
+                                YouTubeQueue(
+                                    endpoint = WatchEndpoint(
+                                        videoId = resolvedSeedMediaId,
+                                        playlistId = "RDAMVM$resolvedSeedMediaId",
+                                    ),
+                                    preloadItem = null,
+                                    followAutomixPreview = false,
+                                )
+                            }
                         }
                     val status =
                         withContext(Dispatchers.IO) {
@@ -7645,10 +7664,16 @@ class MusicService :
                             hideVideo = dataStore.get(HideVideoKey, false),
                         )
                 if (player.playbackState != STATE_IDLE) {
-                    player.addMediaItems(mediaItems)
-                    if (player.playbackState == Player.STATE_ENDED) {
-                        player.seekToNext()
-                        player.play()
+                    if (mediaItems.isNotEmpty()) {
+                        player.addMediaItems(mediaItems)
+                        if (player.playbackState == Player.STATE_ENDED) {
+                            player.seekToNext()
+                            player.play()
+                        }
+                    } else if (currentQueue.shouldBootstrapInfiniteQueue() &&
+                        player.mediaItemCount - player.currentMediaItemIndex <= 3
+                    ) {
+                        onInfiniteQueueEnabled(currentQueue.infiniteQueueSeedMediaId())
                     }
                 } else {
                     requestDiscordSync(
@@ -7823,7 +7848,8 @@ class MusicService :
         !hasNextPage()
 
     private fun Queue.infiniteQueueSeedMediaId(): String? =
-        player.currentMetadata?.id?.trim()?.takeIf { it.isNotBlank() }
+        player.currentMediaItem?.mediaId?.trim()?.takeIf { it.isNotBlank() }
+            ?: player.currentMetadata?.id?.trim()?.takeIf { it.isNotBlank() }
             ?: preloadItem?.id?.trim()?.takeIf { it.isNotBlank() }
 
     override fun onPlaybackStateChanged(
