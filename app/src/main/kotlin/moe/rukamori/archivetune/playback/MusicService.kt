@@ -7645,8 +7645,11 @@ class MusicService :
                             hideVideo = dataStore.get(HideVideoKey, false),
                         )
                 if (player.playbackState != STATE_IDLE) {
-                    val itemsToAdd = if (currentQueue is YouTubeQueue) mediaItems.drop(1) else mediaItems
-                    player.addMediaItems(itemsToAdd)
+                    player.addMediaItems(mediaItems)
+                    if (player.playbackState == Player.STATE_ENDED) {
+                        player.seekToNext()
+                        player.play()
+                    }
                 } else {
                     requestDiscordSync(
                         reason = "player_idle_after_queue_extension",
@@ -7820,7 +7823,8 @@ class MusicService :
         !hasNextPage()
 
     private fun Queue.infiniteQueueSeedMediaId(): String? =
-        preloadItem?.id?.trim()?.takeIf { it.isNotBlank() } ?: player.currentMetadata?.id
+        player.currentMetadata?.id?.trim()?.takeIf { it.isNotBlank() }
+            ?: preloadItem?.id?.trim()?.takeIf { it.isNotBlank() }
 
     override fun onPlaybackStateChanged(
         @Player.State playbackState: Int,
