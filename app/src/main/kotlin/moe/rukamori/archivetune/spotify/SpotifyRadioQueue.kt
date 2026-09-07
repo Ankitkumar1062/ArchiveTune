@@ -11,12 +11,8 @@ import androidx.media3.common.MediaItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import moe.rukamori.archivetune.extensions.toMediaItem
-import moe.rukamori.archivetune.models.toMediaMetadata
-import moe.rukamori.archivetune.innertube.YouTube
-import moe.rukamori.archivetune.innertube.models.SongItem
 import moe.rukamori.archivetune.models.MediaMetadata
 import moe.rukamori.archivetune.playback.queues.Queue
-import moe.rukamori.archivetune.playback.queues.YouTubeQueue
 import moe.rukamori.archivetune.spotify.models.SpotifyTrack
 
 class SpotifyRadioQueue(
@@ -82,27 +78,6 @@ class SpotifyRadioQueue(
                 }
             }
 
-            if (initialList.size <= 1) {
-                // Tier 3 Fallback: YouTube Music Radio
-                val seedName = seedTitle ?: preloadItem?.title ?: seedTrack?.name
-                val seedArtist = preloadItem?.artists?.firstOrNull()?.name ?: seedTrack?.artists?.firstOrNull()?.name
-                val query = if (!seedName.isNullOrBlank() && !seedArtist.isNullOrBlank()) "$seedName $seedArtist" else seedName
-                if (!query.isNullOrBlank()) {
-                    val ytRadio = runCatching {
-                        val search = YouTube.search(query, YouTube.SearchFilter.FILTER_SONG).getOrNull()
-                        val songItem = search?.items?.filterIsInstance<SongItem>()?.firstOrNull()
-                        if (songItem != null) {
-                            YouTubeQueue.radio(songItem.toMediaMetadata()).getInitialStatus()
-                        } else null
-                    }.getOrNull()
-                    if (ytRadio != null && ytRadio.items.isNotEmpty()) {
-                        initialList.addAll(ytRadio.items.filter { seenTrackIds.add(it.mediaId) })
-                        if (!ytRadio.title.isNullOrBlank()) {
-                            queueTitle = ytRadio.title
-                        }
-                    }
-                }
-            }
 
             Queue.Status(
                 title = queueTitle,
