@@ -31,16 +31,7 @@ class YouTubeQueue(
                         endpoint = endpoint,
                         continuation = continuation,
                         followAutomixPreview = followAutomixPreview,
-                    ).recoverCatching {
-                        if (endpoint.playlistId != null && endpoint.videoId != null) {
-                            YouTube.next(
-                                endpoint = WatchEndpoint(videoId = endpoint.videoId),
-                                followAutomixPreview = true,
-                            ).getOrThrow()
-                        } else {
-                            throw it
-                        }
-                    }.getOrThrow()
+                    ).getOrThrow()
             }
         endpoint = nextResult.endpoint
         continuation = nextResult.continuation
@@ -82,9 +73,9 @@ class YouTubeQueue(
 
         fun radio(song: MediaMetadata) =
             YouTubeQueue(
-                endpoint = WatchEndpoint(videoId = song.id, playlistId = "RDAMVM${song.id}"),
+                endpoint = WatchEndpoint(videoId = song.id),
                 preloadItem = song,
-                followAutomixPreview = false,
+                followAutomixPreview = true,
             )
     }
 }
