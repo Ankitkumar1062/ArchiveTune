@@ -115,6 +115,9 @@ object SpotifyPlaybackResolver {
                     explicit = track.explicit || best.explicit,
                     album = track.album?.let { MediaMetadata.Album(id = it.id, title = it.name) } ?: bestMetadata.album,
                     spotifyTrackId = track.id.takeIf(String::isNotBlank),
+                    // Carry Spotify's ISRC onto the queue item so the lossless chain can ask each
+                    // source for this exact recording instead of re-running a fuzzy title search.
+                    isrc = track.isrc,
                 )
 
             // Direct 0ms fast-path: Prime IsrcResolver so lossless chain has the verified ISRC instantly

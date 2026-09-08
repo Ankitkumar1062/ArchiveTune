@@ -9133,10 +9133,14 @@ class MusicService :
         val artists: List<String>,
         val album: String?,
         val durationMs: Long?,
-        val isrc: String? = null,
         val localizedTitle: String? = null,
         val localizedArtist: String? = null,
         val isExplicit: Boolean = false,
+        /**
+         * ISRC of the wanted recording, when the queue item carried one (catalogue imports only).
+         * A source that can look up by ISRC uses it for an exact match and skips its text search.
+         */
+        val isrc: String? = null,
         /**
          * When non-null, the Qobuz resolver skips its title/artist search and
          * downloads this exact trackId. Set when the user picks a specific
@@ -9224,7 +9228,11 @@ class MusicService :
         val album =
             queuedMetadata?.album?.title?.takeIf { it.isNotBlank() }
                 ?: song?.song?.albumName
-                ?: song?.album?.title
+                ?: queuedMetadata?.album?.title
+        // ISRC comes only from the in-memory queue metadata: the song table has no ISRC column, and
+        // it is only ever set for catalogue-sourced items (Spotify import), which is exactly where
+        // an exact-recording match beats a title/artist search.
+        val directIsrc = queuedMetadata?.isrc?.takeIf { it.isNotBlank() }
         val durationMs =
             queuedMetadata?.duration?.takeIf { it > 0 }?.toLong()?.times(1000L)
                 ?: song?.song?.duration?.takeIf { it > 0 }?.toLong()?.times(1000L)
@@ -9257,7 +9265,7 @@ class MusicService :
             artists = artists,
             album = album,
             durationMs = durationMs,
-            isrc = isrcResult?.isrc,
+            isrc = directIsrc ?: isrcResult?.isrc,
             localizedTitle = isrcResult?.localizedTitle,
             localizedArtist = isrcResult?.localizedArtist,
             isExplicit = isExplicit,
@@ -10431,6 +10439,8 @@ class MusicService :
                             title = query.title,
                             artists = query.artists,
                             album = query.album,
+                            // Tidal's resolver already scores an exact-ISRC hit above any text match
+                            // (see exactIsrc/exactIsrcOnly); it was only ever being handed null here.
                             isrc = query.isrc,
                             durationMs = query.durationMs,
                         ),

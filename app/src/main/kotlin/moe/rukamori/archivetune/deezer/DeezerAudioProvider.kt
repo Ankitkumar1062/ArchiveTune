@@ -319,6 +319,12 @@ object DeezerAudioProvider {
         val artists: List<String>,
         val album: String?,
         val durationMs: Long?,
+        /**
+         * When non-null, [matchTrack] first resolves the exact recording via Deezer's public
+         * `track/isrc:{isrc}` endpoint and only falls back to the title/artist search if that
+         * finds nothing. An ISRC names one recording, so this avoids the fuzzy search picking a
+         * different take (live/remaster/cover) for a catalogue-imported track.
+         */
         val isrc: String? = null,
         val isExplicit: Boolean? = null,
     )

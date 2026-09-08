@@ -24,10 +24,15 @@ data class SpotifyTrack(
     val uri: String? = null,
     @SerialName("external_ids") val externalIds: SpotifyExternalIds? = null,
     val popularity: Int? = null,
-) {
-    val isrc: String? get() = externalIds?.isrc?.takeIf { it.isNotBlank() }
+    /**
+     * The recording's ISRC, when Spotify returned one.
+     *
+     * Only full track objects carry `external_ids` — playlist items do, the simplified tracks in an
+     * album listing do not — so this is absent often enough that every consumer must have a
+     * title/artist fallback rather than treating it as required.
+     */
+    val isrc: String? get() = externalIds?.isrc?.takeIf(String::isNotBlank)
 }
-
 @Serializable
 data class SpotifyExternalIds(
     val isrc: String? = null,
