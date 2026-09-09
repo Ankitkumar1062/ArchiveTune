@@ -164,28 +164,21 @@ class LyricsMenuViewModel
             _lyricsSearchState.value = LyricsSearchScreenState.Loading
             job =
                 viewModelScope.launch(Dispatchers.IO) {
-                    val resultModels = mutableListOf<LyricsSearchResultUiModel>()
                     try {
-                        lyricsHelper.getAllLyrics(
-                            mediaId = mediaId,
-                            songTitle = title,
-                            songArtists = artist,
-                            songAlbum = album,
-                            duration = duration,
-                            forceRefresh = true,
-                        ) { result ->
-                            if (generation != searchGeneration.get()) return@getAllLyrics
-                            val model = result.toUiModel(resultModels.size)
-                            if (model.preview.isBlank()) return@getAllLyrics
-
-                            resultModels += model
-                            _lyricsSearchState.value =
-                                LyricsSearchScreenState.Success(
-                                    results = ImmutableList.copyOf(resultModels),
-                                    isSearching = true,
-                                )
-                        }
+                        val mediaMetadata =
+                            MediaMetadata(
+                                id = mediaId,
+                                title = title,
+                                artists = artist.split(",").map { MediaMetadata.Artist(name = it.trim(), id = null) },
+                                album = album?.let { MediaMetadata.Album(title = it, id = "") },
+                                duration = duration,
+                            )
+                        val results = lyricsHelper.getAllLyrics(mediaMetadata, forceRefresh = true)
                         if (generation != searchGeneration.get()) return@launch
+                        val resultModels =
+                            results
+                                .mapIndexed { index, result -> result.toUiModel(index) }
+                                .filter { it.preview.isNotBlank() }
                         _lyricsSearchState.value =
                             if (resultModels.isEmpty()) {
                                 LyricsSearchScreenState.Empty
@@ -198,9 +191,9 @@ class LyricsMenuViewModel
                     } catch (e: CancellationException) {
                         throw e
                     } catch (_: Exception) {
-                        if (generation == searchGeneration.get()) {
-                            _lyricsSearchState.value = LyricsSearchScreenState.Error(R.string.error_unknown)
-                        }
+                        if (generation != searchGeneration.get()) return@launch
+                        _lyricsSearchState.value =
+                            LyricsSearchScreenState.Error(R.string.error_unknown)
                     }
                 }
         }
