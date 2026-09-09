@@ -11,14 +11,16 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -59,11 +61,14 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import kotlinx.coroutines.launch
 import moe.rukamori.archivetune.R
+import moe.rukamori.archivetune.LocalPlayerAwareWindowInsets
 import moe.rukamori.archivetune.constants.AppleMusicDevTokenKey
 import moe.rukamori.archivetune.constants.AppleMusicMediaUserTokenKey
 import moe.rukamori.archivetune.ui.component.EnumListPreference
 import moe.rukamori.archivetune.ui.component.IconButton
 import moe.rukamori.archivetune.ui.component.PreferenceEntry
+import moe.rukamori.archivetune.ui.component.PreferenceGroup
+import moe.rukamori.archivetune.ui.screens.settings.SettingsDimensions
 import moe.rukamori.archivetune.ui.utils.appBarScrollBehavior
 import moe.rukamori.archivetune.ui.utils.backToMain
 import androidx.datastore.preferences.core.edit
@@ -84,8 +89,9 @@ private fun looksLikeMediaUserToken(value: String): Boolean =
     looksLikeJwt(value) || value.matches(Regex("^0\\.[A-Za-z0-9+/=]{40,}$"))
 
 /**
- * Apple Music sign-in — login-only by design: no pool, independent of Developer
- * Options. Full-track streaming engages once BOTH tokens are present.
+ * Apple Music sign-in — the community source pool supplies a Media User Token when the user
+ * has none of their own (see App's mediaUserTokenProvider fallback), so playback can engage
+ * with zero setup. Signing in here simply guarantees access with the user's own account.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -116,11 +122,24 @@ fun AppleMusicSettings(navController: NavController) {
             )
         },
     ) { innerPadding ->
+        val playerAwareBottomPadding =
+            LocalPlayerAwareWindowInsets.current
+                .only(WindowInsetsSides.Bottom)
+                .asPaddingValues()
+                .calculateBottomPadding()
+        val scrollState = rememberScrollState()
+
         Column(
             Modifier
                 .padding(top = innerPadding.calculateTopPadding())
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 16.dp),
+                .windowInsetsPadding(
+                    LocalPlayerAwareWindowInsets.current.only(
+                        WindowInsetsSides.Horizontal,
+                    ),
+                )
+                .verticalScroll(scrollState)
+                .padding(horizontal = SettingsDimensions.ScreenHorizontalPadding)
+                .padding(bottom = playerAwareBottomPadding + SettingsDimensions.ScreenBottomPadding),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
@@ -129,52 +148,45 @@ fun AppleMusicSettings(navController: NavController) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            Card(
-                shape = RoundedCornerShape(26.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                PreferenceEntry(
-                    title = { Text(stringResource(R.string.applemusic_sign_in_web)) },
-                    description = stringResource(R.string.applemusic_sign_in_web_desc),
-                    icon = { Icon(painterResource(R.drawable.language), null) },
-                    onClick = { navController.navigate(APPLE_MUSIC_LOGIN_ROUTE) },
-                )
-            }
-
-            Card(
-                shape = RoundedCornerShape(26.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                PreferenceEntry(
-                    title = { Text(stringResource(R.string.applemusic_tokens_title)) },
-                    description =
-                        if (signedIn) stringResource(R.string.applemusic_tokens_ready)
-                        else stringResource(R.string.applemusic_tokens_missing),
-                    icon = { Icon(painterResource(R.drawable.token), null) },
-                    onClick = { showTokenSheet = true },
-                )
-            }
-
-            if (signedIn) {
-                Card(
-                    shape = RoundedCornerShape(26.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
+            // One continuous pane like every other settings screen — the hand-rolled
+            // per-row Cards this screen used were the odd one out (Yuma treatment =
+            // grouped panes, not per-row cards).
+            PreferenceGroup(title = stringResource(R.string.applemusic_settings)) {
+                item {
                     PreferenceEntry(
-                        title = { Text(stringResource(R.string.applemusic_disconnect)) },
-                        icon = { Icon(painterResource(R.drawable.close), null) },
-                        onClick = {
-                            scope.launch {
-                                context.dataStore.edit {
-                                    it.remove(AppleMusicMediaUserTokenKey)
-                                    it.remove(AppleMusicDevTokenKey)
-                                }
-                            }
-                        },
+                        title = { Text(stringResource(R.string.applemusic_sign_in_web)) },
+                        description = stringResource(R.string.applemusic_sign_in_web_desc),
+                        icon = { Icon(painterResource(R.drawable.language), null) },
+                        onClick = { navController.navigate(APPLE_MUSIC_LOGIN_ROUTE) },
                     )
+                }
+
+                item {
+                    PreferenceEntry(
+                        title = { Text(stringResource(R.string.applemusic_tokens_title)) },
+                        description =
+                            if (signedIn) stringResource(R.string.applemusic_tokens_ready)
+                            else stringResource(R.string.applemusic_tokens_missing),
+                        icon = { Icon(painterResource(R.drawable.token), null) },
+                        onClick = { showTokenSheet = true },
+                    )
+                }
+
+                if (signedIn) {
+                    item {
+                        PreferenceEntry(
+                            title = { Text(stringResource(R.string.applemusic_disconnect)) },
+                            icon = { Icon(painterResource(R.drawable.close), null) },
+                            onClick = {
+                                scope.launch {
+                                    context.dataStore.edit {
+                                        it.remove(AppleMusicMediaUserTokenKey)
+                                        it.remove(AppleMusicDevTokenKey)
+                                    }
+                                }
+                            },
+                        )
+                    }
                 }
             }
         }

@@ -17,7 +17,6 @@ import android.app.PendingIntent
 import android.bluetooth.BluetoothClass
 import android.bluetooth.BluetoothDevice
 import android.content.BroadcastReceiver
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -94,11 +93,8 @@ import androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.session.CommandButton
-import androidx.media3.session.MediaController
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
-import androidx.media3.session.SessionToken
-import com.google.common.util.concurrent.MoreExecutors
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -107,6 +103,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
@@ -316,6 +313,7 @@ import moe.rukamori.archivetune.models.toMediaMetadata
 import moe.rukamori.archivetune.playback.queues.EmptyQueue
 import moe.rukamori.archivetune.playback.queues.ListQueue
 import moe.rukamori.archivetune.playback.queues.Queue
+import moe.rukamori.archivetune.sponsorblock.SponsorBlockPlaybackController
 import moe.rukamori.archivetune.playback.queues.YouTubeQueue
 import moe.rukamori.archivetune.playback.queues.filterBlockedArtists
 import moe.rukamori.archivetune.playback.queues.filterExplicit
@@ -409,6 +407,9 @@ class MusicService :
     @Inject
     lateinit var equalizerPlaybackController: EqualizerPlaybackController
 
+    @Inject
+    lateinit var sponsorBlockPlaybackController: SponsorBlockPlaybackController
+
     private lateinit var audioManager: AudioManager
     private var audioFocusRequest: AudioFocusRequest? = null
     private var lastAudioFocusState = AudioManager.AUDIOFOCUS_NONE
@@ -429,6 +430,8 @@ class MusicService :
     private var sourceSwitchPending = false
     private var sourceSwitchExpectedVolume = 1f
     private var sourceSwitchReassertJob: Job? = null
+    private var pendingSeekVolumeReassert = false
+    private var seekVolumeReassertJob: Job? = null
     private var lastAudioOutputDeviceSignature: String? = null
     private var lastAudioRouteRecoveryRealtimeMs = 0L
 
@@ -1280,6 +1283,9 @@ class MusicService :
                 }
         _playerFlow.value = player
         playerInitialized.value = true
+        // ioScope, not scope: the lookup is network plus a JSON parse, and the controller hops to
+        // the main thread itself for every player read.
+        sponsorBlockPlaybackController.attach(player, ioScope)
 
         // The single authoritative artwork resolver. Every artwork source decision flows
         // through here so the player, notification and palette extractor can never diverge.
@@ -1387,9 +1393,6 @@ class MusicService :
         updateNotification()
         player.repeatMode = REPEAT_MODE_OFF
 
-        val sessionToken = SessionToken(this, ComponentName(this, MusicService::class.java))
-        val controllerFuture = MediaController.Builder(this, sessionToken).buildAsync()
-        controllerFuture.addListener({ controllerFuture.get() }, MoreExecutors.directExecutor())
         scope.launch(Dispatchers.IO) {
             val prefs = dataStore.data.first()
             val repeatMode = prefs[RepeatModeKey] ?: REPEAT_MODE_OFF
@@ -3185,6 +3188,9 @@ class MusicService :
                     }
             sleepTimer.player = player
             player.addListener(sleepTimer)
+            // Promotion builds a new session player and releases the old one, so anything holding a
+            // listener on it has to be moved across or it goes deaf for the rest of the session.
+            sponsorBlockPlaybackController.attach(player, ioScope)
             castPlaybackRepository.releasePlayer(oldSessionPlayer)
 
             // 3. Listeners/analytics that were attached to the old local player.
@@ -7906,6 +7912,15 @@ class MusicService :
                 applyEffectiveVolumeImmediately(sourceSwitchExpectedVolume)
                 ensureAudiblePlaybackVolume("source_switch_ready")
             }
+            // A seek's re-buffer has just completed. The reactive volume pipeline re-fired during
+            // BUFFERING->READY and may have pinned the primary player low; restore it now instead
+            // of waiting up to 15s for the audible-volume watchdog. Guarded + idempotent.
+            if (pendingSeekVolumeReassert) {
+                pendingSeekVolumeReassert = false
+                seekVolumeReassertJob?.cancel()
+                seekVolumeReassertJob = null
+                ensureAudiblePlaybackVolume("seek_ready")
+            }
             updateAudiblePlaybackRecovery()
             scheduleCrossfade()
         }
@@ -8254,10 +8269,33 @@ class MusicService :
             if (!crossfadeHandoffInProgress) {
                 cancelCrossfade(resetVolume = true, resetPauseAtEnd = true)
             }
+            // A seek forces a re-buffer; the BUFFERING->READY transition re-fires the reactive
+            // volume pipeline (playerVolume x normalize x focus), which can pin the primary
+            // player's volume low AFTER the reset above already ran — the same re-fire the
+            // source-switch path guards against, but seeks had none, so the stream stayed silent
+            // until the 15s audible-volume watchdog. Reassert at the seek's READY (below) and,
+            // for an in-buffer seek that never leaves READY, once shortly after.
+            pendingSeekVolumeReassert = true
+            scheduleSeekVolumeReassert()
         }
         if (!isCrossfading && !crossfadeHandoffInProgress) {
             scheduleCrossfade()
         }
+    }
+
+    /**
+     * Fast-path recovery for a seek that stays within the buffered region: no BUFFERING->READY
+     * fires, so the STATE_READY seek hook never runs. [ensureAudiblePlaybackVolume] only restores
+     * a primary player that is muted but should be audible, and no-ops during a real crossfade, so
+     * this cannot introduce a spurious volume change.
+     */
+    private fun scheduleSeekVolumeReassert() {
+        seekVolumeReassertJob?.cancel()
+        seekVolumeReassertJob =
+            scope.launch {
+                delay(SEEK_VOLUME_REASSERT_MS)
+                ensureAudiblePlaybackVolume("seek_reassert")
+            }
     }
 
     override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
@@ -11986,6 +12024,7 @@ class MusicService :
 
     override fun onDestroy() {
         equalizerPlaybackController.detach(this)
+        sponsorBlockPlaybackController.detach()
         discordServiceStopping = true
         requestDiscordSync(
             reason = "service_destroy",
@@ -12003,7 +12042,9 @@ class MusicService :
         unregisterBluetoothReceiver()
         unregisterMuteRecoveryObserver()
         try {
-            scope.launch { stopTogetherInternal() }
+            // NonCancellable: this must survive the scopeJob.cancel() below —
+            // a plain scope.launch is cancelled before its body ever runs.
+            scope.launch(NonCancellable) { stopTogetherInternal() }
         } catch (_: Exception) {
         }
         try {
@@ -12040,6 +12081,14 @@ class MusicService :
             initialBufferRecoveryJob?.cancel()
             player.release()
             castPlaybackRepository.releasePlayer(player)
+        } catch (_: Exception) {
+        }
+        // The sync worker is a child of scopeJob and may be cancelled at the
+        // receive below before it drains the service_destroy request. Stop the
+        // manager directly so the static holder drops its listener (which
+        // captures this@MusicService) even if that race is lost. Idempotent.
+        try {
+            DiscordPresenceManager.stop()
         } catch (_: Exception) {
         }
         scopeJob.cancel()
@@ -12306,6 +12355,10 @@ class MusicService :
         // a broken import from the morideobfuscator submodule (where the constant never
         // existed) — moved back here so the reference resolves.
         const val SOURCE_SWITCH_VOLUME_REASSERT_MS = 250L
+        // Fast-path reassert for a seek that stays within the buffered region (no
+        // BUFFERING->READY, so the STATE_READY seek hook never fires). Covers the case the
+        // 15s audible-volume watchdog would otherwise be the only recovery for.
+        const val SEEK_VOLUME_REASSERT_MS = 300L
         const val MIN_AUDIO_FOCUS_VOLUME_FACTOR = 0.2f
         const val MIN_AUDIO_NORMALIZATION_FACTOR = 0.25f
         const val MAX_AUDIO_NORMALIZATION_FACTOR = 1.414f

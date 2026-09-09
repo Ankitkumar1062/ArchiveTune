@@ -31,8 +31,11 @@
  *  - BitChord's per-lyric lyric-clock follows the player position; the entry
  *    composable passes position + isPlaying in.
  *
- * Belongs exclusively to the Bitchord player style; not shared with any other
- * player style, per the self-containment rule for player styles (2026-09-01).
+ * Belongs to the Bitchord player style, with one deliberate exception to the self-containment rule
+ * (2026-09-01, amended 2026-09-07): [SweptLyricLine], [rememberLyricClock] and [toBitChordLyrics]
+ * are also drawn by SimpMusic's current-line band. That band highlighted whole lines while this one
+ * swept word by word off the same timings, and a second copy of the sweep is a second thing to fix
+ * every time a provider changes shape. Everything else here stays Bitchord's.
  */
 
 package moe.rukamori.archivetune.ui.player.bitchord
@@ -281,6 +284,16 @@ private const val GLOW_FLOOR = 0.22f
 private const val GLOW_ATTACK = 0.18f
 private const val GLOW_RELEASE = 0.38f
 
+/**
+ * Height of the strip, in lines, held whether the line fills it or not.
+ *
+ * At one line every lyric longer than the player is wide ended in an ellipsis, which on a phone is
+ * most of them. Letting the strip grow to fit instead would move the scrubber and the transport row
+ * under it every time the line changed, so the second row is reserved up front and short lines
+ * simply leave it empty.
+ */
+private const val STRIP_LINES = 2
+
 // ── Mapper from ArchiveTune's parsed lyrics ───────────────────────────────────
 
 /**
@@ -456,12 +469,13 @@ internal fun rememberLyricClock(positionMs: Long, isPlaying: Boolean): MutableLo
  * rather than a drop shadow sitting under the line.
  */
 @Composable
-private fun SweptLyricLine(
+internal fun SweptLyricLine(
     line: LyricLine,
     clock: MutableLongState,
     style: TextStyle,
     dimAlpha: Float,
     modifier: Modifier = Modifier,
+    minLines: Int = 1,
     maxLines: Int = Int.MAX_VALUE,
     overflow: TextOverflow = TextOverflow.Clip,
     glowAlpha: Float = 0f,
@@ -498,6 +512,7 @@ private fun SweptLyricLine(
             text = line.text,
             style = style,
             color = Color.White.copy(alpha = dimAlpha),
+            minLines = minLines,
             maxLines = maxLines,
             overflow = overflow,
             onTextLayout = { layout = it },
@@ -508,6 +523,7 @@ private fun SweptLyricLine(
                 text = line.text,
                 style = style,
                 color = Color.White,
+                minLines = minLines,
                 maxLines = maxLines,
                 overflow = overflow,
                 modifier = Modifier
@@ -541,6 +557,7 @@ private fun SweptLyricLine(
             text = line.text,
             style = style,
             color = Color.White,
+            minLines = minLines,
             maxLines = maxLines,
             overflow = overflow,
             modifier = room.then(sweep),
@@ -754,7 +771,8 @@ internal fun CurrentLyricLine(
                 clock = clock,
                 style = MaterialTheme.typography.titleMedium,
                 dimAlpha = UNSUNG_ALPHA_STRIP,
-                maxLines = 1,
+                minLines = STRIP_LINES,
+                maxLines = STRIP_LINES,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false),
             )
@@ -763,7 +781,8 @@ internal fun CurrentLyricLine(
                 text = text,
                 style = MaterialTheme.typography.titleMedium,
                 color = Color.White,
-                maxLines = 1,
+                minLines = STRIP_LINES,
+                maxLines = STRIP_LINES,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false),
             )
@@ -818,7 +837,8 @@ internal fun LyricsUnavailableLine(
             text = "Lyrics not available",
             style = MaterialTheme.typography.titleMedium,
             color = Color.White,
-            maxLines = 1,
+            minLines = STRIP_LINES,
+            maxLines = STRIP_LINES,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier
                 .weight(1f, fill = false)
@@ -864,7 +884,8 @@ internal fun LyricsLoadingLine(
             text = text,
             style = MaterialTheme.typography.titleMedium,
             color = Color.White.copy(alpha = 0.55f),
-            maxLines = 1,
+            minLines = STRIP_LINES,
+            maxLines = STRIP_LINES,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f, fill = false),
         )
