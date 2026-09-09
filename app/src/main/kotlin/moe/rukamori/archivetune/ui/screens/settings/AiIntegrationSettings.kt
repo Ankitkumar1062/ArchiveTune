@@ -199,7 +199,6 @@ fun AiIntegrationSettings(
         }
     }
 
-<<<<<<< HEAD
     val hasCustomEndpoint = provider != AiProvider.CUSTOM || customEndpoint.isNotBlank()
     val hasApiConfiguration =
         when (provider) {

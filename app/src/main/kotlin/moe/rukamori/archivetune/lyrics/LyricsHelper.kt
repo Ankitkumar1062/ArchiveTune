@@ -17,6 +17,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
@@ -28,10 +29,10 @@ import kotlinx.coroutines.withTimeoutOrNull
 import moe.rukamori.archivetune.constants.EnableBetterLyricsKey
 import moe.rukamori.archivetune.constants.EnableBetterLyricsPortatoKey
 import moe.rukamori.archivetune.constants.EnableDeezerLyricsKey
-import moe.rukamori.archivetune.constants.EnableKuGouKey
+import moe.rukamori.archivetune.constants.EnableKugouKey
 import moe.rukamori.archivetune.constants.EnableLrcLibKey
-import moe.rukamori.archivetune.constants.EnableMegalobizKey
-import moe.rukamori.archivetune.constants.EnableMusixmatchLyricsKey
+import moe.rukamori.archivetune.constants.EnableMegalobizLyricsKey
+import moe.rukamori.archivetune.constants.EnableMusixmatchExperimentalKey
 import moe.rukamori.archivetune.constants.EnablePaxsenixAppleMusicLyricsKey
 import moe.rukamori.archivetune.constants.EnablePaxsenixMusixmatchLyricsKey
 import moe.rukamori.archivetune.constants.EnablePaxsenixNeteaseLyricsKey
@@ -91,8 +92,8 @@ class LyricsHelper
                 BetterLyricsPortatoProvider to EnableBetterLyricsPortatoKey,
                 YouLyPlusLyricsProvider to EnableYouLyPlusLyricsKey,
                 LrcLibLyricsProvider to EnableLrcLibKey,
-                KuGouLyricsProvider to EnableKuGouKey,
-                MegalobizLyricsProvider to EnableMegalobizKey,
+                KuGouLyricsProvider to EnableKugouKey,
+                MegalobizLyricsProvider to EnableMegalobizLyricsKey,
                 SimpMusicLyricsProvider to EnableSimpMusicLyricsKey,
                 UnisonLyricsProvider to EnableUnisonLyricsKey,
                 PaxsenixAppleMusicLyricsProvider to EnablePaxsenixAppleMusicLyricsKey,
@@ -102,7 +103,7 @@ class LyricsHelper
                 PaxsenixYouTubeLyricsProvider to EnablePaxsenixYouTubeLyricsKey,
                 TidalLyricsProvider to EnableTidalLyricsKey,
                 DeezerLyricsProvider to EnableDeezerLyricsKey,
-                MusixmatchExperimentalLyricsProvider to EnableMusixmatchLyricsKey,
+                MusixmatchExperimentalLyricsProvider to EnableMusixmatchExperimentalKey,
             )
 
         private val cacheLock = Any()
@@ -211,27 +212,33 @@ class LyricsHelper
                     providers = providers.map { it.name },
                 )
 
-            val deferred =
+            val cached =
                 synchronized(cacheLock) {
                     if (forceRefresh) {
                         cacheGeneration++
                         cache.remove(request)
                         singleLyricsCache.remove(request)
                         inFlight.remove(request)
+                        null
                     } else {
                         cache.get(request)?.let { cached ->
                             if (SystemClock.elapsedRealtime() < cached.expiresAt) {
-                                return cached.results
+                                cached.results
                             } else {
                                 cache.remove(request)
+                                null
                             }
                         }
                     }
+                }
+            if (cached != null) return cached
 
-                    inFlight.getOrPut(request) {
-                        val expectedGeneration = cacheGeneration
-                        withContext(Dispatchers.IO) {
-                            async {
+            return coroutineScope {
+                val deferred =
+                    synchronized(cacheLock) {
+                        inFlight.getOrPut(request) {
+                            val expectedGeneration = cacheGeneration
+                            async(Dispatchers.IO) {
                                 try {
                                     val results = fetchAllProviders(providers, request)
                                     synchronized(cacheLock) {
@@ -254,9 +261,9 @@ class LyricsHelper
                             }
                         }
                     }
-                }
 
-            return deferred.await()
+                deferred.await()
+            }
         }
 
         private suspend fun fetchAllProviders(

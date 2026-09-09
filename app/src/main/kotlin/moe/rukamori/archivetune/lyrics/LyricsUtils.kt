@@ -688,6 +688,7 @@ object LyricsUtils {
             return TTML_SPAN_REGEX.findAll(normalized).any { match ->
                 TTML_BEGIN_ATTRIBUTE_REGEX.containsMatchIn(match.value) &&
                     TTML_END_ATTRIBUTE_REGEX.containsMatchIn(match.value)
+            }
         }
 
         return normalized.lineSequence().any(::hasEnhancedLrcWordTimings)
@@ -1050,7 +1051,7 @@ object LyricsUtils {
                 3 -> fraction.toLongOrNull()
                 else -> null
             } ?: return null
-        return minutes * DateUtils.MINUTE_IN_MILLIS + seconds * DateUtils.SECOND_IN_MILLIS + milliseconds
+        return minutes * 60_000L + seconds * 1_000L + milliseconds
     }
 
     private fun parseMillisecondsSyncedLine(line: String): List<LyricsEntry>? {

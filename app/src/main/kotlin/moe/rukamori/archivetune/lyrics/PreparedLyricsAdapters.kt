@@ -42,7 +42,6 @@ fun PreparedLyrics.toLyricsEntries(): List<LyricsEntry> =
             providerRomanizedText = line.romanizedText,
             providerRomanizedWords = providerWords,
             providerTranslationText = line.translation,
-            isRtl = line.direction == LyricsTextDirection.RTL,
             romanizedTextFlow = MutableStateFlow(line.romanizedText),
         )
     }

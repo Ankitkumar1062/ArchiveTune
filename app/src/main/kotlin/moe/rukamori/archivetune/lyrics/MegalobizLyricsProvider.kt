@@ -23,7 +23,7 @@ import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-import moe.rukamori.archivetune.constants.EnableMegalobizKey
+import moe.rukamori.archivetune.constants.EnableMegalobizLyricsKey
 import moe.rukamori.archivetune.utils.dataStore
 import moe.rukamori.archivetune.utils.get
 
@@ -39,7 +39,7 @@ object MegalobizLyricsProvider : LyricsProvider {
             .build()
     }
 
-    override fun isEnabled(context: Context): Boolean = context.dataStore[EnableMegalobizKey] ?: true
+    override fun isEnabled(context: Context): Boolean = context.dataStore[EnableMegalobizLyricsKey] ?: true
 
     override suspend fun getLyrics(
         id: String,
