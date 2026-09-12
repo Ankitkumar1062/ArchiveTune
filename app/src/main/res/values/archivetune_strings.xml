@@ -739,6 +739,8 @@
     <string name="ai_provider_none">None (Disabled)</string>
     <string name="ai_provider_openrouter">OpenRouter</string>
     <string name="ai_custom_endpoint">Custom endpoint</string>
+    <string name="ai_custom_prompt">Custom translation prompt</string>
+    <string name="ai_custom_prompt_desc">Extra instructions appended to the AI translation prompt (e.g. "preserve honorifics", "output only romaji"). Leave blank to use the default prompt.</string>
     <string name="ai_api_key">API key</string>
     <string name="ai_api_key_missing">Required before AI features can run.</string>
     <string name="ai_api_key_configured">Configured</string>

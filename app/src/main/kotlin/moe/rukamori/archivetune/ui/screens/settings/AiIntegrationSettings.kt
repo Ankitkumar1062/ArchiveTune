@@ -110,6 +110,7 @@ import moe.rukamori.archivetune.constants.AiApiValidationStatus
 import moe.rukamori.archivetune.constants.AiApiValidationStatusKey
 import moe.rukamori.archivetune.constants.AiCustomEndpointKey
 import moe.rukamori.archivetune.constants.AiCustomModelKey
+import moe.rukamori.archivetune.constants.AiCustomPromptKey
 import moe.rukamori.archivetune.constants.AiProvider
 import moe.rukamori.archivetune.constants.AiProviderKey
 import moe.rukamori.archivetune.constants.AiSelectedModelKey
@@ -164,6 +165,7 @@ fun AiIntegrationSettings(
         rememberEnumPreference(AiApiValidationStatusKey, AiApiValidationStatus.UNKNOWN)
     val (selectedModel, setSelectedModel) = rememberPreference(AiSelectedModelKey, "")
     val (customModel, setCustomModel) = rememberPreference(AiCustomModelKey, "")
+    val (customPrompt, setCustomPrompt) = rememberPreference(AiCustomPromptKey, "")
     val (hideAiMix, onHideAiMixChange) = rememberPreference(HideAiMixKey, defaultValue = false)
     val (autoTranslateLyrics, onAutoTranslateLyricsChange) =
         rememberPreference(AutoTranslateLyricsKey, defaultValue = false)
@@ -618,6 +620,17 @@ fun AiIntegrationSettings(
                     icon = { Icon(painterResource(R.drawable.auto_awesome), null) },
                     checked = hideAiMix,
                     onCheckedChange = onHideAiMixChange,
+                )
+            }
+
+            item(visible = provider != AiProvider.NONE && provider != AiProvider.DEEPL && provider != AiProvider.OPENROUTER) {
+                EditTextPreference(
+                    modifier = positions.modifierFor("ai_custom_prompt"),
+                    title = { Text(stringResource(R.string.ai_custom_prompt)) },
+                    icon = { Icon(painterResource(R.drawable.translate), null) },
+                    value = customPrompt,
+                    onValueChange = { setCustomPrompt(it) },
+                    isInputValid = { true },
                 )
             }
 

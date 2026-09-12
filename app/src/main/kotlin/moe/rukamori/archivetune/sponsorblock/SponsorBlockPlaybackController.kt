@@ -7,116 +7,161 @@
 
 package moe.rukamori.archivetune.sponsorblock
 
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.Dispatchers
 import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/**
- * Seeks past the stretches SponsorBlock marks on the currently playing track.
- *
- * Only ever seeks forward, and only ever out of a segment it is currently inside, so a user who
- * deliberately scrubs back into one is carried out of it again rather than fought frame by frame --
- * the segment is remembered as skipped and left alone until the track changes.
- */
 @Singleton
 class SponsorBlockPlaybackController
     @Inject
     constructor(
-        private val repository: SponsorBlockRepository,
+        private val observeSettings: ObserveSponsorBlockSettingsUseCase,
+        private val getSegments: GetSponsorBlockSegmentsUseCase,
     ) {
-        private var player: Player? = null
-        private var watcher: Job? = null
-        private var scope: CoroutineScope? = null
-        @Volatile private var segments: List<SponsorBlockSegment> = emptyList()
-        private val skippedEndsMs = mutableSetOf<Long>()
+        private val currentMediaId = MutableStateFlow<String?>(null)
+        private var attachedPlayer: Player? = null
+        private var observationJob: Job? = null
 
-        private val listener =
+        private val playerListener =
             object : Player.Listener {
                 override fun onMediaItemTransition(
                     mediaItem: MediaItem?,
                     reason: Int,
                 ) {
-                    reload(mediaItem?.mediaId)
+                    currentMediaId.value = mediaItem.normalizedMediaId()
+                }
+
+                override fun onTimelineChanged(
+                    timeline: androidx.media3.common.Timeline,
+                    reason: Int,
+                ) {
+                    currentMediaId.value = attachedPlayer?.currentMediaItem.normalizedMediaId()
                 }
             }
 
-        fun attach(player: Player, scope: CoroutineScope) {
+        fun attach(
+            player: Player,
+            scope: CoroutineScope,
+        ) {
+            if (attachedPlayer === player && observationJob?.isActive == true) return
             detach()
-            this.player = player
-            this.scope = scope
-            player.addListener(listener)
-            reload(player.currentMediaItem?.mediaId)
-            watcher =
+
+            attachedPlayer = player
+            currentMediaId.value = player.currentMediaItem.normalizedMediaId()
+            player.addListener(playerListener)
+            observationJob =
                 scope.launch {
-                    while (isActive) {
-                        val current = this@SponsorBlockPlaybackController.player
-                        if (current == null) {
-                            delay(IDLE_POLL_MS)
-                            continue
-                        }
-                        val playing = withContext(Dispatchers.Main) { current.isPlaying }
-                        if (!playing || segments.isEmpty()) {
-                            delay(IDLE_POLL_MS)
-                            continue
-                        }
-                        withContext(Dispatchers.Main) { skipIfInsideSegment(current) }
-                        delay(ACTIVE_POLL_MS)
+                    try {
+                        combine(
+                            observeSettings(),
+                            currentMediaId,
+                        ) { settings, mediaId -> settings to mediaId }
+                            .collectLatest { (settings, mediaId) ->
+                                val activeMediaId = mediaId ?: return@collectLatest
+                                if (!settings.enabled || settings.categories.isEmpty()) return@collectLatest
+
+                                val segments =
+                                    try {
+                                        getSegments(activeMediaId, settings)
+                                    } catch (cancellation: CancellationException) {
+                                        throw cancellation
+                                    } catch (throwable: Throwable) {
+                                        Timber
+                                            .tag(TAG)
+                                            .w(throwable, "SponsorBlock segment lookup failed")
+                                        return@collectLatest
+                                    }
+                                if (segments.isEmpty() || currentMediaId.value != activeMediaId) {
+                                    return@collectLatest
+                                }
+
+                                monitorPlayback(
+                                    player = player,
+                                    mediaId = activeMediaId,
+                                    segments = segments,
+                                )
+                            }
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
+                    } catch (throwable: Throwable) {
+                        Timber.tag(TAG).w(throwable, "SponsorBlock settings observation failed")
                     }
                 }
         }
 
         fun detach() {
-            watcher?.cancel()
-            watcher = null
-            player?.removeListener(listener)
-            player = null
-            scope = null
-            segments = emptyList()
-            skippedEndsMs.clear()
+            observationJob?.cancel()
+            observationJob = null
+            attachedPlayer?.removeListener(playerListener)
+            attachedPlayer = null
+            currentMediaId.value = null
         }
 
-        private fun skipIfInsideSegment(player: Player) {
-            val position = player.currentPosition
-            val segment =
-                segments.firstOrNull { position >= it.startMs && position < it.endMs - SKIP_TAIL_MS } ?: return
-            if (!skippedEndsMs.add(segment.endMs)) return
-            val duration = player.duration
-            // Landing past the end of a track would end it early; a segment that runs to the finish
-            // is left to play out instead.
-            if (duration > 0 && segment.endMs >= duration - SKIP_TAIL_MS) return
-            Timber.tag(TAG).d("Skipping %s: %dms -> %dms", segment.category.apiName, position, segment.endMs)
-            player.seekTo(segment.endMs)
-        }
-
-        private fun reload(mediaId: String?) {
-            segments = emptyList()
-            skippedEndsMs.clear()
-            val id = mediaId ?: return
-            val scope = scope ?: return
-            scope.launch {
-                val loaded = repository.segments(id)
-                // The track may have moved on while the lookup was in flight.
-                if (withContext(Dispatchers.Main) { player?.currentMediaItem?.mediaId } == id) {
-                    segments = loaded
+        private suspend fun monitorPlayback(
+            player: Player,
+            mediaId: String,
+            segments: List<SponsorBlockSegment>,
+        ) {
+            var lastSkippedEndMs: Long? = null
+            while (
+                currentCoroutineContext().isActive &&
+                attachedPlayer === player &&
+                player.currentMediaItem.normalizedMediaId() == mediaId
+            ) {
+                if (!player.isPlaying || player.playbackState != Player.STATE_READY) {
+                    delay(INACTIVE_POLL_INTERVAL_MILLIS)
+                    continue
                 }
+
+                val positionMs = player.currentPosition.coerceAtLeast(0L)
+                val activeSegment =
+                    segments.firstOrNull { segment ->
+                        positionMs >= segment.startMs &&
+                            positionMs < segment.endMs - END_TOLERANCE_MILLIS
+                    }
+                if (activeSegment == null) {
+                    lastSkippedEndMs = null
+                } else if (lastSkippedEndMs != activeSegment.endMs) {
+                    lastSkippedEndMs = activeSegment.endMs
+                    val knownDuration =
+                        player.duration.takeIf { duration ->
+                            duration != C.TIME_UNSET && duration > 0L
+                        }
+                    val targetPositionMs =
+                        knownDuration?.let { duration -> activeSegment.endMs.coerceAtMost(duration) }
+                            ?: activeSegment.endMs
+                    if (targetPositionMs - positionMs >= MIN_SEEK_DISTANCE_MILLIS) {
+                        player.seekTo(targetPositionMs)
+                    }
+                }
+                delay(ACTIVE_POLL_INTERVAL_MILLIS)
             }
         }
 
+        private fun MediaItem?.normalizedMediaId(): String? =
+            this
+                ?.mediaId
+                ?.trim()
+                ?.takeIf(String::isNotEmpty)
+
         private companion object {
             const val TAG = "SponsorBlock"
-            const val ACTIVE_POLL_MS = 200L
-            const val IDLE_POLL_MS = 750L
-
-            /** Too close to the end to be worth a seek, and close enough that seeking may overshoot. */
-            const val SKIP_TAIL_MS = 300L
+            const val ACTIVE_POLL_INTERVAL_MILLIS = 200L
+            const val INACTIVE_POLL_INTERVAL_MILLIS = 750L
+            const val END_TOLERANCE_MILLIS = 50L
+            const val MIN_SEEK_DISTANCE_MILLIS = 100L
         }
     }

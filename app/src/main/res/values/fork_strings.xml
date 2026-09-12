@@ -159,4 +159,5 @@
     <string name="paxsenix_check_result_ok">%1$s: available</string>
     <string name="paxsenix_check_result_retired">%1$s: retired upstream (403)</string>
     <string name="paxsenix_check_result_failed">%1$s: unreachable</string>
+    <string name="sponsor_block_category_hook">Hook</string>
 </resources>
