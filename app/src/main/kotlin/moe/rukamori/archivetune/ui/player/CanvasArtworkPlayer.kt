@@ -47,6 +47,8 @@ import kotlinx.coroutines.isActive
 import moe.rukamori.archivetune.di.CanvasCacheEntryPoint
 import moe.rukamori.archivetune.innertube.YouTube
 import moe.rukamori.archivetune.utils.StreamClientUtils
+import moe.rukamori.archivetune.canvas.CanvasSource
+import moe.rukamori.archivetune.canvas.CanvasNetworkAccess
 import okhttp3.OkHttpClient
 import timber.log.Timber
 import java.util.Locale
@@ -72,7 +74,9 @@ fun CanvasArtworkPlayer(
     // re-created and the ExoPlayer attaches to it — no reload delay because
     // the player instance was retained.
     visible: Boolean = true,
+    source: CanvasSource? = null,
 ) {
+    val provider = source ?: CanvasSource.ALL
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val primary = primaryUrl?.trim()?.takeIf { it.isNotBlank() }
@@ -88,10 +92,11 @@ fun CanvasArtworkPlayer(
     val shouldPlay by rememberUpdatedState(isPlaying)
 
     val okHttpClient =
-        remember {
+        remember(provider) {
             OkHttpClient
                 .Builder()
                 .proxy(YouTube.streamOkHttpProxy)
+                .addInterceptor { chain -> CanvasNetworkAccess.intercept(chain, provider) }
                 .addInterceptor { chain ->
                     val request = chain.request()
                     val host = request.url.host

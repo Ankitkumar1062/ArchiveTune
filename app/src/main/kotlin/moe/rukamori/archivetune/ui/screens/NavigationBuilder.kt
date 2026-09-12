@@ -64,6 +64,7 @@ import moe.rukamori.archivetune.ui.screens.settings.AppearanceSection
 import moe.rukamori.archivetune.ui.screens.settings.AppearanceSectionSettings
 import moe.rukamori.archivetune.ui.screens.settings.AppearanceSettings
 import moe.rukamori.archivetune.ui.screens.settings.BackupAndRestore
+import moe.rukamori.archivetune.ui.screens.settings.CanvasSettings
 import moe.rukamori.archivetune.ui.screens.settings.ChangelogScreen
 import moe.rukamori.archivetune.ui.screens.settings.ContentSettings
 import moe.rukamori.archivetune.ui.screens.settings.CustomizeBackground
@@ -552,6 +553,9 @@ fun NavGraphBuilder.navigationBuilder(
         arguments = listOf(navArgument("scrollTo") { type = NavType.StringType; nullable = true; defaultValue = null }),
     ) {
         PlayerSettings(navController, it.savedStateHandle["scrollTo"])
+    }
+    composable("settings/canvas") {
+        CanvasSettings(navController)
     }
     composable(
         route = "settings/sources?scrollTo={scrollTo}",

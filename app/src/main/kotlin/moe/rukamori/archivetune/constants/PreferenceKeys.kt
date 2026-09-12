@@ -56,6 +56,9 @@ val AppleMusicAnimatedArtworkKey = booleanPreferencesKey("appleMusicAnimatedArtw
 val ShowPlayerVolumeBarKey = booleanPreferencesKey("showPlayerVolumeBar")
 val HidePlayerThumbnailKey = booleanPreferencesKey("hidePlayerThumbnail")
 val ArchiveTuneCanvasKey = booleanPreferencesKey("archiveTuneCanvas")
+val CanvasSourceKey = stringPreferencesKey("canvasSource")
+val CanvasSourceOrderKey = stringPreferencesKey("canvasSourceOrder")
+val CanvasWifiOnlyKey = booleanPreferencesKey("canvasWifiOnly")
 val SpotifyCanvasKey = booleanPreferencesKey("spotifyCanvas")
 
 /**

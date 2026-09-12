@@ -7,346 +7,279 @@
 
 package moe.rukamori.archivetune.canvas
 
+import com.google.protobuf.CodedInputStream
+import com.google.protobuf.CodedOutputStream
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
-import io.ktor.client.plugins.cache.HttpCache
-import io.ktor.client.plugins.compression.ContentEncoding
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.client.plugins.defaultRequest
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
-import io.ktor.serialization.kotlinx.json.json
-import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonObject
 import moe.rukamori.archivetune.canvas.models.CanvasArtwork
-import java.util.concurrent.ConcurrentHashMap
+import moe.rukamori.archivetune.canvas.models.matchesSongIdentity
+import java.io.ByteArrayOutputStream
+import java.io.IOException
+import java.net.URI
+import java.util.Base64
+import java.util.UUID
 
-/**
- * Fetches Spotify Canvas looping videos for the currently playing song.
- *
- * Two sources are tried, in order:
- *
- * 1. **Spotify's own Canvas endpoint** (`spclient.wg.spotify.com/canvaz-cache`).
- *    This is the authoritative source — it is the same endpoint the Spotify
- *    clients use, and it returns the real canvas mp4. It needs a Spotify access
- *    token and the song's `spotify:track:<id>` URI, both supplied by the host app
- *    through [tokenProvider] / [trackUriResolver] (the canvas module deliberately
- *    has no dependency on the app's Spotify or player code). When the user has no
- *    Spotify session this source is simply unavailable.
- *
- * 2. **The `mlc-ytify.kouzu.in` resolver**, keyed by YouTube Music video ID.
- *    Kept as a fallback for users without a Spotify login. Note that this
- *    resolver serves canvases only out of its own cache and currently reports
- *    zero cached canvases (`/api/stats` → `"canvas": 0`), answering every lookup
- *    with `404 {"detail":"No cached canvas"}` — which is why Spotify Canvas
- *    appeared completely broken when it was the *only* source.
- *
- * The `x-request-source: muzo` header is required on every kouzu.in request —
- * without it the server rate-limits the client. It is injected centrally by the
- * `MusicService.mediaOkHttpClient` interceptor for kouzu.in hosts, but this
- * provider uses its own Ktor client, so the header is added here via
- * `defaultRequest`.
- *
- * Results are cached in-memory for 1 hour per video ID to avoid hammering either
- * source on every recomposition / replay. A negative result is cached too, so a
- * song with no canvas doesn't re-query on every replay.
- */
 object SpotifyCanvasProvider {
-    /**
-     * Fallback resolver base URL. The full URL is `$BASE_URL?id=<videoId>`.
-     */
-    private const val BASE_URL = "https://mlc-ytify.kouzu.in/api/canvas"
-
-    /** Spotify's Canvas endpoint. Speaks protobuf — see [SpotifyCanvazProtocol]. */
-    private const val CANVAZ_URL = "https://spclient.wg.spotify.com/canvaz-cache/v0/canvases"
-
-    private const val CACHE_TTL_MS = 60L * 60 * 1000 // 1 hour
-
-    /**
-     * Supplies a Spotify access token, or null when the user has no Spotify
-     * session. Set by the host app (see `App.kt`); left null in tests and in
-     * standalone use of this module.
-     */
-    @Volatile
-    var tokenProvider: (suspend () -> String?)? = null
-
-    /**
-     * Maps the currently playing song to a `spotify:track:<id>` URI, or null when
-     * it can't be identified on Spotify. Set by the host app.
-     */
-    @Volatile
-    var trackUriResolver: (suspend (videoId: String, title: String?, artist: String?) -> String?)? = null
-
-    /**
-     * Supplies extra community/self-hosted resolver base URLs to try after Spotify's own
-     * endpoint and before the built-in one. Set by the host app from the user's
-     * preference; left null in tests and standalone use.
-     *
-     * Every public Canvas resolver on GitHub is a self-hosted wrapper that needs the
-     * operator's own Spotify cookie, so there is no additional instance worth hardcoding —
-     * what makes the fallback chain extensible is letting the user name the instances they
-     * can actually reach.
-     */
-    @Volatile
-    var extraResolverEndpointsProvider: (suspend () -> List<String>)? = null
-
-    /** Optional diagnostic sink, mirroring [AppleMusicProvider.logger]. */
-    @Volatile
-    var logger: ((message: String) -> Unit)? = null
-
-    private fun log(message: String) {
-        logger?.invoke(message)
-    }
-
-    private val json =
-        Json {
-            ignoreUnknownKeys = true
-            isLenient = true
-            explicitNulls = false
-        }
-
+    private const val CANVAS_URL = "https://spclient.wg.spotify.com/canvaz-cache/v0/canvases"
+    private const val WEB_USER_AGENT = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
+    private const val APP_USER_AGENT = "Spotify/9.0.34.593 iOS/18.4 (iPhone15,3)"
+    private val trackUriPattern = Regex("spotify:track:[A-Za-z0-9]{22}")
+    private val configPattern = Regex("""<script[^>]*id="appServerConfig"[^>]*>([^<]+)</script>""")
+    private val json = Json { ignoreUnknownKeys = true }
+    private val clientTokenMutex = Mutex()
+    private var cachedClientToken: ClientToken? = null
     private val client by lazy {
         HttpClient(OkHttp) {
-            install(ContentNegotiation) { json(json) }
-            install(HttpTimeout) {
-                connectTimeoutMillis = 10_000
-                requestTimeoutMillis = 15_000
-                socketTimeoutMillis = 15_000
-            }
-            install(ContentEncoding) {
-                gzip()
-                deflate()
-            }
-            install(HttpCache)
-            // The x-request-source: muzo header is REQUIRED on every kouzu.in
-            // request — without it the server rate-limits the client aggressively.
-            defaultRequest {
-                header("x-request-source", "muzo")
-                header("User-Agent", "ArchiveTune-Android")
-                header("Accept", "application/json")
-            }
-            expectSuccess = false
-        }
-    }
-
-    /**
-     * Separate client for Spotify's Canvas endpoint.
-     *
-     * Deliberately not [client]: that one's `defaultRequest` block pins
-     * `x-request-source: muzo` and `Accept: application/json` for the kouzu.in
-     * resolver. Sending the muzo header to Spotify would be wrong, and the JSON
-     * Accept header would fight the protobuf one this endpoint needs.
-     */
-    private val spotifyClient by lazy {
-        HttpClient(OkHttp) {
-            install(HttpTimeout) {
-                connectTimeoutMillis = 10_000
-                requestTimeoutMillis = 15_000
-                socketTimeoutMillis = 15_000
-            }
-            expectSuccess = false
-        }
-    }
-
-    private data class CacheEntry(
-        val value: CanvasArtwork?,
-        val expiresAtMs: Long,
-    )
-
-    private val cache = ConcurrentHashMap<String, CacheEntry>()
-
-    /**
-     * Looks up the Spotify Canvas for the song identified by [videoId] (the
-     * YouTube Music video ID of the currently playing song). [songTitle] and
-     * [artistName] are used only to identify the song on Spotify for the official
-     * endpoint; the fallback resolver keys off [videoId] alone.
-     *
-     * Returns `null` if neither source has a canvas for the song, the song isn't
-     * on Spotify, or both requests fail.
-     */
-    suspend fun getByVideoId(
-        videoId: String,
-        songTitle: String? = null,
-        artistName: String? = null,
-    ): CanvasArtwork? {
-        if (videoId.isBlank()) return null
-
-        cache[videoId]?.let { entry ->
-            if (entry.expiresAtMs > System.currentTimeMillis()) return entry.value
-            cache.remove(videoId)
-        }
-
-        // Source 1: Spotify's own Canvas endpoint.
-        val official =
-            try {
-                fetchOfficialCanvas(videoId, songTitle, artistName)
-            } catch (throwable: Throwable) {
-                if (throwable is CancellationException) throw throwable
-                log("Official Spotify Canvas lookup failed for $videoId: ${throwable.message}")
-                null
-            }
-        if (official != null) {
-            cache[videoId] = CacheEntry(official, System.currentTimeMillis() + CACHE_TTL_MS)
-            return official
-        }
-
-        // Source 2..N: JSON resolvers, keyed by YouTube video id. The user's own
-        // endpoints come first (they are the ones that might actually have data — see
-        // [extraResolverEndpointsProvider]), then the built-in kouzu.in resolver.
-        val extraEndpoints =
-            try {
-                extraResolverEndpointsProvider?.invoke().orEmpty()
-            } catch (throwable: Throwable) {
-                if (throwable is CancellationException) throw throwable
-                log("Failed to read extra canvas resolvers: ${throwable.message}")
-                emptyList()
-            }
-        val resolverEndpoints = (extraEndpoints + BASE_URL).distinct()
-
-        var anyResolverReachable = false
-        for (endpoint in resolverEndpoints) {
-            val artwork =
-                try {
-                    val response =
-                        client.get(endpoint) {
-                            parameter("id", videoId)
-                        }
-                    if (response.status != HttpStatusCode.OK) {
-                        // A clean "no canvas for this track" answer — the resolver works, it
-                        // just has nothing. Keep going, but remember that it answered so a
-                        // negative result can be cached at the end.
-                        anyResolverReachable = true
-                        log("Canvas resolver $endpoint returned ${response.status.value} for $videoId")
-                        continue
-                    }
-                    anyResolverReachable = true
-                    val body: JsonObject = response.body()
-                    parseCanvasArtwork(body, videoId)
-                } catch (throwable: Throwable) {
-                    if (throwable is CancellationException) throw throwable
-                    // Unreachable / unparseable: try the next resolver, and do not cache a
-                    // negative result on its account.
-                    log("Canvas resolver $endpoint failed for $videoId: ${throwable.message}")
-                    null
+            engine {
+                config {
+                    addInterceptor { CanvasRequestPolicy.intercept(it, CanvasSource.SPOTIFY) }
                 }
-            if (artwork != null) {
-                cache[videoId] = CacheEntry(artwork, System.currentTimeMillis() + CACHE_TTL_MS)
-                return artwork
             }
+            install(HttpTimeout) {
+                connectTimeoutMillis = 12_000
+                requestTimeoutMillis = 18_000
+                socketTimeoutMillis = 18_000
+            }
+            expectSuccess = false
         }
-
-        // Only cache "no canvas" when at least one source actually answered; otherwise a
-        // transient outage would suppress lookups for the next hour.
-        if (anyResolverReachable) {
-            cache[videoId] = CacheEntry(null, System.currentTimeMillis() + CACHE_TTL_MS)
-        }
-        return null
     }
 
-    /**
-     * Asks Spotify directly for the canvas of the current song.
-     *
-     * Returns null (without caching) when the host app hasn't wired up a token /
-     * track resolver, when the user has no Spotify session, when the song can't
-     * be matched on Spotify, or when Spotify has no canvas for the track.
-     */
-    private suspend fun fetchOfficialCanvas(
-        videoId: String,
-        songTitle: String?,
-        artistName: String?,
-    ): CanvasArtwork? {
-        val resolveTrackUri = trackUriResolver ?: return null
-        val provideToken = tokenProvider ?: return null
+    @Volatile
+    var sessionProvider: (suspend () -> Pair<String, String>?)? = null
 
-        val token = provideToken()?.takeIf { it.isNotBlank() } ?: return null
-        val trackUri =
-            resolveTrackUri(videoId, songTitle, artistName)?.takeIf { it.isNotBlank() } ?: return null
+    suspend fun getBySongArtist(song: String, artist: String): CanvasArtwork? {
+        val session = sessionProvider?.invoke() ?: return null
+        return getBySongArtist(song, artist, session.first, session.second)
+    }
 
-        val response =
-            spotifyClient.post(CANVAZ_URL) {
-                header("Authorization", "Bearer $token")
-                header("Accept", "application/x-protobuf")
-                header("Content-Type", "application/x-protobuf")
-                header("User-Agent", "ArchiveTune-Android")
-                setBody(SpotifyCanvazProtocol.encodeRequest(listOf(trackUri)))
-            }
-        if (response.status != HttpStatusCode.OK) {
-            log("Spotify canvaz returned ${response.status.value} for $trackUri")
-            return null
+    suspend fun getBySongArtist(song: String, artist: String, accessToken: String, clientId: String): CanvasArtwork? {
+        CanvasRequestPolicy.check(CanvasSource.SPOTIFY)
+        val token = clientToken(clientId)
+        val query = "$song $artist"
+        val variables = buildJsonObject {
+            put("searchTerm", query)
+            put("offset", 0)
+            put("limit", 10)
+            put("numberOfTopResults", 5)
+            put("includeAudiobooks", false)
+            put("includePreReleases", false)
         }
+        val extensions = buildJsonObject {
+            putJsonObject("persistedQuery") {
+                put("version", 1)
+                put("sha256Hash", "bc1ca2fcd0ba1013a0fc88e6cc4f190af501851e3dafd3e1ef85840297694428")
+            }
+        }
+        val search = client.get("https://api-partner.spotify.com/pathfinder/v1/query") {
+            header("Authorization", "Bearer $accessToken")
+            header("Client-Token", token)
+            header("App-Platform", "WebPlayer")
+            header("User-Agent", WEB_USER_AGENT)
+            parameter("operationName", "searchTracks")
+            parameter("variables", variables.toString())
+            parameter("extensions", extensions.toString())
+        }
+        if (search.status.value == 401 || search.status.value == 429) throw RequestException(search.status.value)
+        val root = if (search.status == HttpStatusCode.OK) json.parseToJsonElement(search.bodyAsText()) as? JsonObject else null
+        val items = root.obj("data").obj("searchV2").obj("tracksV2").array("items")
+        var candidates = items.mapNotNull { item ->
+            parseTrack((item as? JsonObject).obj("item").obj("data"), true)
+        }.filter { it.second.matchesSongIdentity(song, artist) }
+        if (candidates.isEmpty()) {
+            CanvasRequestPolicy.check(CanvasSource.SPOTIFY)
+            val response = client.get("https://api.spotify.com/v1/search") {
+                header("Authorization", "Bearer $accessToken")
+                header("Client-Token", token)
+                header("User-Agent", WEB_USER_AGENT)
+                parameter("q", query)
+                parameter("type", "track")
+                parameter("limit", 10)
+            }
+            if (response.status != HttpStatusCode.OK) throw RequestException(response.status.value)
+            val rest = json.parseToJsonElement(response.bodyAsText()) as? JsonObject
+            candidates = rest.obj("tracks").array("items").mapNotNull { parseTrack(it as? JsonObject, false) }
+                .filter { it.second.matchesSongIdentity(song, artist) }
+        }
+        if (candidates.isEmpty()) return null
+        val urls = getCanvases(candidates.map { it.first }.distinct().take(10), accessToken, clientId)
+        return candidates.firstNotNullOfOrNull { (uri, artwork) ->
+            urls[uri]?.let { artwork.copy(videoUrl = it, videoUrlVertical = it) }
+        }
+    }
 
-        val entries = SpotifyCanvazProtocol.decodeResponse(response.body<ByteArray>())
-        val canvasUrl =
-            entries
-                .firstOrNull { it.entityUri == trackUri && !it.url.isNullOrBlank() }
-                ?.url
-                ?: entries.firstNotNullOfOrNull { entry -> entry.url?.takeIf { it.isNotBlank() } }
-                ?: return null
-
-        log("Spotify canvaz resolved $trackUri → $canvasUrl")
-        return CanvasArtwork(
-            name = songTitle,
-            artist = artistName,
-            // Stable placeholder so CanvasArtworkPlaybackCache dedupes correctly.
-            albumId = "yt:$videoId",
-            albumName = null,
-            static = null,
-            animated = null,
-            animatedVertical = null,
-            videoUrl = canvasUrl,
-            videoUrlVertical = canvasUrl,
+    private fun parseTrack(track: JsonObject?, graphQl: Boolean): Pair<String, CanvasArtwork>? {
+        val uri = track.string("uri") ?: track.string("id")?.let { "spotify:track:$it" } ?: return null
+        if (!trackUriPattern.matches(uri)) return null
+        val title = track.string("name") ?: return null
+        val artists = if (graphQl) track.obj("artists").array("items") else track.array("artists")
+        val credits = artists.mapNotNull {
+            val value = it as? JsonObject
+            if (graphQl) value.obj("profile").string("name") else value.string("name")
+        }
+        val album = track.obj(if (graphQl) "albumOfTrack" else "album")
+        val images = if (graphQl) album.obj("coverArt").array("sources") else album.array("images")
+        val image = images.mapNotNull { it as? JsonObject }.minByOrNull {
+            kotlin.math.abs(((it["width"] as? JsonPrimitive)?.longOrNull ?: 640) - 640)
+        }.string("url")
+        return uri to CanvasArtwork(
+            source = CanvasSource.SPOTIFY,
+            name = title,
+            artist = credits.joinToString(", "),
+            albumName = album.string("name"),
+            static = image,
         )
     }
 
-    private fun parseCanvasArtwork(
-        body: JsonObject,
-        videoId: String,
-    ): CanvasArtwork? {
-        // The resolver may either return the canvas fields at the top level or nested
-        // under a `data` / `result` envelope. Handle both.
-        val payload = body["data"]?.jsonObject ?: body["result"]?.jsonObject ?: body
+    private fun JsonObject?.obj(key: String): JsonObject? = this?.get(key) as? JsonObject
+    private fun JsonObject?.string(key: String): String? = (this?.get(key) as? JsonPrimitive)?.contentOrNull
+    private fun JsonObject?.array(key: String): JsonArray = this?.get(key) as? JsonArray ?: JsonArray(emptyList())
 
-        val videoUrl =
-            payload["url"]?.jsonPrimitive?.contentOrNull
-                ?: payload["canvas_url"]?.jsonPrimitive?.contentOrNull
-                ?: payload["video_url"]?.jsonPrimitive?.contentOrNull
-                ?: payload["canvas"]?.jsonPrimitive?.contentOrNull
-                ?: return null
-        if (videoUrl.isBlank()) return null
-
-        val songName =
-            payload["song"]?.jsonPrimitive?.contentOrNull
-                ?: payload["name"]?.jsonPrimitive?.contentOrNull
-                ?: payload["title"]?.jsonPrimitive?.contentOrNull
-                ?: payload["track"]?.jsonPrimitive?.contentOrNull
-
-        val artistName =
-            payload["artist"]?.jsonPrimitive?.contentOrNull
-                ?: payload["artists"]?.jsonPrimitive?.contentOrNull
-                ?: payload["author"]?.jsonPrimitive?.contentOrNull
-
-        return CanvasArtwork(
-            name = songName,
-            artist = artistName,
-            // Use the YouTube videoId as a stable albumId placeholder so the cache key
-            // machinery in CanvasArtworkPlaybackCache dedupes correctly.
-            albumId = "yt:$videoId",
-            albumName = null,
-            static = null,
-            animated = null,
-            animatedVertical = null,
-            videoUrl = videoUrl,
-            videoUrlVertical = videoUrl,
-        )
+    suspend fun getCanvases(trackUris: List<String>, accessToken: String, clientId: String): Map<String, String> {
+        require(trackUris.size <= 10)
+        require(trackUris.all { trackUriPattern.matches(it) })
+        CanvasRequestPolicy.check(CanvasSource.SPOTIFY)
+        val clientToken = clientToken(clientId)
+        val response = client.post(CANVAS_URL) {
+            header("Authorization", "Bearer $accessToken")
+            header("Client-Token", clientToken)
+            header("User-Agent", APP_USER_AGENT)
+            header("Accept", "application/protobuf")
+            header("Content-Type", "application/protobuf")
+            header("Accept-Language", "en")
+            setBody(encodeRequest(trackUris))
+        }
+        CanvasRequestPolicy.check(CanvasSource.SPOTIFY)
+        if (response.status != HttpStatusCode.OK) throw RequestException(response.status.value)
+        val bytes = response.body<ByteArray>()
+        if (bytes.size > 1_048_576) throw IOException("Spotify Canvas response is too large")
+        return decodeResponse(bytes).filterKeys { it in trackUris }
     }
+
+    suspend fun isHealthy(accessToken: String, clientId: String): Boolean {
+        getCanvases(listOf("spotify:track:0VjIjW4GlUZAMYd2vXMi3b"), accessToken, clientId)
+        return true
+    }
+
+    private suspend fun clientToken(clientId: String): String = clientTokenMutex.withLock {
+        require(clientId.isNotBlank())
+        CanvasRequestPolicy.check(CanvasSource.SPOTIFY)
+        val now = System.nanoTime()
+        cachedClientToken?.takeIf { it.clientId == clientId && now < it.expiresAtNanos }?.let {
+            return@withLock it.value
+        }
+        val page = client.get("https://open.spotify.com/") { header("User-Agent", WEB_USER_AGENT) }
+        if (page.status != HttpStatusCode.OK) throw RequestException(page.status.value)
+        val encoded = configPattern.find(page.bodyAsText())?.groupValues?.get(1)
+            ?: throw IOException("Spotify client configuration is missing")
+        val config = json.parseToJsonElement(String(Base64.getDecoder().decode(encoded), Charsets.UTF_8)) as? JsonObject
+            ?: throw IOException("Spotify client configuration is invalid")
+        val version = (config["clientVersion"] as? JsonPrimitive)?.contentOrNull
+            ?: throw IOException("Spotify client version is missing")
+        val deviceId = page.headers.getAll("Set-Cookie").orEmpty().firstNotNullOfOrNull {
+            it.substringBefore(';').takeIf { cookie -> cookie.startsWith("sp_t=") }?.substringAfter('=')
+        } ?: UUID.randomUUID().toString()
+        val payload = buildJsonObject {
+            putJsonObject("client_data") {
+                put("client_version", version)
+                put("client_id", clientId)
+                putJsonObject("js_sdk_data") {
+                    put("device_brand", "unknown")
+                    put("device_model", "unknown")
+                    put("os", "android")
+                    put("os_version", "14")
+                    put("device_id", deviceId)
+                    put("device_type", "smartphone")
+                }
+            }
+        }
+        CanvasRequestPolicy.check(CanvasSource.SPOTIFY)
+        val response = client.post("https://clienttoken.spotify.com/v1/clienttoken") {
+            header("User-Agent", WEB_USER_AGENT)
+            header("Accept", "application/json")
+            header("Content-Type", "application/json")
+            setBody(payload.toString().toByteArray(Charsets.UTF_8))
+        }
+        if (response.status != HttpStatusCode.OK) throw RequestException(response.status.value)
+        val root = json.parseToJsonElement(response.bodyAsText()) as? JsonObject
+        val granted = root?.get("granted_token") as? JsonObject
+            ?: throw IOException("Spotify client token was not granted")
+        val value = (granted["token"] as? JsonPrimitive)?.contentOrNull?.takeIf(String::isNotBlank)
+            ?: throw IOException("Spotify client token was not granted")
+        val ttlSeconds = (granted["expires_after_seconds"] as? JsonPrimitive)?.longOrNull
+            ?.coerceIn(0, 86_400) ?: 0
+        cachedClientToken = ClientToken(clientId, value, now + (ttlSeconds - 30).coerceAtLeast(0) * 1_000_000_000)
+        value
+    }
+
+    private fun encodeRequest(trackUris: List<String>): ByteArray {
+        val buffer = ByteArrayOutputStream()
+        val output = CodedOutputStream.newInstance(buffer)
+        for (uri in trackUris) {
+            val trackBuffer = ByteArrayOutputStream()
+            val track = CodedOutputStream.newInstance(trackBuffer)
+            track.writeString(1, uri)
+            track.flush()
+            output.writeByteArray(1, trackBuffer.toByteArray())
+        }
+        output.flush()
+        return buffer.toByteArray()
+    }
+
+    private fun decodeResponse(bytes: ByteArray): Map<String, String> {
+        val result = LinkedHashMap<String, String>()
+        val input = CodedInputStream.newInstance(bytes)
+        while (!input.isAtEnd) {
+            val tag = input.readTag()
+            if (tag == 10) {
+                val canvas = CodedInputStream.newInstance(input.readByteArray())
+                var uri: String? = null
+                var url: String? = null
+                while (!canvas.isAtEnd) {
+                    val field = canvas.readTag()
+                    when (field) {
+                        18 -> url = canvas.readStringRequireUtf8()
+                        42 -> uri = canvas.readStringRequireUtf8()
+                        else -> if (!canvas.skipField(field)) throw IOException("Invalid Spotify Canvas field")
+                    }
+                }
+                if (uri != null && url != null && isCanvasUrl(url)) result[uri] = url
+            } else if (!input.skipField(tag)) {
+                throw IOException("Invalid Spotify Canvas response")
+            }
+        }
+        return result
+    }
+
+    private fun isCanvasUrl(value: String): Boolean = try {
+        val uri = URI(value)
+        uri.scheme == "https" && uri.host == "canvaz.scdn.co" && uri.path.endsWith(".mp4")
+    } catch (_: IllegalArgumentException) {
+        false
+    } catch (_: java.net.URISyntaxException) {
+        false
+    }
+
+    private data class ClientToken(val clientId: String, val value: String, val expiresAtNanos: Long)
+
+    class RequestException(val statusCode: Int) : IOException("Spotify Canvas request failed: HTTP $statusCode")
 }

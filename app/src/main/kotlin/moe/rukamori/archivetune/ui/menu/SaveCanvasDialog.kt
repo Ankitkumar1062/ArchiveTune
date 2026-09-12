@@ -46,9 +46,14 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import moe.rukamori.archivetune.R
-import moe.rukamori.archivetune.ui.player.CanvasSourceResult
-import moe.rukamori.archivetune.ui.player.fetchAllCanvasSourcesForSong
+import moe.rukamori.archivetune.canvas.ArchiveTuneCanvas
+import moe.rukamori.archivetune.canvas.CanvasSource
+import moe.rukamori.archivetune.canvas.SpotifyCanvasProvider
+import moe.rukamori.archivetune.canvas.TidalCanvasProvider
+import moe.rukamori.archivetune.canvas.models.CanvasArtwork
 import moe.rukamori.archivetune.utils.CanvasSaver
 import moe.rukamori.archivetune.utils.CanvasSaveResult
 
@@ -348,3 +353,72 @@ private fun saveCanvas(
         }
     }
 }
+
+data class CanvasSourceResult(
+    val sourceName: String,
+    val artwork: CanvasArtwork,
+)
+
+internal suspend fun fetchAllCanvasSourcesForSong(
+    mediaId: String,
+    songTitleRaw: String,
+    artistNameRaw: String,
+    storefront: String,
+    albumTitle: String? = null,
+): List<CanvasSourceResult> = coroutineScope {
+    val songTitle = songTitleRaw.trim()
+    val artistName = artistNameRaw.trim()
+
+    val spotifyDeferred = async {
+        runCatching {
+            SpotifyCanvasProvider.getBySongArtist(
+                song = songTitle,
+                artist = artistName,
+            )
+        }.getOrNull()?.takeIf { it.hasRequiredCanvasVariant(requireVertical = false) }
+    }
+
+    val betterLyricsDeferred = async {
+        runCatching {
+            ArchiveTuneCanvas.getBySongArtist(
+                song = songTitle,
+                artist = artistName,
+                storefront = storefront,
+                source = CanvasSource.BETTER_LYRICS,
+                requireVertical = false,
+                forceRefresh = false,
+            )
+        }.getOrNull()?.takeIf { it.hasRequiredCanvasVariant(requireVertical = false) }
+    }
+
+    val appleMusicDeferred = async {
+        runCatching {
+            ArchiveTuneCanvas.getBySongArtist(
+                song = songTitle,
+                artist = artistName,
+                storefront = storefront,
+                source = CanvasSource.APPLE_MUSIC,
+                requireVertical = false,
+                forceRefresh = false,
+            )
+        }.getOrNull()?.takeIf { it.hasRequiredCanvasVariant(requireVertical = false) }
+    }
+
+    val tidalDeferred = async {
+        runCatching {
+            TidalCanvasProvider.getBySongArtist(
+                song = songTitle,
+                artist = artistName,
+                storefront = storefront,
+            )
+        }.getOrNull()?.takeIf { it.hasRequiredCanvasVariant(requireVertical = false) }
+    }
+
+    val results = mutableListOf<CanvasSourceResult>()
+    betterLyricsDeferred.await()?.let { results.add(CanvasSourceResult("BetterLyrics", it)) }
+    appleMusicDeferred.await()?.let { results.add(CanvasSourceResult("Apple Music", it)) }
+    tidalDeferred.await()?.let { results.add(CanvasSourceResult("TIDAL", it)) }
+    spotifyDeferred.await()?.let { results.add(CanvasSourceResult("Spotify Canvas", it)) }
+    results
+}
+

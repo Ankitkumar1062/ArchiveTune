@@ -24,7 +24,9 @@ import moe.rukamori.archivetune.BuildConfig
 import moe.rukamori.archivetune.R
 import moe.rukamori.archivetune.constants.AlbumCanvasEnabledKey
 import moe.rukamori.archivetune.constants.ArchiveTuneCanvasKey
-import moe.rukamori.archivetune.constants.SpotifyCanvasKey
+import moe.rukamori.archivetune.constants.CanvasSourceKey
+import moe.rukamori.archivetune.constants.CanvasSourceOrderKey
+import moe.rukamori.archivetune.constants.CanvasWifiOnlyKey
 import moe.rukamori.archivetune.constants.AudioNormalizationKey
 import moe.rukamori.archivetune.constants.AudioOffload
 import moe.rukamori.archivetune.constants.AutoDownloadOnLikeKey
@@ -327,9 +329,6 @@ fun buildSettingsGroups(
                 SettingsChild("Pause on device mute", "pause_mute", listOf("mute", "pause mute", "headphone", "silence detect")) { SearchResultSwitch(PauseOnDeviceMuteKey, false) },
                 SettingsChild("Device mute recovery volume", "device_mute_recovery_volume", listOf("recovery volume", "mute recovery", "volume restore")),
                 SettingsChild("Auto start on Bluetooth", "bluetooth_auto_start", listOf("bluetooth", "auto start", "auto play", "connect")) { SearchResultSwitch(AutoStartOnBluetoothKey, false) },
-                SettingsChild("ArchiveTune Canvas", "archive_tune_canvas", listOf("canvas", "animated artwork", "motion artwork", "live artwork")) { SearchResultSwitch(ArchiveTuneCanvasKey, true) },
-                SettingsChild("Spotify Canvas", "spotify_canvas", listOf("spotify", "canvas", "spotify canvas", "looping video", "music video", "video artwork")) { SearchResultSwitch(SpotifyCanvasKey, false) },
-                SettingsChild("Canvas resolvers", "canvas_resolvers", listOf("canvas resolver", "canvas resolvers", "canvas endpoint", "canvas fallback", "spotify canvas resolver")),
                 SettingsChild("Tidal artwork fallback", "tidal_artwork_fallback", listOf("tidal artwork", "artwork fallback", "tidal cover", "hi-res artwork")) { SearchResultSwitch(TidalArtworkFallbackEnabledKey, true) },
                 SettingsChild("Persistent queue", "persistent_queue", listOf("queue", "persistent", "save queue", "resume")) { SearchResultSwitch(PersistentQueueKey, true) },
                 SettingsChild("Permanent shuffle", "permanent_shuffle", listOf("shuffle", "random", "permanent")) { SearchResultSwitch(PermanentShuffleKey, false) },
@@ -363,6 +362,22 @@ fun buildSettingsGroups(
                 SettingsChild("Enable JioSaavn source", "jiosaavn_enable", listOf("jiosaavn", "jio saavn", "saavn", "enable jiosaavn", "indian music")),
                 SettingsChild("JioSaavn audio quality", "jiosaavn_audio_quality", listOf("jiosaavn quality", "saavn quality", "jiosaavn audio quality")),
                 SettingsChild("yt-dlp runtime", "ytdlp", listOf("yt-dlp", "ytdlp", "youtube-dl", "extractor", "downloader runtime", "yt dlp version")),
+            ),
+        )
+    val canvas =
+        SettingsItem(
+            key = "canvas",
+            icon = painterResource(R.drawable.motion_photos_on),
+            title = stringResource(R.string.archivetune_canvas),
+            subtitle = stringResource(R.string.canvas_settings_subtitle),
+            accentColor = MaterialTheme.colorScheme.tertiary,
+            keywords = listOf("canvas", "animated artwork", "motion artwork", "spotify canvas", "apple music canvas", "tidal canvas", "betterlyrics", "looping video"),
+            onClick = { navController.navigate("settings/canvas") },
+            children = listOf(
+                SettingsChild("ArchiveTune Canvas", "archive_tune_canvas", listOf("canvas", "animated artwork", "motion artwork", "live artwork")) { SearchResultSwitch(ArchiveTuneCanvasKey, true) },
+                SettingsChild("Wi-Fi only", "canvas_wifi_only", listOf("wifi only", "canvas data saver", "canvas wifi")) { SearchResultSwitch(CanvasWifiOnlyKey, false) },
+                SettingsChild("Preferred source", "canvas_source", listOf("canvas source", "canvas provider", "spotify", "apple music", "tidal", "betterlyrics")),
+                SettingsChild("Source priority order", "canvas_source_order", listOf("canvas order", "canvas priority", "reorder canvas")),
             ),
         )
     // Sources → JioSaavn sub-page.
@@ -1034,6 +1049,7 @@ fun buildSettingsGroups(
                     navigationBar,
                     lyricsAnimations,
                     playback,
+                    canvas,
                     sources,
                     jioSaavn,
                     deezer,

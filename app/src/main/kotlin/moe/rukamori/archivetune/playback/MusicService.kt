@@ -388,6 +388,9 @@ class MusicService :
     Player.Listener,
     PlaybackStatsListener.Callback {
     @Inject
+    lateinit var canvasPlaybackUseCase: moe.rukamori.archivetune.canvas.CanvasPlaybackUseCase
+
+    @Inject
     lateinit var spotifyLibraryRepository: SpotifyLibraryRepository
     @Inject
     lateinit var database: MusicDatabase

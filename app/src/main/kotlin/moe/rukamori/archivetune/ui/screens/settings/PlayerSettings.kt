@@ -54,7 +54,6 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import moe.rukamori.archivetune.LocalPlayerAwareWindowInsets
 import moe.rukamori.archivetune.R
-import moe.rukamori.archivetune.constants.ArchiveTuneCanvasKey
 import moe.rukamori.archivetune.constants.ArtistSeparatorsKey
 import moe.rukamori.archivetune.constants.ArtworkProviderOrderKey
 import moe.rukamori.archivetune.constants.AudioNormalizationKey
@@ -63,7 +62,6 @@ import moe.rukamori.archivetune.constants.AudioQualityKey
 import moe.rukamori.archivetune.constants.AudioOffload
 import moe.rukamori.archivetune.constants.AutoSkipNextOnErrorKey
 import moe.rukamori.archivetune.constants.AutoStartOnBluetoothKey
-import moe.rukamori.archivetune.constants.CanvasResolverEndpointsKey
 import moe.rukamori.archivetune.constants.CrossfadeDurationKey
 import moe.rukamori.archivetune.constants.CrossfadeEnabledKey
 import moe.rukamori.archivetune.constants.CrossfadeGaplessKey
@@ -90,7 +88,6 @@ import moe.rukamori.archivetune.viewmodels.SponsorBlockCategoryUiModel
 import moe.rukamori.archivetune.viewmodels.SponsorBlockSettingsScreenState
 import moe.rukamori.archivetune.viewmodels.SponsorBlockSettingsViewModel
 import moe.rukamori.archivetune.constants.PreferredArtworkProvider
-import moe.rukamori.archivetune.constants.SpotifyCanvasKey
 import moe.rukamori.archivetune.constants.StopMusicOnTaskClearKey
 import moe.rukamori.archivetune.constants.SwipeToSongKey
 import moe.rukamori.archivetune.constants.SwipeSensitivityKey
@@ -112,7 +109,6 @@ import moe.rukamori.archivetune.ui.component.SwitchPreference
 import moe.rukamori.archivetune.ui.component.TagsManagementDialog
 import moe.rukamori.archivetune.ui.component.TextFieldDialog
 import moe.rukamori.archivetune.ui.utils.backToMain
-import moe.rukamori.archivetune.utils.CanvasResolverEndpoints
 import moe.rukamori.archivetune.utils.rememberPreference
 import moe.rukamori.archivetune.utils.rememberEnumPreference
 import sh.calvin.reorderable.ReorderableItem
@@ -260,32 +256,6 @@ fun PlayerSettings(navController: NavController, scrollTo: String? = null) {
             defaultValue = true,
         )
 
-    // Artwork sources. The Tidal toggle used to default to true as an inert stub; the code
-    // default is now false so updating users do not get unexpected Tidal network traffic.
-    // DataStore only stores values the user explicitly changed, so explicit choices are kept.
-    val (archiveTuneCanvasEnabled, onArchiveTuneCanvasEnabledChange) =
-        rememberPreference(
-            ArchiveTuneCanvasKey,
-            defaultValue = false,
-        )
-    // Spotify Canvas: fetch the official Spotify Canvas looping video for the current song
-    // using its YouTube Music video ID via https://mlc.kouzu.in/api/canvas?id=<videoId>.
-    // Defaults to false so existing users don't see surprise network traffic / video playback
-    // until they explicitly opt in.
-    val (spotifyCanvasEnabled, onSpotifyCanvasEnabledChange) =
-        rememberPreference(
-            SpotifyCanvasKey,
-            defaultValue = false,
-        )
-    // Extra Spotify Canvas resolver endpoints, one per line. Every community canvas API on
-    // GitHub is a self-hosted wrapper around Spotify's own canvaz-cache endpoint and needs the
-    // operator's own sp_dc cookie, so there is no stable public instance worth hardcoding —
-    // the user supplies whichever instances they have access to and they are tried in order.
-    val (canvasResolverEndpointsRaw, onCanvasResolverEndpointsChange) =
-        rememberPreference(
-            CanvasResolverEndpointsKey,
-            defaultValue = "",
-        )
     val (tidalEnabled, _) =
         rememberPreference(
             TidalEnabledKey,
@@ -693,77 +663,8 @@ fun PlayerSettings(navController: NavController, scrollTo: String? = null) {
             }
 
             PreferenceGroup(
-                modifier = positions.modifierFor("archive_tune_canvas"),
                 title = stringResource(R.string.tidal_artwork),
             ) {
-                item {
-                    SwitchPreference(
-                        title = { Text(stringResource(R.string.archivetune_canvas)) },
-                        description = stringResource(R.string.archivetune_canvas_desc),
-                        icon = { Icon(painterResource(R.drawable.motion_photos_on), null) },
-                        checked = archiveTuneCanvasEnabled,
-                        onCheckedChange = onArchiveTuneCanvasEnabledChange,
-                    )
-                }
-
-                item {
-                    Column(modifier = positions.modifierFor("spotify_canvas")) {
-                        SwitchPreference(
-                            title = { Text(stringResource(R.string.spotify_canvas)) },
-                            description = stringResource(R.string.spotify_canvas_desc),
-                            icon = { Icon(painterResource(R.drawable.slow_motion_video), null) },
-                            checked = spotifyCanvasEnabled,
-                            onCheckedChange = onSpotifyCanvasEnabledChange,
-                        )
-                    }
-                }
-
-                item(visible = spotifyCanvasEnabled) {
-                    var showCanvasResolversDialog by remember { mutableStateOf(false) }
-                    val configuredResolvers =
-                        remember(canvasResolverEndpointsRaw) {
-                            CanvasResolverEndpoints.parse(canvasResolverEndpointsRaw)
-                        }
-                    Column(modifier = positions.modifierFor("canvas_resolvers")) {
-                        PreferenceEntry(
-                            title = { Text(stringResource(R.string.canvas_resolvers)) },
-                            description =
-                                if (configuredResolvers.isEmpty()) {
-                                    stringResource(R.string.canvas_resolvers_none)
-                                } else {
-                                    stringResource(
-                                        R.string.canvas_resolvers_count,
-                                        configuredResolvers.size,
-                                    )
-                                },
-                            icon = { Icon(painterResource(R.drawable.solar_server_linear), null) },
-                            onClick = { showCanvasResolversDialog = true },
-                        )
-                    }
-                    if (showCanvasResolversDialog) {
-                        TextFieldDialog(
-                            onDismiss = { showCanvasResolversDialog = false },
-                            title = { Text(stringResource(R.string.canvas_resolvers)) },
-                            placeholder = {
-                                Text(stringResource(R.string.canvas_resolvers_description))
-                            },
-                            textFieldValue = canvasResolverEndpointsRaw,
-                            onTextFieldValueChange = onCanvasResolverEndpointsChange,
-                            singleLine = false,
-                            maxLines = 8,
-                            // Blank is valid: it means "built-in resolver only".
-                            isInputValid = { true },
-                            onDone = { raw ->
-                                onCanvasResolverEndpointsChange(
-                                    CanvasResolverEndpoints.serialize(
-                                        CanvasResolverEndpoints.parse(raw),
-                                    ),
-                                )
-                            },
-                        )
-                    }
-                }
-
                 item {
                     Column(modifier = positions.modifierFor("tidal_artwork_fallback")) {
                         SwitchPreference(

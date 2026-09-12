@@ -89,6 +89,8 @@ liquid-glass = "2.0.0"
 # a software blur on older devices, so we no longer need the API 31+ gate that
 # the previous Compose BlurEffect approach required.
 haze = "1.7.2"
+protobuf = "4.36.1"
+webkit = "1.17.0"
 
 
 [libraries]
@@ -218,6 +220,8 @@ accompanist-lyrics-core = { module = "com.mocharealm.accompanist:lyrics-core", v
 androidsvg = { module = "com.caverock:androidsvg-aar", version.ref = "androidsvg" }
 aboutlibraries-core = { module = "com.mikepenz:aboutlibraries-core", version.ref = "aboutLibraries" }
 liquid-glass = { module = "io.github.kyant0:backdrop", version.ref = "liquid-glass" }
+protobuf-javalite = { module = "com.google.protobuf:protobuf-javalite", version.ref = "protobuf" }
+webkit = { module = "androidx.webkit:webkit", version.ref = "webkit" }
 
 
 

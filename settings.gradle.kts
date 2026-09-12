@@ -46,7 +46,11 @@ dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
 
     repositories {
-        google()
+        google {
+            content {
+                excludeGroup("com.google.protobuf")
+            }
+        }
         // GCS mirror of Maven Central — declared BEFORE mavenCentral() for
         // the same reason as in pluginManagement (see comment above). Maven
         // Central's 429 rate-limiting on GitHub Actions IPs was causing

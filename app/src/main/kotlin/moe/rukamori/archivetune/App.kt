@@ -45,7 +45,7 @@ import moe.rukamori.archivetune.kugou.KuGou
 import moe.rukamori.archivetune.lastfm.LastFM
 import moe.rukamori.archivetune.lyrics.JapaneseLanguagePackManager
 import moe.rukamori.archivetune.canvas.AppleMusicProvider
-import moe.rukamori.archivetune.canvas.SpotifyCanvasProvider
+import moe.rukamori.archivetune.canvas.StartCanvasPolicyUseCase
 import moe.rukamori.archivetune.paxsenix.PaxsenixLyrics
 import moe.rukamori.archivetune.scrobbling.LastFmServiceConfig
 import moe.rukamori.archivetune.spotify.Spotify
@@ -59,7 +59,6 @@ import moe.rukamori.archivetune.ui.player.CanvasArtworkPlaybackCache
 import moe.rukamori.archivetune.ui.screens.settings.ThemePalettes
 import moe.rukamori.archivetune.ui.theme.ThemeSeedPalette
 import moe.rukamori.archivetune.ui.theme.ThemeSeedPaletteCodec
-import moe.rukamori.archivetune.utils.CanvasResolverEndpoints
 import moe.rukamori.archivetune.utils.PlaylistCoverInterceptor
 import moe.rukamori.archivetune.utils.PoolAccountManager
 import moe.rukamori.archivetune.utils.PreferenceStore
@@ -97,6 +96,9 @@ class App :
      */
     @Inject
     lateinit var spotifyLibraryRepository: SpotifyLibraryRepository
+
+    @Inject
+    lateinit var startCanvasPolicy: StartCanvasPolicyUseCase
 
     @Inject
     lateinit var playlistCoverInterceptor: PlaylistCoverInterceptor
@@ -162,6 +164,7 @@ class App :
             com.downloader.PRDownloader.initialize(this, config)
         }
         CanvasArtworkPlaybackCache.init(this)
+        startCanvasPolicy.start(applicationScope)
         PaxsenixLyrics.setUserAgent("ArchiveTune", BuildConfig.VERSION_NAME)
         // Route PaxsenixLyrics diagnostic logs through GlobalLog so they show up
         // in the in-app logcat viewer with the proper tag, instead of going to
@@ -236,34 +239,9 @@ class App :
         // track mapping as injected callbacks. Both yield null when the user has
         // no Spotify session, in which case the provider falls back to the
         // kouzu.in resolver on its own.
-        SpotifyCanvasProvider.logger = { message ->
-            moe.rukamori.archivetune.utils.GlobalLog.append(
-                android.util.Log.INFO,
-                "SpotifyCanvas",
-                message,
-            )
-        }
-        // Mint/refresh on demand rather than reading the `Spotify.accessToken` global:
-        // that global is only set as a side effect of an earlier Spotify library call, so
-        // on a fresh launch a connected user still had no token here and the official
-        // Canvas endpoint was skipped entirely.
-        SpotifyCanvasProvider.tokenProvider = { spotifyLibraryRepository.ensureAccessToken() }
-        SpotifyCanvasProvider.trackUriResolver = { _, title, artist ->
-            // Same reason: identifying the track on Spotify needs the session too.
-            spotifyLibraryRepository.ensureAccessToken()
-            resolveSpotifyTrackUri(title, artist)
-        }
-        SpotifyCanvasProvider.extraResolverEndpointsProvider = {
-            CanvasResolverEndpoints.parse(dataStore.get(CanvasResolverEndpointsKey, ""))
-        }
-
-        // Pre-warm the Apple Music web player JWT on startup so the first
-        // lyrics lookup and canvas resolution don't pay the extra ~300ms scrape
-        // latency. The refresh is throttled and mutex-guarded inside the
-        // provider, so this is safe to call fire-and-forget.
+        // Pre-warm the Paxsenix AMP token on startup
         applicationScope.launch(Dispatchers.IO) {
             runCatching {
-                AppleMusicProvider.refreshToken()
                 PaxsenixLyrics.refreshAmpToken()
             }
         }

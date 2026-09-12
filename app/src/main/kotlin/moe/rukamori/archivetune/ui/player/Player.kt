@@ -181,11 +181,13 @@ import moe.rukamori.archivetune.LocalDownloadUtil
 import moe.rukamori.archivetune.LocalPlayerConnection
 import moe.rukamori.archivetune.LocalStableSystemBarsTopPadding
 import moe.rukamori.archivetune.R
-import moe.rukamori.archivetune.canvas.models.CanvasArtwork
-import moe.rukamori.archivetune.constants.ArchiveTuneCanvasKey
+import androidx.hilt.navigation.compose.hiltViewModel
+import moe.rukamori.archivetune.canvas.CanvasPlaybackRequest
+import moe.rukamori.archivetune.canvas.CanvasSource
+import moe.rukamori.archivetune.canvas.CanvasVideo
+import moe.rukamori.archivetune.viewmodels.CanvasPlaybackViewModel
+import moe.rukamori.archivetune.viewmodels.CanvasPlaybackState
 import moe.rukamori.archivetune.constants.ShowCodecOnPlayerKey
-import moe.rukamori.archivetune.constants.SpotifyCanvasKey
-import moe.rukamori.archivetune.constants.SpotifySpDcKey
 import moe.rukamori.archivetune.constants.BackdropBlurAmountKey
 import moe.rukamori.archivetune.constants.BackdropEnabledKey
 import moe.rukamori.archivetune.constants.BlurRadiusKey
@@ -359,6 +361,7 @@ fun BottomSheetPlayer(
     pureBlack: Boolean,
     isMiniPlayerPairedWithNavigation: Boolean = false,
     onLyricsVisibilityChange: (Boolean) -> Unit = {},
+    canvasViewModel: CanvasPlaybackViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
     val menuState = LocalMenuState.current
@@ -519,34 +522,27 @@ fun BottomSheetPlayer(
 
     val aodModeEnabled by playerConnection.aodModeEnabled.collectAsStateWithLifecycle()
     val (thumbnailCornerRadius) = rememberPreference(ThumbnailCornerRadiusKey, defaultValue = 8f)
-    val archiveTuneCanvasEnabled by rememberPreference(ArchiveTuneCanvasKey, false)
-    val spotifyCanvasEnabled by rememberPreference(SpotifyCanvasKey, false)
-    // ── Spotify-account canvas (2026-09-04) ──
-    // "When users have logged in using their Spotify account the canvas
-    // should be fetched from their actual account using the Spotify tokens
-    // generated from the web auth during login." A connected session (the
-    // sp_dc cookie captured by the web-auth login sheet) enables the
-    // Spotify Canvas path on its own — the user no longer has to find the
-    // "Spotify Canvas" toggle in Player settings first. The tokens are
-    // minted from that same web-auth session by
-    // SpotifyCanvasProvider.tokenProvider (App.kt wires it to
-    // spotifyLibraryRepository.ensureAccessToken()), so the canvaz lookup
-    // runs against the user's ACTUAL account; the title/artist search is
-    // skipped entirely when the playing metadata already carries a
-    // spotifyTrackId from their session.
-    val spotifyConnected by rememberPreference(SpotifySpDcKey, defaultValue = "")
-    val spotifyCanvasEffective = spotifyCanvasEnabled || spotifyConnected.isNotBlank()
-    val lowDataModeActive = rememberLowDataModeActive()
-    val (maxCanvasCacheSize, _) =
-        rememberPreference(
-            key = MaxCanvasCacheSizeKey,
-            defaultValue = 256,
-        )
-
     val sliderStyle by rememberEnumPreference(SliderStyleKey, SliderStyle.Standard)
-
-    LaunchedEffect(maxCanvasCacheSize) {
-        CanvasArtworkPlaybackCache.setMaxSize(maxCanvasCacheSize)
+    val canvasState by canvasViewModel.state.collectAsStateWithLifecycle()
+    val canvasRequest = remember(mediaMetadata, playerDesignStyle, aodModeEnabled) {
+        mediaMetadata?.takeIf {
+            !aodModeEnabled && playerDesignStyle != PlayerDesignStyle.V5
+        }?.let { metadata ->
+            val country = Locale.getDefault().country
+            CanvasPlaybackRequest(
+                mediaId = metadata.id,
+                title = metadata.title,
+                artist = metadata.artists.firstOrNull()?.name.orEmpty(),
+                storefront = if (country.length == 2) country.lowercase(Locale.ROOT) else "us",
+                requireVertical = playerDesignStyle == PlayerDesignStyle.V7,
+            )
+        }
+    }
+    LaunchedEffect(canvasViewModel, canvasRequest) {
+        canvasViewModel.setRequest(canvasRequest)
+    }
+    DisposableEffect(canvasViewModel) {
+        onDispose { canvasViewModel.setRequest(null) }
     }
 
     var position by rememberSaveable(mediaMetadata?.id) {
@@ -1444,151 +1440,11 @@ fun BottomSheetPlayer(
                 val country = Locale.getDefault().country
                 if (country.length == 2) country.lowercase(Locale.ROOT) else "us"
             }
-        val shouldUseV7Canvas =
-            (archiveTuneCanvasEnabled || spotifyCanvasEffective) &&
-                (playerDesignStyle == PlayerDesignStyle.V7 ||
-                    playerDesignStyle == PlayerDesignStyle.TIKTOK) &&
-                !aodModeEnabled
-        val shouldUseArtworkCanvas =
-            (archiveTuneCanvasEnabled || spotifyCanvasEffective) &&
-                (
-                    playerDesignStyle == PlayerDesignStyle.APPLE_MUSIC ||
-                        playerDesignStyle == PlayerDesignStyle.V9
-                ) &&
-                !aodModeEnabled
-        val shouldFetchV7Canvas = shouldUseV7Canvas && !lowDataModeActive
-        val shouldFetchArtworkCanvas = shouldUseArtworkCanvas && !lowDataModeActive
-        var v7CanvasArtwork by remember(mediaMetadata?.id) {
-            mutableStateOf<CanvasArtwork?>(null)
-        }
-        var v7CanvasFetchInFlight by remember(mediaMetadata?.id) {
-            mutableStateOf(false)
-        }
-        var artworkCanvas by remember(mediaMetadata?.id) {
-            mutableStateOf<CanvasArtwork?>(null)
-        }
-        var artworkCanvasFetchInFlight by remember(mediaMetadata?.id) {
-            mutableStateOf(false)
-        }
-        var canvasArtworkRevision by remember(mediaMetadata?.id) {
-            mutableIntStateOf(0)
-        }
-
-        LaunchedEffect(nextUpMetadata?.id, shouldUseV7Canvas, shouldUseArtworkCanvas, lowDataModeActive) {
-            val next = nextUpMetadata ?: return@LaunchedEffect
-            val nextMediaId = next.id.trim().takeIf { it.isNotBlank() } ?: return@LaunchedEffect
-            if (!shouldUseV7Canvas && !shouldUseArtworkCanvas) return@LaunchedEffect
-            if (lowDataModeActive) return@LaunchedEffect
-            // Skip if already cached — CanvasArtworkPlaybackCache.hasEntry is
-            // a cheap in-memory map lookup, no I/O.
-            if (CanvasArtworkPlaybackCache.hasEntry(nextMediaId)) return@LaunchedEffect
-            kotlinx.coroutines.withContext(Dispatchers.IO) {
-                runCatching {
-                    resolveCanvasArtworkForPlayback(
-                        mediaId = nextMediaId,
-                        songTitleRaw = next.title,
-                        artistNameRaw = next.artists.firstOrNull()?.name.orEmpty(),
-                        storefront = storefront,
-                        requireVertical = shouldUseV7Canvas,
-                        allowNetwork = true,
-                        albumTitle = next.album?.title,
-                        trySpotifyCanvas = spotifyCanvasEffective,
-                    )
-                }
-            }
-        }
-
-        LaunchedEffect(playerConnection, mediaMetadata?.id) {
-            playerConnection.canvasArtworkUpdates.collect { update ->
-                if (update.mediaId != mediaMetadata?.id) return@collect
-
-                canvasArtworkRevision += 1
-                if (!update.artwork.preferredVerticalAnimationUrl.isNullOrBlank()) {
-                    v7CanvasArtwork = update.artwork
-                }
-                if (!update.artwork.preferredAnimationUrl.isNullOrBlank()) {
-                    artworkCanvas = update.artwork
-                }
-            }
-        }
-
-        LaunchedEffect(shouldUseV7Canvas, shouldFetchV7Canvas, mediaMetadata?.id) {
-            val metadata = mediaMetadata
-            if (!shouldUseV7Canvas || metadata == null) {
-                v7CanvasArtwork = null
-                v7CanvasFetchInFlight = false
-                return@LaunchedEffect
-            }
-
-            val artistNameRaw =
-                metadata.artists
-                    .firstOrNull()
-                    ?.name
-                    .orEmpty()
-            if (v7CanvasFetchInFlight) {
-                return@LaunchedEffect
-            }
-
-            v7CanvasFetchInFlight = true
-            try {
-                val requestRevision = canvasArtworkRevision
-                val resolvedArtwork =
-                    resolveCanvasArtworkForPlayback(
-                        mediaId = metadata.id,
-                        songTitleRaw = metadata.title,
-                        artistNameRaw = artistNameRaw,
-                        storefront = storefront,
-                        requireVertical = true,
-                        allowNetwork = shouldFetchV7Canvas,
-                        albumTitle = metadata.album?.title,
-                        trySpotifyCanvas = spotifyCanvasEffective,
-                    )
-                if (requestRevision == canvasArtworkRevision) {
-                    v7CanvasArtwork = resolvedArtwork
-                }
-            } finally {
-                v7CanvasFetchInFlight = false
-            }
-        }
-
-        LaunchedEffect(shouldUseArtworkCanvas, shouldFetchArtworkCanvas, mediaMetadata?.id) {
-            val metadata = mediaMetadata
-            if (!shouldUseArtworkCanvas || metadata == null) {
-                artworkCanvas = null
-                artworkCanvasFetchInFlight = false
-                return@LaunchedEffect
-            }
-
-            val artistNameRaw =
-                metadata.artists
-                    .firstOrNull()
-                    ?.name
-                    .orEmpty()
-            if (artworkCanvasFetchInFlight) {
-                return@LaunchedEffect
-            }
-
-            artworkCanvasFetchInFlight = true
-            try {
-                val requestRevision = canvasArtworkRevision
-                val resolvedArtwork =
-                    resolveCanvasArtworkForPlayback(
-                        mediaId = metadata.id,
-                        songTitleRaw = metadata.title,
-                        artistNameRaw = artistNameRaw,
-                        storefront = storefront,
-                        requireVertical = false,
-                        allowNetwork = shouldFetchArtworkCanvas,
-                        albumTitle = metadata.album?.title,
-                        trySpotifyCanvas = spotifyCanvasEffective,
-                    )
-                if (requestRevision == canvasArtworkRevision) {
-                    artworkCanvas = resolvedArtwork
-                }
-            } finally {
-                artworkCanvasFetchInFlight = false
-            }
-        }
+        val resolvedCanvas = (canvasState as? CanvasPlaybackState.Success)
+            ?.takeIf { it.request == canvasRequest }
+            ?.video
+        val v7CanvasArtwork = resolvedCanvas.takeIf { playerDesignStyle == PlayerDesignStyle.V7 }
+        val artworkCanvas = resolvedCanvas.takeIf { playerDesignStyle != PlayerDesignStyle.V7 }
 
         val controlsContent: @Composable ColumnScope.(MediaMetadata) -> Unit = { mediaMetadata ->
             PlayerControlsContent(
@@ -1656,6 +1512,7 @@ fun BottomSheetPlayer(
         // blur work during queue drag.
         val queueHazeAlpha = 0f
 
+        val lowDataModeActive = rememberLowDataModeActive()
         val queueArtHazeState = remember { HazeState() }
         val queueArtContext = LocalContext.current
         // Use the same swap-state logic as PlayerBackground so the queue's blur
@@ -1665,7 +1522,7 @@ fun BottomSheetPlayer(
             rememberThumbnailSwapState(
                 videoId = mediaMetadata?.id,
                 ytmUrl = mediaMetadata?.thumbnailUrl,
-                lowDataMode = rememberLowDataModeActive(),
+                lowDataMode = lowDataModeActive,
                 isMusicVideo = mediaMetadata?.isMusicVideo ?: false,
             )
         val queueArtUrl = queueArtSwapState.displayUrl
@@ -2174,6 +2031,7 @@ fun BottomSheetPlayer(
                             val thumbnailSize = (screenWidth * 0.4).dp
                             Thumbnail(
                                 sliderPositionProvider = { sliderPosition },
+                                canvas = artworkCanvas,
                                 modifier = Modifier.size(thumbnailSize),
                                 isPlayerExpanded = state.isExpanded,
                             )
@@ -2679,6 +2537,7 @@ fun BottomSheetPlayer(
                         ) {
                             Thumbnail(
                                 sliderPositionProvider = { sliderPosition },
+                                canvas = artworkCanvas,
                                 modifier = Modifier.nestedScroll(state.preUpPostDownNestedScrollConnection),
                                 isPlayerExpanded = state.isExpanded,
                             )
