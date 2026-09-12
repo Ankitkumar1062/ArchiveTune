@@ -14,11 +14,13 @@ class AiLyricsTranslator {
         config: AiServiceConfig,
         lyrics: String,
         targetLanguage: String,
+        customPrompt: String = "",
     ): String {
         val normalizedLanguage = normalizeTargetLanguage(targetLanguage)
+        val normalizedPrompt = customPrompt.trim()
         // Token-budget protector: translating the same lyrics to the same language with the same
         // model is deterministic enough to reuse — repeat requests cost zero tokens.
-        val cacheKey = "${config.provider}|${config.model}|$normalizedLanguage|${lyrics.length}|${lyrics.hashCode()}"
+        val cacheKey = "${config.provider}|${config.model}|$normalizedLanguage|$normalizedPrompt|${lyrics.length}|${lyrics.hashCode()}"
         synchronized(resultCache) { resultCache[cacheKey] }?.let { return it }
 
         val document = AiLyricsDocumentParser.parse(lyrics)
@@ -31,6 +33,7 @@ class AiLyricsTranslator {
                     targetLanguage = normalizedLanguage,
                     batch = batch,
                     formatName = document.formatName,
+                    customPrompt = normalizedPrompt,
                 )
             batch.forEachIndexed { index, segment ->
                 translated[segment.id] = batchTranslations.getOrNull(index) ?: segment.text
@@ -46,6 +49,7 @@ class AiLyricsTranslator {
         targetLanguage: String,
         batch: List<AiLyricsSegment>,
         formatName: String,
+        customPrompt: String = "",
     ): List<String> {
         if (batch.isEmpty()) return emptyList()
         return try {
@@ -55,6 +59,7 @@ class AiLyricsTranslator {
                     targetLanguage = targetLanguage,
                     lines = batch.map { it.text },
                     formatName = formatName,
+                    customPrompt = customPrompt,
                 )
             if (result.size == batch.size) {
                 result
@@ -74,6 +79,7 @@ class AiLyricsTranslator {
                         targetLanguage = targetLanguage,
                         batch = batch.subList(0, mid),
                         formatName = formatName,
+                        customPrompt = customPrompt,
                     )
                 val right =
                     translateBatchResilient(
@@ -81,6 +87,7 @@ class AiLyricsTranslator {
                         targetLanguage = targetLanguage,
                         batch = batch.subList(mid, batch.size),
                         formatName = formatName,
+                        customPrompt = customPrompt,
                     )
                 left + right
             }

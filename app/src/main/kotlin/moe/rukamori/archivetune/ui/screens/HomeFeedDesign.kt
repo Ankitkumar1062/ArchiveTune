@@ -436,8 +436,7 @@ fun HomeFeedShelfCard(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .aspectRatio(1f)
-                    .homeFeedThumbnailBorder(shape),
+                    .aspectRatio(1f),
         )
         Spacer(Modifier.height(10.dp))
         Row(

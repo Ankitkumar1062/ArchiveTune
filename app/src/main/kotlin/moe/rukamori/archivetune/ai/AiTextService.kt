@@ -128,11 +128,17 @@ object AiTextService {
         }
     }
 
+    private fun String.appendCustomPrompt(customPrompt: String): String {
+        val normalizedPrompt = customPrompt.trim()
+        return if (normalizedPrompt.isEmpty()) this else "$this\n\n$normalizedPrompt"
+    }
+
     suspend fun translateLines(
         config: AiServiceConfig,
         targetLanguage: String,
         lines: List<String>,
         formatName: String,
+        customPrompt: String = "",
     ): List<String> {
         if (lines.isEmpty()) return emptyList()
         val payload = JSONArray()
@@ -150,7 +156,7 @@ object AiTextService {
                             Do not add timestamps, IDs, XML, markdown, explanations, or extra lines.
                             Return only a JSON array of strings with exactly ${lines.size} items in the same order.
                             The caller will reconstruct the $formatName lyrics container separately.
-                            """.trimIndent(),
+                            """.trimIndent().appendCustomPrompt(customPrompt),
                         userPrompt = payload.toString(),
                         temperature = 0.15,
                         maxTokens = 8192,

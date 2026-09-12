@@ -110,6 +110,7 @@ import moe.rukamori.archivetune.constants.AiApiValidationStatus
 import moe.rukamori.archivetune.constants.AiApiValidationStatusKey
 import moe.rukamori.archivetune.constants.AiCustomEndpointKey
 import moe.rukamori.archivetune.constants.AiCustomModelKey
+import moe.rukamori.archivetune.constants.AiCustomPromptKey
 import moe.rukamori.archivetune.constants.AiProvider
 import moe.rukamori.archivetune.constants.AiProviderKey
 import moe.rukamori.archivetune.constants.AiSelectedModelKey
@@ -192,6 +193,8 @@ fun AiIntegrationSettings(
     var showDeeplFormalityDialog by rememberSaveable { mutableStateOf(false) }
     var showTranslateModeDialog by rememberSaveable { mutableStateOf(false) }
     var showTranslateLanguageDialog by rememberSaveable { mutableStateOf(false) }
+    val (customPrompt, setCustomPrompt) = rememberPreference(AiCustomPromptKey, "")
+    var showCustomPromptDialog by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         viewModel.events.collect { message ->
@@ -352,6 +355,40 @@ fun AiIntegrationSettings(
                 onValueChange = { langField = it },
                 singleLine = true,
                 label = { Text(stringResource(R.string.translate_language_hint)) },
+            )
+        }
+    }
+
+    if (showCustomPromptDialog) {
+        var draftPrompt by remember { mutableStateOf(customPrompt) }
+        DefaultDialog(
+            onDismiss = { showCustomPromptDialog = false },
+            icon = { Icon(painterResource(R.drawable.edit), contentDescription = null) },
+            title = { Text(stringResource(R.string.ai_custom_prompt)) },
+            buttons = {
+                TextButton(onClick = { showCustomPromptDialog = false }, shapes = ButtonDefaults.shapes()) {
+                    Text(stringResource(android.R.string.cancel))
+                }
+                TextButton(
+                    onClick = {
+                        setCustomPrompt(draftPrompt.trim())
+                        showCustomPromptDialog = false
+                    },
+                    shapes = ButtonDefaults.shapes(),
+                ) {
+                    Text(stringResource(R.string.save))
+                }
+            },
+        ) {
+            OutlinedTextField(
+                value = draftPrompt,
+                onValueChange = { draftPrompt = it },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = false,
+                minLines = 4,
+                maxLines = 8,
+                label = { Text(stringResource(R.string.ai_custom_prompt)) },
+                supportingText = { Text(stringResource(R.string.ai_custom_prompt_desc)) },
             )
         }
     }
@@ -655,6 +692,21 @@ fun AiIntegrationSettings(
                             ?: stringResource(R.string.auto_translate_excluded_languages_none),
                     icon = { Icon(painterResource(R.drawable.block), null) },
                     onClick = { showExcludedLanguagesDialog = true },
+                )
+            }
+
+            item {
+                PreferenceEntry(
+                    modifier = positions.modifierFor("ai_custom_prompt"),
+                    title = { Text(stringResource(R.string.ai_custom_prompt)) },
+                    description =
+                        if (customPrompt.isBlank()) {
+                            stringResource(R.string.ai_custom_prompt_desc)
+                        } else {
+                            stringResource(R.string.ai_api_key_configured)
+                        },
+                    icon = { Icon(painterResource(R.drawable.edit), null) },
+                    onClick = { showCustomPromptDialog = true },
                 )
             }
 

@@ -447,6 +447,7 @@ val AiApiKeyKey = stringPreferencesKey("ai_api_key")
 val AiApiValidationStatusKey = stringPreferencesKey("ai_api_validation_status")
 val AiSelectedModelKey = stringPreferencesKey("ai_selected_model")
 val AiCustomModelKey = stringPreferencesKey("ai_custom_model")
+val AiCustomPromptKey = stringPreferencesKey("ai_custom_prompt")
 
 // --- DeepL / OpenRouter / Mistral translation providers (ported from vivi-music) ---
 // DeepL: API key with `:fx` suffix routes through api-free.deepl.com; otherwise api.deepl.com.

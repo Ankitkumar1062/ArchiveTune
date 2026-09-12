@@ -55,6 +55,8 @@
     <string name="translate_mode">Mode</string>
     <string name="translate_mode_translate">Translate</string>
     <string name="translate_mode_romanize">Romanize (transliterate to Latin)</string>
+    <string name="ai_custom_prompt">Custom translation prompt</string>
+    <string name="ai_custom_prompt_desc">Appended to the built-in lyrics translation instructions.</string>
 
     <!-- Update info dialog (ported from vivi-music under GPL-3.0). -->
     <string name="update_info_badge">Update info</string>

@@ -78,9 +78,17 @@ import moe.rukamori.archivetune.constants.PermanentShuffleKey
 import moe.rukamori.archivetune.constants.PersistentQueueKey
 import moe.rukamori.archivetune.constants.SeekExtraSeconds
 import moe.rukamori.archivetune.constants.SkipSilenceKey
-import moe.rukamori.archivetune.constants.SponsorBlockCategoriesKey
-import moe.rukamori.archivetune.constants.SponsorBlockEnabledKey
-import moe.rukamori.archivetune.sponsorblock.SponsorBlockCategory
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.google.common.collect.ImmutableList
+import moe.rukamori.archivetune.sponsorblock.DEFAULT_SPONSOR_BLOCK_API_URL
+import moe.rukamori.archivetune.ui.component.MultiSelectListPreference
+import moe.rukamori.archivetune.viewmodels.SponsorBlockCategoryUiModel
+import moe.rukamori.archivetune.viewmodels.SponsorBlockSettingsScreenState
+import moe.rukamori.archivetune.viewmodels.SponsorBlockSettingsViewModel
 import moe.rukamori.archivetune.constants.PreferredArtworkProvider
 import moe.rukamori.archivetune.constants.SpotifyCanvasKey
 import moe.rukamori.archivetune.constants.StopMusicOnTaskClearKey
@@ -125,13 +133,49 @@ fun PlayerSettings(navController: NavController, scrollTo: String? = null) {
             PermanentShuffleKey,
             defaultValue = false,
         )
-    val (sponsorBlockEnabled, onSponsorBlockEnabledChange) =
-        rememberPreference(SponsorBlockEnabledKey, defaultValue = false)
-    val (sponsorBlockCategories, onSponsorBlockCategoriesChange) =
-        rememberPreference(
-            SponsorBlockCategoriesKey,
-            defaultValue = SponsorBlockCategory.Defaults.map { it.apiName }.toSet(),
-        )
+    val sponsorBlockSettingsViewModel: SponsorBlockSettingsViewModel = hiltViewModel()
+    val sponsorBlockSettingsState by
+        sponsorBlockSettingsViewModel.uiState.collectAsStateWithLifecycle()
+    val onSponsorBlockEnabledChange =
+        remember(sponsorBlockSettingsViewModel) {
+            sponsorBlockSettingsViewModel::onEnabledChange
+        }
+    val onSponsorBlockCategorySheetOpen =
+        remember(sponsorBlockSettingsViewModel) {
+            sponsorBlockSettingsViewModel::onCategorySheetOpen
+        }
+    val onSponsorBlockCategorySheetDismiss =
+        remember(sponsorBlockSettingsViewModel) {
+            sponsorBlockSettingsViewModel::onCategorySheetDismiss
+        }
+    val onSponsorBlockCategoryCheckedChange =
+        remember(sponsorBlockSettingsViewModel) {
+            sponsorBlockSettingsViewModel::onCategoryOptionCheckedChange
+        }
+    val onSponsorBlockCategorySelectionConfirm =
+        remember(sponsorBlockSettingsViewModel) {
+            sponsorBlockSettingsViewModel::onCategorySelectionConfirm
+        }
+    val onSponsorBlockApiUrlEditorOpen =
+        remember(sponsorBlockSettingsViewModel) {
+            sponsorBlockSettingsViewModel::onApiUrlEditorOpen
+        }
+    val onSponsorBlockApiUrlEditorDismiss =
+        remember(sponsorBlockSettingsViewModel) {
+            sponsorBlockSettingsViewModel::onApiUrlEditorDismiss
+        }
+    val onSponsorBlockApiUrlDraftChange =
+        remember(sponsorBlockSettingsViewModel) {
+            sponsorBlockSettingsViewModel::onApiUrlDraftChange
+        }
+    val onSponsorBlockApiUrlConfirm =
+        remember(sponsorBlockSettingsViewModel) {
+            sponsorBlockSettingsViewModel::onApiUrlConfirm
+        }
+    val onSponsorBlockRetry =
+        remember(sponsorBlockSettingsViewModel) {
+            sponsorBlockSettingsViewModel::retry
+        }
     val (skipSilence, onSkipSilenceChange) =
         rememberPreference(
             SkipSilenceKey,
@@ -314,6 +358,13 @@ fun PlayerSettings(navController: NavController, scrollTo: String? = null) {
         )
     }
 
+    SponsorBlockApiUrlDialog(
+        state = sponsorBlockSettingsState,
+        onValueChange = onSponsorBlockApiUrlDraftChange,
+        onConfirm = onSponsorBlockApiUrlConfirm,
+        onDismiss = onSponsorBlockApiUrlEditorDismiss,
+    )
+
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
@@ -487,35 +538,56 @@ fun PlayerSettings(navController: NavController, scrollTo: String? = null) {
 
                 item {
                     Column(modifier = positions.modifierFor("sponsor_block")) {
-                        SwitchPreference(
-                            title = { Text(stringResource(R.string.sponsor_block)) },
-                            description = stringResource(R.string.sponsor_block_description),
-                            icon = { Icon(painterResource(R.drawable.fast_forward), null) },
-                            checked = sponsorBlockEnabled,
-                            onCheckedChange = onSponsorBlockEnabledChange,
-                        )
-                    }
-                }
+                        val data = (sponsorBlockSettingsState as? SponsorBlockSettingsScreenState.Success)?.data
+                        val controlsEnabled = data != null
+                        val configurationEnabled = controlsEnabled && data?.enabled == true
+                        val categoryOptions = data?.categoryOptions ?: EMPTY_SPONSOR_BLOCK_CATEGORY_OPTIONS
+                        val draftCategoryOptions = data?.draftCategoryOptions ?: EMPTY_SPONSOR_BLOCK_CATEGORY_OPTIONS
 
-                if (sponsorBlockEnabled) {
-                    item {
-                        Column(modifier = positions.modifierFor("sponsor_block_categories")) {
-                            SponsorBlockCategory.entries.forEach { category ->
-                                SwitchPreference(
-                                    title = { Text(stringResource(category.titleRes())) },
-                                    icon = { Icon(painterResource(R.drawable.fast_forward), null) },
-                                    checked = category.apiName in sponsorBlockCategories,
-                                    onCheckedChange = { checked ->
-                                        onSponsorBlockCategoriesChange(
-                                            if (checked) {
-                                                sponsorBlockCategories + category.apiName
-                                            } else {
-                                                sponsorBlockCategories - category.apiName
-                                            },
-                                        )
-                                    },
-                                )
-                            }
+                        SwitchPreference(
+                            title = { Text(stringResource(R.string.sponsor_block_use)) },
+                            icon = { Icon(painterResource(R.drawable.block), null) },
+                            checked = data?.enabled ?: false,
+                            onCheckedChange = onSponsorBlockEnabledChange,
+                            isEnabled = controlsEnabled,
+                        )
+
+                        val selectedCount = data?.selectedCategoryOptions?.size ?: 0
+                        MultiSelectListPreference(
+                            title = { Text(stringResource(R.string.sponsor_block_categories)) },
+                            description = stringResource(R.string.sponsor_block_categories_desc),
+                            icon = { Icon(painterResource(R.drawable.fast_forward), null) },
+                            values = categoryOptions,
+                            checkedValues = draftCategoryOptions,
+                            selectionText =
+                                androidx.compose.ui.res.pluralStringResource(
+                                    R.plurals.n_selected,
+                                    selectedCount,
+                                    selectedCount,
+                                ),
+                            valueText = { option -> stringResource(option.labelRes) },
+                            isBottomSheetVisible = data?.isCategorySheetVisible == true,
+                            onOpen = onSponsorBlockCategorySheetOpen,
+                            onDismiss = onSponsorBlockCategorySheetDismiss,
+                            onValueCheckedChange = onSponsorBlockCategoryCheckedChange,
+                            onConfirm = onSponsorBlockCategorySelectionConfirm,
+                            isEnabled = configurationEnabled,
+                        )
+
+                        PreferenceEntry(
+                            title = { Text(stringResource(R.string.sponsor_block_api_url)) },
+                            description = data?.apiUrl ?: DEFAULT_SPONSOR_BLOCK_API_URL,
+                            icon = { Icon(painterResource(R.drawable.link), null) },
+                            onClick = onSponsorBlockApiUrlEditorOpen,
+                            isEnabled = configurationEnabled,
+                        )
+
+                        if (sponsorBlockSettingsState is SponsorBlockSettingsScreenState.Error) {
+                            PreferenceEntry(
+                                title = { Text(stringResource(R.string.retry)) },
+                                description = stringResource((sponsorBlockSettingsState as SponsorBlockSettingsScreenState.Error).messageRes),
+                                onClick = onSponsorBlockRetry,
+                            )
                         }
                     }
                 }
@@ -1044,15 +1116,39 @@ internal fun ArtworkProviderOrderDialog(
     }
 }
 
-@androidx.annotation.StringRes
-private fun SponsorBlockCategory.titleRes(): Int =
-    when (this) {
-        SponsorBlockCategory.SPONSOR -> R.string.sponsor_block_category_sponsor
-        SponsorBlockCategory.SELFPROMO -> R.string.sponsor_block_category_selfpromo
-        SponsorBlockCategory.INTERACTION -> R.string.sponsor_block_category_interaction
-        SponsorBlockCategory.INTRO -> R.string.sponsor_block_category_intro
-        SponsorBlockCategory.OUTRO -> R.string.sponsor_block_category_outro
-        SponsorBlockCategory.PREVIEW -> R.string.sponsor_block_category_preview
-        SponsorBlockCategory.MUSIC_OFFTOPIC -> R.string.sponsor_block_category_music_offtopic
-        SponsorBlockCategory.FILLER -> R.string.sponsor_block_category_filler
-    }
+private val EMPTY_SPONSOR_BLOCK_CATEGORY_OPTIONS: ImmutableList<SponsorBlockCategoryUiModel> =
+    ImmutableList.of()
+
+@Composable
+private fun SponsorBlockApiUrlDialog(
+    state: SponsorBlockSettingsScreenState,
+    onValueChange: (String) -> Unit,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val data = (state as? SponsorBlockSettingsScreenState.Success)?.data ?: return
+    if (!data.isApiUrlEditorVisible) return
+    val isInputValid =
+        remember(data.isApiUrlDraftValid) {
+            { _: String -> data.isApiUrlDraftValid }
+        }
+    val confirmValue =
+        remember(onConfirm) {
+            { _: String -> onConfirm() }
+        }
+
+    TextFieldDialog(
+        title = { Text(stringResource(R.string.sponsor_block_api_url)) },
+        textFieldValue = data.apiUrlDraft,
+        onTextFieldValueChange = onValueChange,
+        keyboardOptions =
+            KeyboardOptions(
+                keyboardType = KeyboardType.Uri,
+                imeAction = ImeAction.Done,
+            ),
+        isInputValid = isInputValid,
+        dismissOnDone = false,
+        onDone = confirmValue,
+        onDismiss = onDismiss,
+    )
+}
