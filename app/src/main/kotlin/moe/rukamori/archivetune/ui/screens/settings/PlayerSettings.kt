@@ -130,7 +130,7 @@ fun PlayerSettings(navController: NavController, scrollTo: String? = null) {
     val (sponsorBlockCategories, onSponsorBlockCategoriesChange) =
         rememberPreference(
             SponsorBlockCategoriesKey,
-            defaultValue = setOf(SponsorBlockCategory.MUSIC_OFF_TOPIC.apiValue),
+            defaultValue = SponsorBlockCategory.Defaults.map { it.apiName }.toSet(),
         )
     val (skipSilence, onSkipSilenceChange) =
         rememberPreference(
@@ -504,13 +504,13 @@ fun PlayerSettings(navController: NavController, scrollTo: String? = null) {
                                 SwitchPreference(
                                     title = { Text(stringResource(category.titleRes())) },
                                     icon = { Icon(painterResource(R.drawable.fast_forward), null) },
-                                    checked = category.apiValue in sponsorBlockCategories,
+                                    checked = category.apiName in sponsorBlockCategories,
                                     onCheckedChange = { checked ->
                                         onSponsorBlockCategoriesChange(
                                             if (checked) {
-                                                sponsorBlockCategories + category.apiValue
+                                                sponsorBlockCategories + category.apiName
                                             } else {
-                                                sponsorBlockCategories - category.apiValue
+                                                sponsorBlockCategories - category.apiName
                                             },
                                         )
                                     },
@@ -1048,12 +1048,11 @@ internal fun ArtworkProviderOrderDialog(
 private fun SponsorBlockCategory.titleRes(): Int =
     when (this) {
         SponsorBlockCategory.SPONSOR -> R.string.sponsor_block_category_sponsor
-        SponsorBlockCategory.SELF_PROMOTION -> R.string.sponsor_block_category_selfpromo
+        SponsorBlockCategory.SELFPROMO -> R.string.sponsor_block_category_selfpromo
         SponsorBlockCategory.INTERACTION -> R.string.sponsor_block_category_interaction
         SponsorBlockCategory.INTRO -> R.string.sponsor_block_category_intro
         SponsorBlockCategory.OUTRO -> R.string.sponsor_block_category_outro
         SponsorBlockCategory.PREVIEW -> R.string.sponsor_block_category_preview
-        SponsorBlockCategory.MUSIC_OFF_TOPIC -> R.string.sponsor_block_category_music_offtopic
+        SponsorBlockCategory.MUSIC_OFFTOPIC -> R.string.sponsor_block_category_music_offtopic
         SponsorBlockCategory.FILLER -> R.string.sponsor_block_category_filler
-        SponsorBlockCategory.HOOK -> R.string.sponsor_block_category_hook
     }
