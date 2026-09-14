@@ -3110,8 +3110,10 @@ private fun V7PlayerBackdrop(
     }
 
     LaunchedEffect(paletteSourceUrl, hasCanvas, fallbackColor) {
-        backdropPalette = V7BackdropPalette.fromColors(emptyList(), fallbackColor)
-        if (paletteSourceUrl == null) return@LaunchedEffect
+        if (paletteSourceUrl == null) {
+            backdropPalette = V7BackdropPalette.fromColors(emptyList(), fallbackColor)
+            return@LaunchedEffect
+        }
 
         val request =
             ImageRequest

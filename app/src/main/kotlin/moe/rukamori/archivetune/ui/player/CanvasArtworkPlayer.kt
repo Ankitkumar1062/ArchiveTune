@@ -21,6 +21,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
@@ -379,9 +380,9 @@ fun CanvasArtworkPlayer(
             player = exoPlayer,
             surfaceType = SURFACE_TYPE_TEXTURE_VIEW,
             contentScale = resizeMode.toContentScale(),
-            keepContentOnReset = false,
+            keepContentOnReset = true,
             shutter = {},
-            modifier = modifier.alpha(alpha),
+            modifier = modifier.graphicsLayer { this.alpha = alpha },
         )
     }
 }

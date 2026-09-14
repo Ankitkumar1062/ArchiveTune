@@ -63,7 +63,8 @@ class CanvasSettingsRepository @Inject constructor(
         }
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                trySend(CanvasConnectivity())
+                val capabilities = manager.getNetworkCapabilities(network)
+                trySend(capabilities?.toCanvasConnectivity() ?: currentConnectivity())
             }
 
             override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
@@ -144,8 +145,7 @@ private fun parseCanvasSourceOrder(raw: String?): List<CanvasSource> {
 }
 
 private fun NetworkCapabilities.toCanvasConnectivity(): CanvasConnectivity = CanvasConnectivity(
-    online = hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-        hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED),
+    online = hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET),
     wifi = hasTransport(NetworkCapabilities.TRANSPORT_WIFI) && !hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR),
     metered = !hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) ||
         hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR),
