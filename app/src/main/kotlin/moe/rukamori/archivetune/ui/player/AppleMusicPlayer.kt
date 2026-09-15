@@ -401,30 +401,22 @@ fun AppleMusicPlayerContent(
     // hide: the bar carries the scrubber, the quality badge and the lyrics provider, and a control
     // you have to poke the screen to find is worse than one that is simply there.
 
-    // Deferred canvas-visible state: when lyrics opens, the canvas
-    // TextureView teardown (visible = false) + ExoPlayer pause are delayed so
-    // they don't compete with the COVER→LYRICS sharedBounds morph for the main
-    // thread on the same frame. Without this deferral, the TextureView
-    // teardown + static image composition + lyrics composable initialization
-    // AND the morph animation all fire simultaneously, causing a visible
-    // stutter in the thumbnail transition (issue 3).
-    //
-    // The delay is [AmLyricsBackdropMorphMs] — the length of the backdrop
-    // cross-dissolve — so the canvas surface is only removed once the still
-    // blurred artwork underneath has faded up to full opacity. Shorter delays
-    // (this used to be 250ms while the still artwork appeared at 350ms) left a
-    // window where the canvas was already gone and the still artwork had not
-    // arrived, which is what made the backdrop visibly jump. When lyrics
-    // closes, the canvas restores immediately so there's no visible gap.
-    var canvasVisibleForLyrics by remember { mutableStateOf(true) }
+    // Deferred canvas-visible state: when lyrics opens, playback freezes the
+    // instant lyrics open (ExoPlayer pauses — no decode, no compositing) while
+    // the TextureView surfaces stay up holding the frozen last frame for the
+    // cross-dissolve, then drop after [AmLyricsBackdropMorphMs].
+    // When lyrics closes, playback and surfaces restore immediately.
+    var canvasPlayingForLyrics by remember { mutableStateOf(true) }
+    var canvasSurfacesForLyrics by remember { mutableStateOf(true) }
     LaunchedEffect(lyricsOpen) {
         if (lyricsOpen) {
-            // Keep canvas visible while the backdrop cross-dissolve runs.
-            canvasVisibleForLyrics = true
+            canvasPlayingForLyrics = false
+            canvasSurfacesForLyrics = true
             delay(AmLyricsBackdropMorphMs.toLong())
-            canvasVisibleForLyrics = false
+            canvasSurfacesForLyrics = false
         } else {
-            canvasVisibleForLyrics = true
+            canvasPlayingForLyrics = true
+            canvasSurfacesForLyrics = true
         }
     }
     // True while the lyrics backdrop (zoom + drift) is on screen OR still
@@ -992,9 +984,9 @@ fun AppleMusicPlayerContent(
                 CanvasArtworkPlayer(
                     primaryUrl = canvasPrimaryUrl,
                     fallbackUrl = canvasFallbackUrl,
-                    isPlaying = isPlaying && canvasVisibleForLyrics,
+                    isPlaying = isPlaying && canvasPlayingForLyrics,
                     resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
-                    visible = canvasVisibleForLyrics,
+                    visible = canvasSurfacesForLyrics,
                     modifier =
                         Modifier
                             .matchParentSize()

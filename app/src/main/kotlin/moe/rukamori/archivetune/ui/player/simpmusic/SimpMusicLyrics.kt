@@ -105,10 +105,15 @@ fun SimpMusicLyrics(
     textColorOverride: Color? = null,
     // Non-null when this is rendered in the player's lyrics CARD rather than full screen.
     textSizeSp: Float? = null,
+    // The unsung lines. Null keeps the neutral grey, which is what the card wants: it sits on a
+    // surface of its own and a tint of the artwork would fight the card behind it. Full screen
+    // passes a tint of the backdrop instead, so the page reads as one colour.
+    inactiveColorOverride: Color? = null,
 ) {
     val playerConnection = LocalPlayerConnection.current ?: return
     val player = playerConnection.player
     val currentColor = textColorOverride ?: Color.White
+    val inactiveColor = inactiveColorOverride ?: DimLine
 
     val (lyricsClick) = rememberPreference(LyricsClickKey, defaultValue = true)
     val (lyricsTextSizePreference) = rememberPreference(LyricsTextSizeKey, defaultValue = 26f)
@@ -268,6 +273,7 @@ fun SimpMusicLyrics(
                     isCurrent = index == currentLineIndex,
                     baseSizeSp = lyricsTextSize,
                     currentColor = currentColor,
+                    inactiveColor = inactiveColor,
                     positionProvider = positionProvider,
                     romanizedText = romanizedLines.getOrNull(index)?.takeIf { it.isNotBlank() },
                     modifier =
@@ -297,6 +303,7 @@ private fun SimpMusicLyricsLine(
     isCurrent: Boolean,
     baseSizeSp: Float,
     currentColor: Color,
+    inactiveColor: Color,
     positionProvider: () -> Long,
     romanizedText: String? = null,
     modifier: Modifier = Modifier,
@@ -333,7 +340,7 @@ private fun SimpMusicLyricsLine(
             Text(
                 text = text,
                 style = style,
-                color = if (isCurrent) currentColor else DimLine,
+                color = if (isCurrent) currentColor else inactiveColor,
             )
             romanization?.invoke()
         }

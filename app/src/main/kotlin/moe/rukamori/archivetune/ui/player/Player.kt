@@ -953,7 +953,30 @@ fun BottomSheetPlayer(
         val startTime = SystemClock.elapsedRealtime()
         if (playbackState == STATE_READY) {
             while (isActive) {
-                delay(if (aodModeEnabled) 500L else 100L)
+                // Cadence by surface. The expanded player (and its sliders and
+                // lyrics) needs the 100ms tick; the collapsed mini player only
+                // draws a thin progress bar, so a coarse 500ms tick carries it
+                // while cutting the whole keep-alive player subtree's
+                // recomposition rate by 5x — that subtree stays composed
+                // off-screen and was burning 10 ticks/sec into the void.
+                //
+                // Mid-flight pause: while the sheet is dragging or animating,
+                // hold position updates entirely so that the swipe-down /
+                // open/close animation frames never compete with a full-player
+                // recomposition.
+                val settledCollapsed = state.isCollapsed
+                val settledExpanded = state.isExpanded
+                if (!settledCollapsed && !settledExpanded) {
+                    delay(50L)
+                    continue
+                }
+                delay(
+                    when {
+                        aodModeEnabled -> 500L
+                        settledCollapsed -> 500L
+                        else -> 100L
+                    },
+                )
                 val isTransitioning = playerConnection.player.currentMediaItem?.mediaId != mediaMetadata?.id
                 val currentPlayerPosition = playerConnection.player.currentPosition
                 val currentPlayerDuration = playerConnection.player.duration
