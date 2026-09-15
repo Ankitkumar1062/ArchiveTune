@@ -362,6 +362,7 @@ fun buildSettingsGroups(
                 SettingsChild("Enable JioSaavn source", "jiosaavn_enable", listOf("jiosaavn", "jio saavn", "saavn", "enable jiosaavn", "indian music")),
                 SettingsChild("JioSaavn audio quality", "jiosaavn_audio_quality", listOf("jiosaavn quality", "saavn quality", "jiosaavn audio quality")),
                 SettingsChild("yt-dlp runtime", "ytdlp", listOf("yt-dlp", "ytdlp", "youtube-dl", "extractor", "downloader runtime", "yt dlp version")),
+                SettingsChild("Enable Amazon Music source", "amazon_enable", listOf("amazon", "amazon music", "enable amazon", "amazon source", "amazon hd")),
             ),
         )
     val canvas =

@@ -110,6 +110,14 @@ fun OnlineSearchResult(
         SpotifyOnlineSearchResult(navController = navController)
         return
     }
+    if (viewModel.searchProvider == SearchProvider.APPLE_MUSIC) {
+        AppleMusicOnlineSearchResult(navController = navController)
+        return
+    }
+    if (viewModel.searchProvider == SearchProvider.AMAZON) {
+        AmazonOnlineSearchResult(navController = navController)
+        return
+    }
 
     val coroutineScope = rememberCoroutineScope()
     val lazyListState = rememberLazyListState()
