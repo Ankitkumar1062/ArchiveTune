@@ -901,6 +901,12 @@ class DownloadUtil
                     qualityApiValue = saavnAudioQuality.toApiValue(),
                 )?.let { ResolvedStreamData(it.uri, it.mimeType, it.codecs, it.contentLength) }
             }
+            DownloadSource.APPLE -> null
+
+            // Amazon serves CENC-protected fragmented MP4 and this fork ships no decryption step
+            // (see AmazonEnabledKey in PreferenceKeys.kt), so no download stream can be produced
+            // here — the chain skips Amazon and falls through to the next source.
+            DownloadSource.AMAZON -> null
             DownloadSource.AUTO, DownloadSource.YOUTUBE_MUSIC -> null
         }
 

@@ -293,6 +293,10 @@ enum class DownloadSource {
     QOBUZ_BACKUP,
     TIDAL,
 
+    APPLE,
+
+    AMAZON,
+
     /**
      * Deezer lookup — uses Deezer's public catalogue API to resolve a FLAC
      * stream URL. Falls back to the next source in [AUTO] order when the
@@ -333,14 +337,21 @@ object DownloadSourceConfig {
             DownloadSource.QOBUZ,
             DownloadSource.QOBUZ_BACKUP,
             DownloadSource.TIDAL,
+            DownloadSource.APPLE,
+            // Listed ahead of DEEZER on purpose: a user who signs into Amazon wants it preferred,
+            // and with no stream resolver yet AMAZON simply misses and the chain falls through to
+            // the next source — the same miss-and-fall-through the playback chain would do.
+            DownloadSource.AMAZON,
             DownloadSource.DEEZER,
             DownloadSource.JIOSAAVN,
             DownloadSource.YOUTUBE_MUSIC,
         )
 
+    // AMAZON needs pool session credentials to be usable at all (same as Qobuz/Tidal/Deezer),
+    // so the download picker marks it pool-gated even though nothing resolves through it yet.
     /** Sources that need a Source Pool account configured to be usable for downloads. */
     val REQUIRES_POOL: Set<DownloadSource> =
-        setOf(DownloadSource.QOBUZ, DownloadSource.TIDAL, DownloadSource.DEEZER)
+        setOf(DownloadSource.QOBUZ, DownloadSource.TIDAL, DownloadSource.DEEZER, DownloadSource.AMAZON)
 
     /**
      * Cache-key prefix a source's downloaded bytes are stored under, e.g. `"qobuz_backup:"`.
