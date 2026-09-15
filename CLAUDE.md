@@ -30,6 +30,7 @@ variant, deliberately — the fork ships GMS-only.
 | [docs/lyrics.md](docs/lyrics.md) | The three renderers, the word sweep, which surface uses which |
 | [docs/sponsorblock.md](docs/sponsorblock.md) | Segment lookup and skipping |
 | [docs/tv.md](docs/tv.md) | Android TV / Fire TV: detection, focus, what is known to be missing |
+| [docs/telegram-native.md](docs/telegram-native.md) | The TDLight engine: why the native library is downloaded, the digest pinning, schema drift from 1.8.56 |
 | [docs/REMOVED_RUKAMORI_COMPONENTS.md](docs/REMOVED_RUKAMORI_COMPONENTS.md) | What the 2026-08 cleanup deleted, and why not to restore it |
 
 ## House rules
