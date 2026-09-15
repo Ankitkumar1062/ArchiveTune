@@ -60,6 +60,13 @@ val CanvasSourceKey = stringPreferencesKey("canvasSource")
 val CanvasSourceOrderKey = stringPreferencesKey("canvasSourceOrder")
 val CanvasWifiOnlyKey = booleanPreferencesKey("canvasWifiOnly")
 val SpotifyCanvasKey = booleanPreferencesKey("spotifyCanvas")
+val AndroidAutoOnlineRecommendationsKey = booleanPreferencesKey("androidAutoOnlineRecommendations")
+val AndroidAutoOnlineVoiceSearchKey = booleanPreferencesKey("androidAutoOnlineVoiceSearch")
+val AndroidAutoLocalSongsKey = booleanPreferencesKey("androidAutoLocalSongs")
+val AndroidAutoMeteredPlaybackKey = booleanPreferencesKey("androidAutoMeteredPlayback")
+val AndroidAutoMeteredArtworkKey = booleanPreferencesKey("androidAutoMeteredArtwork")
+val AndroidAutoPrimaryActionKey = stringPreferencesKey("androidAutoPrimaryAction")
+val AndroidAutoSecondaryActionKey = stringPreferencesKey("androidAutoSecondaryAction")
 
 /**
  * Whether an album page plays the album's looping motion artwork behind its header.

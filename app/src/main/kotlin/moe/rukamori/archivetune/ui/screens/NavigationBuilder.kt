@@ -54,6 +54,7 @@ import moe.rukamori.archivetune.ui.screens.search.OnlineSearchProviderArgument
 import moe.rukamori.archivetune.ui.screens.search.OnlineSearchResultRoute
 import moe.rukamori.archivetune.ui.screens.search.OnlineSearchResultRoutePrefix
 import moe.rukamori.archivetune.ui.screens.search.SearchScreen
+import moe.rukamori.archivetune.ui.screens.settings.AndroidAutoSettings
 import moe.rukamori.archivetune.ui.screens.settings.AboutScreen
 import moe.rukamori.archivetune.ui.screens.settings.AccountSettings
 import moe.rukamori.archivetune.ui.screens.settings.AiIntegrationSettings
@@ -572,6 +573,9 @@ fun NavGraphBuilder.navigationBuilder(
     }
     composable("settings/storage/export_songs") {
         ExportDownloadedSongsScreen(navController)
+    }
+    composable("settings/android_auto") {
+        AndroidAutoSettings(navController)
     }
     composable(
         route = "settings/downloads?scrollTo={scrollTo}",
