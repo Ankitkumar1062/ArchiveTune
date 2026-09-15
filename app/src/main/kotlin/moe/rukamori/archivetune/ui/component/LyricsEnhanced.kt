@@ -180,9 +180,10 @@ private const val LYRIC_FOCUS_MIN_SCROLL_PX = 6
 // for frame budget on every line change.
 private const val LYRIC_FOCUS_INSTANT_SCROLL_RATIO = 0.40f
 private const val LYRIC_FOCUS_ANIMATED_DISTANCE = 4
-private const val SMOOTH_PLAYBACK_MAX_FORWARD_DRIFT_MS = 80L
-private const val SMOOTH_PLAYBACK_MAX_BACKWARD_DRIFT_MS = 180L
-private const val SMOOTH_PLAYBACK_DRIFT_CORRECTION = 0.55f
+private const val SMOOTH_PLAYBACK_MAX_CORRECTION_PER_FRAME_MS = 2.0
+private const val SMOOTH_PLAYBACK_DRIFT_CORRECTION = 0.08
+private const val SMOOTH_PLAYBACK_MAX_FORWARD_DRIFT_MS = 100L
+private const val SMOOTH_PLAYBACK_MAX_BACKWARD_DRIFT_MS = 150L
 // Reduced from 520ms to 280ms. The previous 520ms tween was long enough that
 // it was STILL running when the next line change fired (especially on tracks
 // with short lines), causing collectLatest to cancel + restart the animation
@@ -695,8 +696,8 @@ fun LyricsEnhanced(
 
     LaunchedEffect(player, lyricsSessionKey, animationsDisabled, playbackParameters.speed) {
         var wasSliderActive = false
-        var anchorPlayerPositionMs = player.currentPosition.coerceAtLeast(0L)
-        var anchorFrameNanos = 0L
+        var previousFrameNanos = 0L
+        var smoothedPositionMs = player.currentPosition.coerceAtLeast(0L).toDouble()
         var lastRawPositionMs = player.currentPosition.coerceAtLeast(0L)
         // Cache the current line index + boundary timestamps to avoid calling
         // findLastStartedLineIndex (binary search) every frame. In the common
@@ -747,8 +748,8 @@ fun LyricsEnhanced(
             // `rawPosition` / `nextPosition`).
             val effectivePositionMs: Long
             if (sliderPosition != null || !player.isPlaying || animationsDisabled) {
-                anchorPlayerPositionMs = rawPosition
-                anchorFrameNanos = 0L
+                previousFrameNanos = 0L
+                smoothedPositionMs = rawPosition.toDouble()
                 if (playbackPositionMs.longValue != rawPosition) {
                     playbackPositionMs.longValue = rawPosition
                 }
@@ -763,31 +764,32 @@ fun LyricsEnhanced(
                 }
             } else {
                 val frameNanos = withFrameNanos { frameTimeNanos -> frameTimeNanos }
-                if (anchorFrameNanos == 0L) {
-                    anchorFrameNanos = frameNanos
-                    anchorPlayerPositionMs = rawPosition
+                if (previousFrameNanos == 0L) {
+                    smoothedPositionMs = rawPosition.toDouble()
+                    previousFrameNanos = frameNanos
+                } else {
+                    val frameDeltaNanos = frameNanos - previousFrameNanos
+                    val deltaMs = (frameDeltaNanos / 1_000_000.0) * latestPlaybackSpeed.value
+                    val projectedPositionMs = smoothedPositionMs + deltaMs
+                    val driftMs = rawPosition - projectedPositionMs
+
+                    smoothedPositionMs =
+                        if (driftMs > SMOOTH_PLAYBACK_MAX_FORWARD_DRIFT_MS ||
+                            driftMs < -SMOOTH_PLAYBACK_MAX_BACKWARD_DRIFT_MS
+                        ) {
+                            rawPosition.toDouble()
+                        } else {
+                            val correctionMs =
+                                (driftMs * SMOOTH_PLAYBACK_DRIFT_CORRECTION).coerceIn(
+                                    -SMOOTH_PLAYBACK_MAX_CORRECTION_PER_FRAME_MS,
+                                    SMOOTH_PLAYBACK_MAX_CORRECTION_PER_FRAME_MS,
+                                )
+                            projectedPositionMs + correctionMs
+                        }
+                    previousFrameNanos = frameNanos
                 }
 
-                val elapsedMs = ((frameNanos - anchorFrameNanos) / 1_000_000f) * latestPlaybackSpeed.value
-                val projectedPosition = anchorPlayerPositionMs + elapsedMs.roundToLong()
-                val driftMs = rawPosition - projectedPosition
-                val nextPosition =
-                    when {
-                        driftMs > SMOOTH_PLAYBACK_MAX_FORWARD_DRIFT_MS ||
-                            driftMs < -SMOOTH_PLAYBACK_MAX_BACKWARD_DRIFT_MS -> {
-                            anchorPlayerPositionMs = rawPosition
-                            anchorFrameNanos = frameNanos
-                            rawPosition
-                        }
-
-                        driftMs != 0L -> {
-                            projectedPosition + (driftMs * SMOOTH_PLAYBACK_DRIFT_CORRECTION).roundToLong()
-                        }
-
-                        else -> {
-                            projectedPosition
-                        }
-                    }.coerceAtLeast(0L)
+                val nextPosition = smoothedPositionMs.roundToLong().coerceAtLeast(0L)
 
                 if (playbackPositionMs.longValue != nextPosition) {
                     playbackPositionMs.longValue = nextPosition

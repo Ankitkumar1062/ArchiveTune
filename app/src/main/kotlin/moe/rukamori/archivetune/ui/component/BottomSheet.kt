@@ -70,6 +70,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 import moe.rukamori.archivetune.LocalAnimationsDisabled
 import moe.rukamori.archivetune.constants.BottomSheetAnimationSpec
 import moe.rukamori.archivetune.constants.BottomSheetSoftAnimationSpec
@@ -117,6 +118,7 @@ fun BottomSheet(
     backHandlerEnabled: Boolean = true,
     opaqueBackground: Boolean = false,
     onCollapsedContentClick: (() -> Unit)? = null,
+    navbarHiddenOffset: (() -> Float)? = null,
     collapsedContent: @Composable BoxScope.() -> Unit,
     content: @Composable BoxScope.() -> Unit,
 ) {
@@ -129,7 +131,14 @@ fun BottomSheet(
                         (state.expandedBound - state.value)
                             .roundToPx()
                             .coerceAtLeast(0)
-                    IntOffset(x = 0, y = y)
+                    // Scroll-to-hide / route-change navbar: while the sheet sits
+                    // collapsed, let the mini player drift down into the space
+                    // the navigation bar vacated. Fades out with sheet progress
+                    // so the expanded player is never double-shifted.
+                    val takeOver =
+                        (navbarHiddenOffset?.invoke()?.coerceAtLeast(0f) ?: 0f) *
+                            (1f - state.progress.coerceIn(0f, 1f))
+                    IntOffset(x = 0, y = (y + takeOver).roundToInt())
                 }.bottomSheetDraggable(state, onDismiss)
                 .clip(
                     RoundedCornerShape(

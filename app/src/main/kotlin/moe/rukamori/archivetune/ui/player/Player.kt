@@ -361,6 +361,7 @@ fun BottomSheetPlayer(
     pureBlack: Boolean,
     isMiniPlayerPairedWithNavigation: Boolean = false,
     onLyricsVisibilityChange: (Boolean) -> Unit = {},
+    navbarHiddenOffset: (() -> Float)? = null,
     canvasViewModel: CanvasPlaybackViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
@@ -1402,6 +1403,7 @@ fun BottomSheetPlayer(
         },
         backHandlerEnabled = !aodModeEnabled && !isLyricsScreenVisible,
         keepContentAlive = true,
+        navbarHiddenOffset = navbarHiddenOffset,
         collapsedContent = {
             MiniPlayer(
                 positionProvider = positionProvider,
