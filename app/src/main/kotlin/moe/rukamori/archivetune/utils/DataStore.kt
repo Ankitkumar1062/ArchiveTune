@@ -20,6 +20,7 @@ import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -121,6 +122,7 @@ private val LEGACY_SIMPMUSIC_LYRICS_KEY = androidx.datastore.preferences.core.bo
 object PreferenceStore {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val _prefs = MutableStateFlow<Preferences?>(null)
+    private val firstLoad = CompletableDeferred<Unit>()
 
     @Volatile private var started = false
 
@@ -132,7 +134,19 @@ object PreferenceStore {
             scope.launch {
                 context.dataStore.data.collect { preferences ->
                     _prefs.value = preferences
+                    firstLoad.complete(Unit)
                 }
+            }
+        }
+    }
+
+    suspend fun awaitFirstLoad() = firstLoad.await()
+
+    fun blockUntilLoaded(timeoutMs: Long = 1_500L) {
+        if (firstLoad.isCompleted) return
+        runBlocking {
+            withTimeoutOrNull(timeoutMs) {
+                firstLoad.await()
             }
         }
     }

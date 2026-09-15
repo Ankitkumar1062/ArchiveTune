@@ -27,11 +27,15 @@ import kotlinx.coroutines.guava.future
 import kotlin.math.roundToInt
 
 internal const val NotificationArtworkSizePx = 1080
+private const val LegacyMediaMetadataBitmapMaxSizeDp = 192
 
 class CoilBitmapLoader(
-    private val context: Context,
+    context: Context,
     private val scope: CoroutineScope,
 ) : BitmapLoader {
+    private val applicationContext = context.applicationContext
+    private val maximumArtworkDimensionPx = context.resolveMaximumArtworkDimensionPx()
+
     override fun supportsMimeType(mimeType: String): Boolean = mimeType.startsWith("image/")
 
     override fun decodeBitmap(data: ByteArray): ListenableFuture<Bitmap> =
@@ -41,7 +45,7 @@ class CoilBitmapLoader(
                     throw IllegalArgumentException("Empty image data")
                 }
 
-                BitmapFactory.decodeByteArray(data, 0, data.size)?.also { bitmap ->
+                decodeSampledBitmap(data, maximumArtworkDimensionPx)?.also { bitmap ->
                     return@future bitmap
                 }
 
@@ -59,38 +63,20 @@ class CoilBitmapLoader(
                 try {
                     val request =
                         ImageRequest
-                            .Builder(context)
+                            .Builder(applicationContext)
                             .data(uri)
                             .allowHardware(false)
-                            .size(NotificationArtworkSizePx, NotificationArtworkSizePx)
+                            .size(maximumArtworkDimensionPx, maximumArtworkDimensionPx)
                             .build()
 
-                    val result = context.imageLoader.execute(request)
+                    val result = applicationContext.imageLoader.execute(request)
 
                     when (result) {
                         is SuccessResult -> {
                             try {
                                 val bitmap = result.image.toBitmap()
-                                val scaled =
-                                    if (bitmap.width <= 0 || bitmap.height <= 0) {
-                                        null
-                                    } else if (
-                                        bitmap.width <= NotificationArtworkSizePx &&
-                                        bitmap.height <= NotificationArtworkSizePx
-                                    ) {
-                                        bitmap
-                                    } else {
-                                        val scale =
-                                            minOf(
-                                                NotificationArtworkSizePx.toFloat() / bitmap.width.toFloat(),
-                                                NotificationArtworkSizePx.toFloat() / bitmap.height.toFloat(),
-                                            )
-                                        val targetWidth = (bitmap.width * scale).roundToInt().coerceAtLeast(1)
-                                        val targetHeight = (bitmap.height * scale).roundToInt().coerceAtLeast(1)
-                                        Bitmap.createScaledBitmap(bitmap, targetWidth, targetHeight, true)
-                                    }
-
-                                val mediaSessionBitmap = scaled?.toOwnedMediaSessionBitmap()
+                                val scaled = bitmap.scaleToNotificationArtwork(maximumArtworkDimensionPx)
+                                val mediaSessionBitmap = scaled.toOwnedMediaSessionBitmap()
                                 if (mediaSessionBitmap == null) {
                                     return@future createBitmap(64, 64)
                                 }
@@ -116,6 +102,67 @@ class CoilBitmapLoader(
             }
             createBitmap(64, 64)
         }
+}
+
+private fun decodeSampledBitmap(
+    data: ByteArray,
+    maximumDimensionPx: Int,
+): Bitmap? {
+    val bounds =
+        BitmapFactory.Options().apply {
+            inJustDecodeBounds = true
+        }
+    BitmapFactory.decodeByteArray(data, 0, data.size, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+    var sampleSize = 1
+    val largestDimension = maxOf(bounds.outWidth, bounds.outHeight)
+    while (largestDimension / sampleSize / 2 >= maximumDimensionPx) {
+        sampleSize *= 2
+    }
+
+    val options =
+        BitmapFactory.Options().apply {
+            inSampleSize = sampleSize
+        }
+    val decoded = BitmapFactory.decodeByteArray(data, 0, data.size, options) ?: return null
+    return decoded.scaleToNotificationArtwork(maximumDimensionPx)
+}
+
+private fun Bitmap.scaleToNotificationArtwork(maximumDimensionPx: Int): Bitmap {
+    if (width <= 0 || height <= 0) return this
+    if (width <= maximumDimensionPx && height <= maximumDimensionPx) return this
+
+    val scale =
+        minOf(
+            maximumDimensionPx.toFloat() / width.toFloat(),
+            maximumDimensionPx.toFloat() / height.toFloat(),
+        )
+    val targetWidth = (width * scale).roundToInt().coerceIn(1, maximumDimensionPx)
+    val targetHeight = (height * scale).roundToInt().coerceIn(1, maximumDimensionPx)
+    return Bitmap.createScaledBitmap(this, targetWidth, targetHeight, true)
+}
+
+private fun Context.resolveMaximumArtworkDimensionPx(): Int {
+    val frameworkLimitPx =
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            (resources.displayMetrics.density * 320).roundToInt()
+        } else {
+            (LegacyMediaMetadataBitmapMaxSizeDp * resources.displayMetrics.density).roundToInt()
+        }
+    val pixelLimitResourceId =
+        resources.getIdentifier(
+            "config_maxBitmapSizePx",
+            "integer",
+            "android",
+        )
+    val pixelLimitPx =
+        if (pixelLimitResourceId != 0) {
+            resources.getInteger(pixelLimitResourceId).takeIf { it > 0 } ?: frameworkLimitPx
+        } else {
+            frameworkLimitPx
+        }
+    return minOf(NotificationArtworkSizePx, frameworkLimitPx, pixelLimitPx).coerceAtLeast(1)
 }
 
 private fun Bitmap.toOwnedMediaSessionBitmap(): Bitmap? {

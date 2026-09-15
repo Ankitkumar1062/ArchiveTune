@@ -542,6 +542,7 @@ class App :
     }
 
     override fun newImageLoader(context: PlatformContext): ImageLoader {
+        PreferenceStore.blockUntilLoaded()
         val smartTrimmer = dataStore[SmartTrimmerKey] ?: false
         val imageCacheConfig = resolveImageDiskCacheConfig(dataStore[MaxImageCacheSizeKey])
         val lowRam = isLowRamDevice()
