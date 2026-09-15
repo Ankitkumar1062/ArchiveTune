@@ -157,7 +157,7 @@ class App :
     private fun initializeCriticalSync() {
         runCatching {
             val config = com.downloader.PRDownloaderConfig.newBuilder()
-                .setReadTimeout(60_000)
+                .setReadTimeout(90_000)
                 .setConnectTimeout(15_000)
                 .setUserAgent("ArchiveTune/${BuildConfig.VERSION_NAME}")
                 .build()

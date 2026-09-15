@@ -188,7 +188,30 @@ abstract class InternalDatabase : RoomDatabase() {
                     ).setQueryExecutor(
                         java.util.concurrent.Executors
                             .newFixedThreadPool(4),
-                    ).build()
+                    ).openHelperFactory { configuration ->
+                        // Repair before reset. A corrupt or drifted schema used to throw straight
+                        // out of Room's integrity check and take the app down on launch; now the
+                        // file is repaired in place first, and only recreated if that fails too.
+                        RecoveringOpenHelper(
+                            create = { FrameworkSQLiteOpenHelperFactory().create(configuration) },
+                            shouldRecover = { error ->
+                                val message = error.message.orEmpty().lowercase()
+                                message.contains("room cannot verify the data integrity") ||
+                                    message.contains("forgot to update the version number") ||
+                                    message.contains("migration didn't properly handle") ||
+                                    message.contains("room openhelper verification failed")
+                            },
+                            repair = { error ->
+                                Log.e(TAG, "Database open failed, attempting schema repair", error)
+                                runCatching { SchemaTools.repairDatabaseFile(context, DB_NAME) }
+                                    .onFailure { Log.e(TAG, "Schema repair failed", it) }
+                            },
+                            reset = { error ->
+                                Log.e(TAG, "Database still failed after repair, recreating", error)
+                                runCatching { context.deleteDatabase(DB_NAME) }
+                            },
+                        )
+                    }.build()
 
             fun shouldResetDb(t: Throwable): Boolean {
                 val msg = (t.message ?: "").lowercase()
@@ -229,7 +252,12 @@ abstract class InternalDatabase : RoomDatabase() {
 private class DatabaseCallback : RoomDatabase.Callback() {
     override fun onOpen(db: SupportSQLiteDatabase) {
         super.onOpen(db)
-        java.util.concurrent.Executors.newSingleThreadExecutor().execute {
+        // One-shot off-thread setup. The executor is shut down as soon as the task is queued:
+        // shutdown() lets the already-submitted work run to completion, then terminates the idle
+        // thread instead of leaking one per database open (this fires on every open, including the
+        // repair path's rebuilds).
+        val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+        executor.execute {
             try {
                 db.query("PRAGMA busy_timeout = 60000").close()
                 db.query("PRAGMA cache_size = -16000").close()
@@ -244,6 +272,7 @@ private class DatabaseCallback : RoomDatabase.Callback() {
                 Log.e(TAG, "Failed to set PRAGMA settings", e)
             }
         }
+        executor.shutdown()
     }
 
     private fun cleanupDuplicatePlaylistsOnOpen(db: SupportSQLiteDatabase) {

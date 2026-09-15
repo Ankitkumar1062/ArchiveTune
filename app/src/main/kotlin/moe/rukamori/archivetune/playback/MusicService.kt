@@ -4564,6 +4564,16 @@ class MusicService :
         abandonAudioFocus()
         closeAudioEffectSession()
         consecutivePlaybackErr = 0
+        // Per-media-id resolution caches grow one entry per unique track played and were never
+        // pruned, so a long listening session leaked them indefinitely. A full stop clears the
+        // queue and leaves no active track, so every entry is now stale — drop them here. They
+        // repopulate on the next resolve at no correctness cost.
+        playbackUrlCache.clear()
+        remotePlaybackTrackingUrlCache.clear()
+        contentLengthCache.clear()
+        directStreamCache.clear()
+        audioNormalizationFactorCache.clear()
+        resolvedSourcesByMediaId.clear()
         if (clearPersistentState) {
             clearPersistedQueueFiles()
         }
@@ -9342,12 +9352,22 @@ class MusicService :
             // Evict the bare-keyed content length so [resolveCachedDataSpec] can't conclude the
             // request is fully cached based on the previous source's byte size.
             contentLengthCache.remove(mediaId)
+            // Source switch purges PLAYBACK state only (playerCache spans +
+            // resolvers + content-length metadata) so the next prepare
+            // re-resolves from the new source. The DOWNLOAD cache is
+            // deliberately NOT touched: it holds per-source OFFLINE COPIES
+            // ("qobuz:<id>", "ytm:<id>", ...) that must coexist — wiping it
+            // here destroyed the previous source's completed download, so the
+            // export-downloads page collapsed back to a single entry after a
+            // source change (user report: qobuz download "overwritten" when
+            // switching to another source). A download for another source is
+            // never served for playback of this source (the resolver only
+            // short-circuits on the request's own source-scoped key), so
+            // leaving those bytes in place is safe for playback too.
             runCatching { playerCache.removeResource(mediaId) }
-            runCatching { downloadCache.removeResource(mediaId) }
             AudioSourceType.entries.forEach { src ->
                 val key = sourceCacheKey(src, mediaId)
                 runCatching { playerCache.removeResource(key) }
-                runCatching { downloadCache.removeResource(key) }
                 // Source-prefixed content-length entries are also stale after a source switch.
                 contentLengthCache.remove(key)
             }
