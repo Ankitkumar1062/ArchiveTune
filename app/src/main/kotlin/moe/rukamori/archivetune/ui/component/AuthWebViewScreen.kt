@@ -60,6 +60,7 @@ import androidx.navigation.NavController
  * @param title bold heading at the top of the sheet.
  * @param subtitle one-line hint under the title explaining what the user should do.
  * @param onRelease optional teardown, invoked when the AndroidView leaves composition.
+ * @param footer optional composable rendered below the WebView inside the sheet.
  * @param factory builds the WebView. The returned instance is tracked automatically for in-page
  *   back navigation, so callers no longer need their own reference for that.
  */
@@ -71,6 +72,7 @@ fun AuthWebViewScreen(
     subtitle: String,
     modifier: Modifier = Modifier,
     onRelease: ((WebView) -> Unit)? = null,
+    footer: (@Composable () -> Unit)? = null,
     factory: (Context) -> WebView,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -85,6 +87,7 @@ fun AuthWebViewScreen(
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
+        KeepStatusBarHiddenInDialog()
         Column(
             modifier =
                 Modifier
@@ -116,6 +119,8 @@ fun AuthWebViewScreen(
                     if (webView === released) webView = null
                 },
             )
+
+            footer?.invoke()
         }
     }
 
