@@ -31,6 +31,7 @@ import android.media.AudioManager
 import android.media.MediaCodecList
 import android.media.audiofx.AudioEffect
 import android.media.audiofx.BassBoost
+import android.media.audiofx.EnvironmentalReverb
 import android.media.audiofx.Equalizer
 import android.media.audiofx.LoudnessEnhancer
 import android.media.audiofx.Virtualizer
@@ -157,15 +158,21 @@ import moe.rukamori.archivetune.constants.DiscordTokenKey
 import moe.rukamori.archivetune.constants.EnableDiscordRPCKey
 import moe.rukamori.archivetune.constants.EnableLastFMScrobblingKey
 import moe.rukamori.archivetune.constants.EqualizerAutoHeadroomEnabledKey
+import moe.rukamori.archivetune.constants.Equalizer8DEnabledKey
+import moe.rukamori.archivetune.constants.Equalizer8DSpeedKey
+import moe.rukamori.archivetune.constants.EqualizerBalanceKey
 import moe.rukamori.archivetune.constants.EqualizerBandLevelsMbKey
 import moe.rukamori.archivetune.constants.EqualizerBassBoostEnabledKey
 import moe.rukamori.archivetune.constants.EqualizerBassBoostStrengthKey
 import moe.rukamori.archivetune.constants.EqualizerEnabledKey
 import moe.rukamori.archivetune.constants.EqualizerOutputGainEnabledKey
 import moe.rukamori.archivetune.constants.EqualizerOutputGainMbKey
+import moe.rukamori.archivetune.constants.EqualizerReverbEnabledKey
+import moe.rukamori.archivetune.constants.EqualizerReverbPresetKey
 import moe.rukamori.archivetune.constants.EqualizerSelectedProfileIdKey
 import moe.rukamori.archivetune.constants.EqualizerVirtualizerEnabledKey
 import moe.rukamori.archivetune.constants.EqualizerVirtualizerStrengthKey
+import moe.rukamori.archivetune.playback.EqReverbPreset
 import moe.rukamori.archivetune.constants.HISTORY_DURATION_DEFAULT
 import moe.rukamori.archivetune.constants.HISTORY_DURATION_MAX
 import moe.rukamori.archivetune.constants.HISTORY_DURATION_MIN
@@ -844,6 +851,11 @@ class MusicService :
                 virtualizerEnabled = false,
                 virtualizerStrength = 0,
                 autoHeadroomEnabled = false,
+                reverbEnabled = false,
+                reverbPreset = 0,
+                balance = 0f,
+                eightDEnabled = false,
+                eightDSpeedHz = 0.2f,
             ),
         )
 
@@ -853,6 +865,9 @@ class MusicService :
     private var bassBoost: BassBoost? = null
     private var virtualizer: Virtualizer? = null
     private var loudnessEnhancer: LoudnessEnhancer? = null
+    private var environmentalReverb: EnvironmentalReverb? = null
+    private val primaryStereoPanProcessor = StereoPanAudioProcessor()
+    private var secondaryStereoPanProcessor: StereoPanAudioProcessor? = null
     private val audioEffectPlayerListener =
         object : Player.Listener {
             override fun onEvents(
@@ -1254,7 +1269,7 @@ class MusicService :
             ExoPlayer
                 .Builder(this)
                 .setMediaSourceFactory(createMediaSourceFactory())
-                .setRenderersFactory(createRenderersFactory())
+                .setRenderersFactory(createRenderersFactory(primaryStereoPanProcessor))
                 .setLoadControl(createPrimaryLoadControl())
                 .setTrackSelector(DefaultTrackSelector(this, SafeTrackSelectionFactory()))
                 .setHandleAudioBecomingNoisy(true)
@@ -2901,11 +2916,16 @@ class MusicService :
         }.getOrNull()
     }
 
-    private fun createSecondaryCrossfadePlayer(): ExoPlayer =
-        ExoPlayer
+    private fun createSecondaryCrossfadePlayer(): ExoPlayer {
+        // Dedicated stereo-pan instance for the secondary sink; it receives the
+        // same settings broadcasts and dies with the player it belongs to.
+        val secondaryStereoPan = StereoPanAudioProcessor()
+        applyStereoPanSettingsTo(secondaryStereoPan, desiredEqSettings.value)
+        secondaryStereoPanProcessor = secondaryStereoPan
+        return ExoPlayer
             .Builder(this)
             .setMediaSourceFactory(createMediaSourceFactory())
-            .setRenderersFactory(createRenderersFactory())
+            .setRenderersFactory(createRenderersFactory(secondaryStereoPan))
             .setLoadControl(createCrossfadeLoadControl())
             .setTrackSelector(DefaultTrackSelector(this, SafeTrackSelectionFactory()))
             .setHandleAudioBecomingNoisy(true)
@@ -2920,6 +2940,7 @@ class MusicService :
                 setOffloadEnabled(false)
                 skipSilenceEnabled = localPlayer.skipSilenceEnabled
             }
+    }
 
     private fun startCrossfade(
         target: CrossfadeTarget,
@@ -3345,6 +3366,7 @@ class MusicService :
         val playerToRelease = secondaryCrossfadePlayer ?: return
         secondaryCrossfadePlayer = null
         secondaryCrossfadeTarget = null
+        secondaryStereoPanProcessor = null
         runCatching { playerToRelease.removeListener(secondaryCrossfadeListener) }
         runCatching { playerToRelease.stop() }
         runCatching { playerToRelease.clearMediaItems() }
@@ -6835,6 +6857,11 @@ class MusicService :
             virtualizerEnabled = prefs[EqualizerVirtualizerEnabledKey] ?: false,
             virtualizerStrength = (prefs[EqualizerVirtualizerStrengthKey] ?: 0).coerceIn(0, 1000),
             autoHeadroomEnabled = prefs[EqualizerAutoHeadroomEnabledKey] ?: false,
+            reverbEnabled = prefs[EqualizerReverbEnabledKey] ?: false,
+            reverbPreset = EqReverbPreset.fromStorage(prefs[EqualizerReverbPresetKey] ?: 0).storageValue,
+            balance = (prefs[EqualizerBalanceKey] ?: 0f).coerceIn(-1f, 1f),
+            eightDEnabled = prefs[Equalizer8DEnabledKey] ?: false,
+            eightDSpeedHz = (prefs[Equalizer8DSpeedKey] ?: 0.2f).coerceIn(0.03f, 0.25f),
         )
     }
 
@@ -6970,10 +6997,15 @@ class MusicService :
             loudnessEnhancer?.release()
         } catch (_: Exception) {
         }
+        try {
+            environmentalReverb?.release()
+        } catch (_: Exception) {
+        }
         equalizer = null
         bassBoost = null
         virtualizer = null
         loudnessEnhancer = null
+        environmentalReverb = null
         eqCapabilities.value = null
         equalizerPlaybackController.updateCapabilities(null)
     }
@@ -7012,6 +7044,7 @@ class MusicService :
         bassBoost = createAudioEffect("BassBoost", sessionId) { BassBoost(0, sessionId) }
         virtualizer = createAudioEffect("Virtualizer", sessionId) { Virtualizer(0, sessionId) }
         loudnessEnhancer = createAudioEffect("LoudnessEnhancer", sessionId) { LoudnessEnhancer(sessionId) }
+        environmentalReverb = createAudioEffect("EnvironmentalReverb", sessionId) { EnvironmentalReverb(0, sessionId) }
 
         equalizer?.let(::updateEqCapabilitiesFromEffect)
         applyEqSettingsToEffects(desiredEqSettings.value)
@@ -7027,6 +7060,18 @@ class MusicService :
             .onFailure { error ->
                 Timber.tag(TAG).w(error, "%s initialization failed for audio session %d", name, sessionId)
             }.getOrNull()
+
+    private fun applyStereoPanSettingsTo(
+        processor: StereoPanAudioProcessor,
+        settings: EqSettings,
+    ) {
+        processor.setMasterEnabled(settings.enabled)
+        processor.setBalance(settings.balance)
+        processor.setRotation(
+            enabled = settings.eightDEnabled,
+            speedHz = settings.eightDSpeedHz,
+        )
+    }
 
     private fun applyEqSettingsToEffects(settings: EqSettings) {
         val eq = equalizer ?: return
@@ -7066,6 +7111,108 @@ class MusicService :
                 }
             runCatching { le.setTargetGain(gainMb) }
             runCatching { le.enabled = settings.enabled && (settings.autoHeadroomEnabled || settings.outputGainEnabled) }
+        }
+
+        environmentalReverb?.let { reverb ->
+            applyReverbPreset(reverb, EqReverbPreset.fromStorage(settings.reverbPreset))
+            runCatching { reverb.enabled = settings.enabled && settings.reverbEnabled }
+        }
+
+        listOfNotNull(primaryStereoPanProcessor, secondaryStereoPanProcessor).forEach { stereoPan ->
+            applyStereoPanSettingsTo(stereoPan, settings)
+        }
+    }
+
+    private fun applyReverbPreset(
+        reverb: EnvironmentalReverb,
+        preset: EqReverbPreset,
+    ) {
+        // Parameter values ported verbatim from SpatialFlow's AudioPlaybackService.
+        runCatching {
+            when (preset) {
+                EqReverbPreset.NONE -> {
+                    reverb.decayTime = 100
+                    reverb.reverbLevel = -9000
+                }
+
+                EqReverbPreset.SMALL_ROOM -> {
+                    reverb.roomLevel = -1500
+                    reverb.roomHFLevel = -100
+                    reverb.decayTime = 4000
+                    reverb.decayHFRatio = 1200
+                    reverb.reflectionsLevel = 0
+                    reverb.reflectionsDelay = 50
+                    reverb.reverbLevel = 500
+                    reverb.reverbDelay = 40
+                    reverb.diffusion = 1000
+                    reverb.density = 1000
+                }
+
+                EqReverbPreset.MEDIUM_ROOM -> {
+                    reverb.roomLevel = -1500
+                    reverb.roomHFLevel = 0
+                    reverb.decayTime = 6000
+                    reverb.decayHFRatio = 1400
+                    reverb.reflectionsLevel = 200
+                    reverb.reflectionsDelay = 80
+                    reverb.reverbLevel = 700
+                    reverb.reverbDelay = 60
+                    reverb.diffusion = 1000
+                    reverb.density = 1000
+                }
+
+                EqReverbPreset.LARGE_ROOM -> {
+                    reverb.roomLevel = -1500
+                    reverb.roomHFLevel = 0
+                    reverb.decayTime = 8000
+                    reverb.decayHFRatio = 1600
+                    reverb.reflectionsLevel = 400
+                    reverb.reflectionsDelay = 120
+                    reverb.reverbLevel = 900
+                    reverb.reverbDelay = 80
+                    reverb.diffusion = 1000
+                    reverb.density = 1000
+                }
+
+                EqReverbPreset.MEDIUM_HALL -> {
+                    reverb.roomLevel = -1500
+                    reverb.roomHFLevel = 0
+                    reverb.decayTime = 12000
+                    reverb.decayHFRatio = 1800
+                    reverb.reflectionsLevel = 600
+                    reverb.reflectionsDelay = 160
+                    reverb.reverbLevel = 1100
+                    reverb.reverbDelay = 100
+                    reverb.diffusion = 1000
+                    reverb.density = 1000
+                }
+
+                EqReverbPreset.LARGE_HALL -> {
+                    reverb.roomLevel = -1500
+                    reverb.roomHFLevel = 0
+                    reverb.decayTime = 16000
+                    reverb.decayHFRatio = 1900
+                    reverb.reflectionsLevel = 800
+                    reverb.reflectionsDelay = 220
+                    reverb.reverbLevel = 1300
+                    reverb.reverbDelay = 100
+                    reverb.diffusion = 1000
+                    reverb.density = 1000
+                }
+
+                EqReverbPreset.PLATE -> {
+                    reverb.roomLevel = -1500
+                    reverb.roomHFLevel = 0
+                    reverb.decayTime = 20000
+                    reverb.decayHFRatio = 2000
+                    reverb.reflectionsLevel = 1000
+                    reverb.reflectionsDelay = 300
+                    reverb.reverbLevel = 1600
+                    reverb.reverbDelay = 100
+                    reverb.diffusion = 1000
+                    reverb.density = 1000
+                }
+            }
         }
     }
 
@@ -11574,7 +11721,7 @@ class MusicService :
             ).setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
-    private fun createRenderersFactory() =
+    private fun createRenderersFactory(stereoPanProcessor: StereoPanAudioProcessor) =
         object : DefaultRenderersFactory(this) {
             init {
                 // Enable decoder fallback so that when a primary (typically hardware) decoder fails
@@ -11599,6 +11746,7 @@ class MusicService :
                 .setAudioProcessorChain(
                     DefaultAudioSink.DefaultAudioProcessorChain(
                         SonicAudioProcessor(),
+                        stereoPanProcessor,
                     ),
                 ).build()
         }
