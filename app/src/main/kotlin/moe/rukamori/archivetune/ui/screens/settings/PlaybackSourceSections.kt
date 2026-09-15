@@ -61,6 +61,7 @@ import moe.rukamori.archivetune.constants.AppleMusicQualityKey
 import moe.rukamori.archivetune.constants.DeezerAudioQuality
 import moe.rukamori.archivetune.constants.DeezerAudioQualityKey
 import moe.rukamori.archivetune.constants.DeezerEnabledKey
+import moe.rukamori.archivetune.constants.AmazonEnabledKey
 import moe.rukamori.archivetune.constants.AppleMusicSourceEnabledKey
 import moe.rukamori.archivetune.constants.JioSaavnEnabledKey
 import moe.rukamori.archivetune.constants.SaavnAudioQuality
@@ -107,6 +108,7 @@ private fun AudioSourceType.displayName(context: android.content.Context): Strin
         AudioSourceType.QOBUZ_BACKUP -> context.getString(R.string.source_qobuz_backup)
         AudioSourceType.DEEZER -> context.getString(R.string.source_deezer)
         AudioSourceType.APPLE -> context.getString(R.string.source_apple_music)
+        AudioSourceType.AMAZON -> context.getString(R.string.source_amazon)
         AudioSourceType.JIOSAAVN -> context.getString(R.string.source_jiosaavn)
         AudioSourceType.YOUTUBE -> context.getString(R.string.source_youtube)
     }
@@ -118,6 +120,9 @@ private fun AudioSourceType.iconRes(): Int =
         AudioSourceType.QOBUZ_BACKUP -> R.drawable.provider_qobuz
         AudioSourceType.DEEZER -> R.drawable.provider_deezer
         AudioSourceType.APPLE -> R.drawable.ic_music
+        // No dedicated Amazon Music mark ships in drawable/ yet; ic_music is the same
+        // stand-in APPLE uses above for the same reason.
+        AudioSourceType.AMAZON -> R.drawable.ic_music
         AudioSourceType.JIOSAAVN -> R.drawable.provider_jiosaavn
         AudioSourceType.YOUTUBE -> R.drawable.play
     }
@@ -147,6 +152,7 @@ internal fun PlaybackSourceSections(
     val (qobuzEnabled, onQobuzEnabledChangeRaw) = rememberPreference(QobuzEnabledKey, false)
     val (deezerEnabled, onDeezerEnabledChangeRaw) = rememberPreference(DeezerEnabledKey, false)
     val (appleMusicEnabled, onAppleMusicEnabledChangeRaw) = rememberPreference(AppleMusicSourceEnabledKey, false)
+    val (amazonEnabled, onAmazonEnabledChangeRaw) = rememberPreference(AmazonEnabledKey, false)
     val (deezerQuality, onDeezerQualityChange) =
         rememberEnumPreference(DeezerAudioQualityKey, DeezerAudioQuality.FLAC)
     val (jioSaavnEnabled, onJioSaavnEnabledChange) = rememberPreference(JioSaavnEnabledKey, false)
@@ -188,6 +194,14 @@ internal fun PlaybackSourceSections(
             }
         }
     }
+    val onAmazonEnabledChange: (Boolean) -> Unit = { enabled ->
+        onAmazonEnabledChangeRaw(enabled)
+        if (enabled && PoolAccountManager.isEnabled) {
+            scope.launch(Dispatchers.IO) {
+                runCatching { PoolAccountManager.refresh(context, force = true) }
+            }
+        }
+    }
 
     val (tidalAccountFirst, onTidalAccountFirstChange) = rememberPreference(TidalAccountFirstKey, true)
     val (audioQuality, onAudioQualityChange) =
@@ -220,6 +234,27 @@ internal fun PlaybackSourceSections(
             AudioSourceConfig.parseOrder(sourceOrderRaw.ifBlank { null })
         }
 
+    // The picker offers EVERY source, including ones the default resolution chain deliberately
+    // leaves out (Amazon — AudioSourceConfig.DEFAULT_ORDER does not list it because its stream
+    // resolver returns null until a decryption step exists, so a default-listing would put a
+    // guaranteed miss in front of every listener's chain). Sources missing from the stored order
+    // are offered just before the YouTube fallback: a fresh install shows DEFAULT_ORDER plus the
+    // resolver-less sources at the bottom, and a user who drags Amazon up opts into the miss-and-
+    // fall-through behavior explicitly (isEnabled(AMAZON) still gates the real resolution chain,
+    // so an untouched toggle keeps Amazon out of playback entirely).
+    val dialogOrder =
+        remember(sourceOrder) {
+            val missing = AudioSourceType.entries.filterNot { it in sourceOrder }
+            if (missing.isEmpty()) {
+                sourceOrder
+            } else {
+                val base = sourceOrder.toMutableList()
+                val youtubeIndex = base.indexOf(AudioSourceType.YOUTUBE)
+                if (youtubeIndex >= 0) base.addAll(youtubeIndex, missing) else base.addAll(missing)
+                base
+            }
+        }
+
     fun isEnabled(source: AudioSourceType): Boolean =
         when (source) {
             AudioSourceType.TIDAL -> tidalEnabled
@@ -227,6 +262,7 @@ internal fun PlaybackSourceSections(
             AudioSourceType.QOBUZ_BACKUP -> qobuzBackupEnabled
             AudioSourceType.DEEZER -> deezerEnabled
             AudioSourceType.APPLE -> appleMusicEnabled
+            AudioSourceType.AMAZON -> amazonEnabled
             AudioSourceType.JIOSAAVN -> jioSaavnEnabled
             AudioSourceType.YOUTUBE -> true
         }
@@ -245,6 +281,7 @@ internal fun PlaybackSourceSections(
                 AudioSourceType.QOBUZ_BACKUP -> if (!qobuzBackupEnabled) onQobuzBackupEnabledChange(true)
                 AudioSourceType.DEEZER -> if (!deezerEnabled) onDeezerEnabledChange(true)
                 AudioSourceType.APPLE -> if (!appleMusicEnabled) onAppleMusicEnabledChange(true)
+                AudioSourceType.AMAZON -> if (!amazonEnabled) onAmazonEnabledChange(true)
                 AudioSourceType.JIOSAAVN -> if (!jioSaavnEnabled) onJioSaavnEnabledChange(true)
                 AudioSourceType.YOUTUBE -> Unit
             }
@@ -255,7 +292,7 @@ internal fun PlaybackSourceSections(
 
     if (showOrderDialog) {
         SourceOrderDialog(
-            initialOrder = sourceOrder,
+            initialOrder = dialogOrder,
             isEnabled = ::isEnabled,
             onDismiss = { showOrderDialog = false },
             onConfirm = ::onOrderConfirm,
@@ -611,6 +648,37 @@ internal fun PlaybackSourceSections(
 
         item {
             SourceCheckRow(source = AudioSourceType.DEEZER)
+        }
+    }
+
+    // Amazon Music: account + pool plumbing exists, but no stream resolver — Amazon serves
+    // CENC-protected fragmented MP4 and this fork ships no decryption step (see AmazonEnabledKey
+    // in PreferenceKeys.kt). The toggle only opts into the source being orderable/checked; the
+    // Integration screen carries the sign-in and the full "this can't play yet" notice.
+    PreferenceGroup(title = stringResource(R.string.source_amazon)) {
+        item {
+            SwitchPreference(
+                modifier = positions.modifierFor("amazon_enable"),
+                title = { Text(stringResource(R.string.amazon_enable)) },
+                description = stringResource(R.string.amazon_enable_description),
+                icon = { Icon(painterResource(R.drawable.ic_music), null) },
+                checked = amazonEnabled,
+                onCheckedChange = onAmazonEnabledChange,
+            )
+        }
+
+        item {
+            PreferenceEntry(
+                modifier = positions.modifierFor("amazon_manage_account"),
+                title = { Text(stringResource(R.string.source_amazon)) },
+                description = stringResource(R.string.amazon_login_description),
+                icon = { Icon(painterResource(R.drawable.integration), null) },
+                onClick = { navController.navigate("settings/amazon") },
+            )
+        }
+
+        item {
+            SourceCheckRow(source = AudioSourceType.AMAZON)
         }
     }
 
