@@ -1456,13 +1456,14 @@ class MainActivity : ComponentActivity() {
                     val navBarScrollDensity = LocalDensity.current
                     val navBarHideScrollThresholdPx = with(navBarScrollDensity) { 14.dp.toPx() }
                     val navBarScrollHideConnection =
-                        remember(navBarHideScrollThresholdPx) {
+                        remember(navBarHideScrollThresholdPx, shouldShowNavigationBar, useRail) {
                             object : NestedScrollConnection {
                                 override fun onPostScroll(
                                     consumed: Offset,
                                     available: Offset,
                                     source: NestedScrollSource,
                                 ): Offset {
+                                    if (!shouldShowNavigationBar || useRail) return Offset.Zero
                                     if (consumed.y < -navBarHideScrollThresholdPx) {
                                         isNavBarHiddenByScroll = true
                                     } else if (consumed.y > navBarHideScrollThresholdPx) {
@@ -2889,19 +2890,27 @@ class MainActivity : ComponentActivity() {
                                                 isMiniPlayerPairedWithNavigation = areBottomBarsPaired,
                                                 onLyricsVisibilityChange = { isPlayerLyricsFullScreen = it },
                                                 navbarHiddenOffset = {
-                                                    // When the navigation bar slides away (route change or
-                                                    // scroll-to-hide), the collapsed mini player takes over the
+                                                    // When the navigation bar slides away via scroll-to-hide
+                                                    // on top-level tabs, the collapsed mini player takes over the
                                                     // freed space: it drifts down by exactly the bar's footprint
                                                     // (bar height + its padding), keeping the system gesture
-                                                    // inset clear. Scaled by (1 - sheet progress) inside
-                                                    // BottomSheet so the expanded player is unaffected.
-                                                    val hideFraction =
-                                                        1f - (
-                                                            bottomNavigationBarHeight.coerceAtMost(navVisibleHeight) /
-                                                                navVisibleHeight
-                                                        )
-                                                    with(navBarScrollDensity) {
-                                                        (floatingBarsBottomPadding + navVisibleHeight).toPx() * hideFraction
+                                                    // inset clear.
+                                                    // IMPORTANT: When shouldShowNavigationBar is false (e.g. user
+                                                    // navigates away from Home to an album/artist/settings),
+                                                    // collapsedBound ALREADY repositions the miniplayer to the
+                                                    // bottom of the screen via reanchorTo(). Adding takeOver
+                                                    // here would double-shift the miniplayer off-screen!
+                                                    if (!shouldShowNavigationBar || useRail || !isNavBarHiddenByScroll) {
+                                                        0f
+                                                    } else {
+                                                        val hideFraction =
+                                                            1f - (
+                                                                bottomNavigationBarHeight.coerceAtMost(navVisibleHeight) /
+                                                                    navVisibleHeight
+                                                            )
+                                                        with(navBarScrollDensity) {
+                                                            (floatingBarsBottomPadding + navVisibleHeight).toPx() * hideFraction
+                                                        }
                                                     }
                                                 },
                                             )

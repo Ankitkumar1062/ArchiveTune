@@ -46,7 +46,31 @@ import moe.rukamori.archivetune.ui.component.PreferenceGroup
 import moe.rukamori.archivetune.ui.utils.backToMain
 import moe.rukamori.archivetune.utils.rememberEnumPreference
 import moe.rukamori.archivetune.utils.rememberPreference
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import moe.rukamori.archivetune.constants.DeezerEnabledKey
+import moe.rukamori.archivetune.deezer.DeezerAudioProvider
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -55,11 +79,17 @@ fun DeezerSettings(
     scrollTo: String? = null,
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     val (accountName, onAccountNameChange) = rememberPreference(DeezerAccountNameKey, "")
     val (_, onArlChange) = rememberPreference(DeezerArlKey, "")
     val (_, onPremiumChange) = rememberPreference(DeezerAccountPremiumKey, false)
+    val (_, onDeezerEnabledChange) = rememberPreference(DeezerEnabledKey, false)
     val (proxyMode, onProxyModeChange) = rememberEnumPreference(DeezerProxyModeKey, DeezerProxyMode.AUTO)
+
+    var showManualArlDialog by remember { mutableStateOf(false) }
+    var manualArlInput by remember { mutableStateOf("") }
+    var manualVerifying by remember { mutableStateOf(false) }
 
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -112,6 +142,18 @@ fun DeezerSettings(
                             onClick = { navController.navigate(DEEZER_LOGIN_ROUTE) },
                         )
                     }
+                    item {
+                        PreferenceEntry(
+                            modifier = positions.modifierFor("deezer_manual_arl"),
+                            title = { Text(stringResource(R.string.deezer_manual_arl)) },
+                            description = stringResource(R.string.deezer_manual_arl_hint),
+                            icon = { Icon(painterResource(R.drawable.token), null) },
+                            onClick = {
+                                manualArlInput = ""
+                                showManualArlDialog = true
+                            },
+                        )
+                    }
                 } else {
                     item {
                         PreferenceEntry(
@@ -150,5 +192,78 @@ fun DeezerSettings(
                 }
             }
         }
+    }
+
+    if (showManualArlDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!manualVerifying) showManualArlDialog = false },
+            title = { Text(stringResource(R.string.deezer_manual_arl)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = stringResource(R.string.deezer_manual_arl_hint),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    OutlinedTextField(
+                        value = manualArlInput,
+                        onValueChange = { manualArlInput = it },
+                        label = { Text("ARL Cookie") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val arl = manualArlInput.trim()
+                        if (arl.length < 20) {
+                            Toast.makeText(context, R.string.deezer_arl_invalid, Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+                        manualVerifying = true
+                        scope.launch {
+                            try {
+                                val info = withContext(Dispatchers.IO) { DeezerAudioProvider.verifyArl(arl) }
+                                if (info == null) {
+                                    Toast.makeText(context, R.string.deezer_arl_invalid, Toast.LENGTH_SHORT).show()
+                                    return@launch
+                                }
+                                onArlChange(arl)
+                                onAccountNameChange(info.name)
+                                onPremiumChange(info.lossless)
+                                onDeezerEnabledChange(true)
+                                DeezerAudioProvider.setManualArl(arl, info.lossless)
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.deezer_login_success, info.name),
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                                showManualArlDialog = false
+                            } finally {
+                                manualVerifying = false
+                            }
+                        }
+                    },
+                    enabled = !manualVerifying && manualArlInput.isNotBlank(),
+                ) {
+                    if (manualVerifying) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Text(stringResource(R.string.deezer_manual_arl_apply))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showManualArlDialog = false },
+                    enabled = !manualVerifying,
+                ) {
+                    Text(stringResource(android.R.string.cancel))
+                }
+            },
+        )
     }
 }
