@@ -20,5 +20,35 @@ enum class LibraryFilter {
     ARTISTS,
     ALBUMS,
     PLAYLISTS,
+    PODCASTS,
     LIBRARY,
+}
+
+val DefaultLibraryFilterOrder =
+    listOf(
+        LibraryFilter.LIBRARY,
+        LibraryFilter.PLAYLISTS,
+        LibraryFilter.PODCASTS,
+        LibraryFilter.SONGS,
+        LibraryFilter.ARTISTS,
+        LibraryFilter.ALBUMS,
+    )
+
+val DefaultLibraryFilterOrderPreference =
+    DefaultLibraryFilterOrder.joinToString(",") { it.name }
+
+fun String.toLibraryFilterOrder(): List<LibraryFilter> {
+    val savedOrder =
+        split(",")
+            .mapNotNull { savedFilter ->
+                DefaultLibraryFilterOrder.firstOrNull { it.name == savedFilter.trim() }
+            }.distinct()
+
+    return savedOrder + DefaultLibraryFilterOrder.filterNot(savedOrder::contains)
+}
+
+fun List<LibraryFilter>.toLibraryFilterPreference(): String {
+    val orderedFilters = distinct()
+    return (orderedFilters + DefaultLibraryFilterOrder.filterNot(orderedFilters::contains))
+        .joinToString(",") { it.name }
 }
