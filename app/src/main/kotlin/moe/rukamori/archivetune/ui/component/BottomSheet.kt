@@ -43,7 +43,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -55,10 +58,13 @@ import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.zIndex
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
@@ -119,9 +125,21 @@ fun BottomSheet(
     opaqueBackground: Boolean = false,
     onCollapsedContentClick: (() -> Unit)? = null,
     navbarHiddenOffset: (() -> Float)? = null,
+    sharedLayer: (@Composable BoxScope.() -> Unit)? = null,
     collapsedContent: @Composable BoxScope.() -> Unit,
     content: @Composable BoxScope.() -> Unit,
 ) {
+    val morphShape =
+        if (morphMode) {
+            remember(state) {
+                PlayerSheetDynamicShape(
+                    progressProvider = { state.progress.coerceIn(0f, 1f) },
+                )
+            }
+        } else {
+            null
+        }
+
     Box(
         modifier =
             modifier
@@ -141,10 +159,11 @@ fun BottomSheet(
                     IntOffset(x = 0, y = (y + takeOver).roundToInt())
                 }.bottomSheetDraggable(state, onDismiss)
                 .clip(
-                    RoundedCornerShape(
-                        topStart = if (!state.isExpanded) 16.dp else 0.dp,
-                        topEnd = if (!state.isExpanded) 16.dp else 0.dp,
-                    ),
+                    morphShape
+                        ?: RoundedCornerShape(
+                            topStart = if (!state.isExpanded) 16.dp else 0.dp,
+                            topEnd = if (!state.isExpanded) 16.dp else 0.dp,
+                        ),
                 ).background(
                     if (opaqueBackground) {
                         // Render the outer background fully opaque ONLY when
@@ -189,6 +208,17 @@ fun BottomSheet(
             BackHandler(onBack = state::collapseSoft)
         }
 
+        if (sharedLayer != null) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                content = sharedLayer,
+            )
+        }
+
+        val fullContentZIndex by remember(state) {
+            derivedStateOf { if (state.progress > 0.5f) 2f else 1f }
+        }
+
         if (keepContentAlive) {
             // Always compose the content, but hide it when collapsed.
             // This keeps stateful composables (e.g. InlineVideoPlayer's
@@ -197,17 +227,12 @@ fun BottomSheet(
                 modifier =
                     Modifier
                         .fillMaxSize()
+                        .zIndex(fullContentZIndex)
                         .graphicsLayer {
                             if (morphMode) {
-                                // Morph: fade + scale (0.94 → 1.0) based on
-                                // expand progress, with a 25% dead-band so the
-                                // content stays opaque for the first part of a
-                                // drag. No offset — the offset is applied on
-                                // the sheet root so the whole sheet slides.
                                 val p = state.progress.coerceIn(0f, 1f)
-                                alpha = ((p - 0.25f) * 4).coerceIn(0f, 1f)
-                                scaleX = 0.94f + 0.06f * p
-                                scaleY = 0.94f + 0.06f * p
+                                alpha = ((p - 0.5f) * 2).coerceIn(0f, 1f)
+                                if (p <= 0.01f) translationY = 10_000f
                             } else {
                                 alpha = if (state.isCollapsed) 0f else ((state.progress - 0.25f) * 4).coerceIn(0f, 1f)
                             }
@@ -219,12 +244,11 @@ fun BottomSheet(
                 modifier =
                     Modifier
                         .fillMaxSize()
+                        .zIndex(fullContentZIndex)
                         .graphicsLayer {
                             if (morphMode) {
                                 val p = state.progress.coerceIn(0f, 1f)
-                                alpha = ((p - 0.25f) * 4).coerceIn(0f, 1f)
-                                scaleX = 0.94f + 0.06f * p
-                                scaleY = 0.94f + 0.06f * p
+                                alpha = ((p - 0.5f) * 2).coerceIn(0f, 1f)
                             } else {
                                 alpha = ((state.progress - 0.25f) * 4).coerceIn(0f, 1f)
                             }
@@ -234,11 +258,20 @@ fun BottomSheet(
         }
 
         if (!state.isExpanded && (onDismiss == null || !state.isDismissed)) {
+            val miniZIndex by remember(state) {
+                derivedStateOf { if (state.progress > 0.5f) 1f else 2f }
+            }
             Box(
                 modifier =
                     Modifier
+                        .zIndex(miniZIndex)
                         .graphicsLayer {
-                            alpha = 1f - (state.progress * 4).coerceAtMost(1f)
+                            alpha =
+                                if (morphMode) {
+                                    (1f - 2f * state.progress.coerceIn(0f, 1f)).coerceIn(0f, 1f)
+                                } else {
+                                    1f - (state.progress * 4).coerceAtMost(1f)
+                                }
                         }.clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
@@ -251,6 +284,28 @@ fun BottomSheet(
     }
 }
 
+private class PlayerSheetDynamicShape(
+    private val progressProvider: () -> Float,
+) : Shape {
+    override fun createOutline(
+        size: Size,
+        layoutDirection: androidx.compose.ui.unit.LayoutDirection,
+        density: Density,
+    ): Outline {
+        val progress = progressProvider()
+        val cornerPx = with(density) { androidx.compose.ui.unit.lerp(28.dp, 0.dp, progress).toPx() }
+        return Outline.Rounded(
+            androidx.compose.ui.geometry.RoundRect(
+                left = 0f,
+                top = 0f,
+                right = size.width,
+                bottom = size.height,
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(cornerPx, cornerPx),
+            ),
+        )
+    }
+}
+
 @Stable
 class BottomSheetState(
     draggableState: DraggableState,
@@ -258,6 +313,7 @@ class BottomSheetState(
     private val animatable: Animatable<Dp, AnimationVector1D>,
     private val onAnchorChanged: (Int) -> Unit,
     private val animationsDisabled: Boolean,
+    private val density: Density,
     collapsedBound: Dp,
     initialAnchor: Int = DISMISSED_ANCHOR,
 ) : DraggableState by draggableState {
@@ -367,12 +423,36 @@ class BottomSheetState(
         }
     }
 
-    private fun collapse() {
-        collapse(if (animationsDisabled) snap() else BottomSheetAnimationSpec)
+    fun collapse(animationSpec: AnimationSpec<Dp>, velocityPx: Float = 0f) {
+        updateAnchor(COLLAPSED_ANCHOR)
+        lastAnimationSpec = animationSpec
+        coroutineScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            animatable.animateTo(
+                targetCollapsedBound,
+                animationSpec,
+                initialVelocity = with(density) { velocityPx.toDp() },
+            )
+        }
     }
 
-    private fun expand() {
-        expand(if (animationsDisabled) snap() else BottomSheetAnimationSpec)
+    fun expand(animationSpec: AnimationSpec<Dp>, velocityPx: Float = 0f) {
+        updateAnchor(EXPANDED_ANCHOR)
+        lastAnimationSpec = animationSpec
+        coroutineScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            animatable.animateTo(
+                animatable.upperBound!!,
+                animationSpec,
+                initialVelocity = with(density) { velocityPx.toDp() },
+            )
+        }
+    }
+
+    private fun collapse(velocityPx: Float = 0f) {
+        collapse(if (animationsDisabled) snap() else BottomSheetAnimationSpec, velocityPx)
+    }
+
+    private fun expand(velocityPx: Float = 0f) {
+        expand(if (animationsDisabled) snap() else BottomSheetAnimationSpec, velocityPx)
     }
 
     fun collapseSoft() {
@@ -411,13 +491,13 @@ class BottomSheetState(
         onDismiss: (() -> Unit)?,
     ) {
         if (velocity > 250) {
-            expand()
+            expand(velocity)
         } else if (velocity < -250) {
             if (value < collapsedBound && onDismiss != null) {
                 dismiss()
                 onDismiss.invoke()
             } else {
-                collapse()
+                collapse(velocity)
             }
         } else {
             val l0 = dismissedBound
@@ -431,16 +511,16 @@ class BottomSheetState(
                         dismiss()
                         onDismiss.invoke()
                     } else {
-                        collapse()
+                        collapse(velocity)
                     }
                 }
 
                 in l1..l2 -> {
-                    collapse()
+                    collapse(velocity)
                 }
 
                 in l2..l3 -> {
-                    expand()
+                    expand(velocity)
                 }
 
                 else -> {
@@ -570,6 +650,7 @@ fun rememberBottomSheetState(
                 coroutineScope = coroutineScope,
                 animatable = animatable,
                 animationsDisabled = animationsDisabled,
+                density = density,
                 collapsedBound = collapsedBound,
                 initialAnchor = previousAnchor,
             )

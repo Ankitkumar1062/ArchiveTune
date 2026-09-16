@@ -12,6 +12,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.annotation.DrawableRes
+import androidx.core.content.pm.ShortcutManagerCompat
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -28,8 +29,10 @@ data class AppIcon(
     val author: String?,
     val githubAuthorUrl: String?,
     @DrawableRes val previewDrawableResId: Int,
+    val previewFilePath: String? = null,
     val aliasClassName: String,
     val isDefault: Boolean,
+    val runtime: Boolean = false,
 )
 
 data class AppIconCatalog(
@@ -59,9 +62,16 @@ class AppIconRepository
 
         suspend fun loadCatalog(): AppIconCatalog =
             withContext(Dispatchers.IO) {
+                runCatching { removeIconShortcuts() }
                 val icons = loadIcons()
-                val selectedIcon = findSelectedIcon(icons)
-                if (!isSelectionApplied(icons, selectedIcon)) {
+                val aliasIcons = icons.filterNot { it.runtime }
+                val selectedIcon =
+                    if (aliasIcons.isNotEmpty()) {
+                        findSelectedIcon(icons)
+                    } else {
+                        findSelectedRuntimeIcon(icons)
+                    }
+                if (aliasIcons.isNotEmpty() && !isSelectionApplied(aliasIcons, selectedIcon)) {
                     applySelection(icons, selectedIcon)
                 }
                 AppIconCatalog(
@@ -76,7 +86,9 @@ class AppIconRepository
                 val selectedIcon =
                     icons.firstOrNull { icon -> icon.id == iconId }
                         ?: throw IllegalArgumentException("Unknown app icon ID.")
-                if (!isSelectionApplied(icons, selectedIcon)) {
+                if (selectedIcon.runtime) {
+                    applyRuntimeSelection(icons, selectedIcon)
+                } else if (!isSelectionApplied(icons.filterNot { it.runtime }, selectedIcon)) {
                     applySelection(icons, selectedIcon)
                 }
                 AppIconCatalog(
@@ -86,31 +98,7 @@ class AppIconRepository
             }
 
         private fun loadIcons(): List<AppIcon> {
-            val generatedIcons =
-                context.assets
-                    .open(CatalogAssetPath)
-                    .bufferedReader()
-                    .use { reader -> json.decodeFromString<List<GeneratedAppIcon>>(reader.readText()) }
-                    .map { generated ->
-                        val drawableResId =
-                            context.resources.getIdentifier(
-                                generated.drawableResourceName,
-                                "drawable",
-                                context.packageName,
-                            )
-                        check(drawableResId != 0) {
-                            "Missing generated drawable ${generated.drawableResourceName} for ${generated.source}."
-                        }
-                        AppIcon(
-                            id = generated.id,
-                            name = generated.name,
-                            author = generated.author,
-                            githubAuthorUrl = generated.githubAuthorUrl.takeIf(String::isNotBlank),
-                            previewDrawableResId = drawableResId,
-                            aliasClassName = generated.aliasClassName,
-                            isDefault = false,
-                        )
-                    }
+            val generatedIcons = loadGeneratedIcons()
 
             return buildList(generatedIcons.size + 1) {
                 add(
@@ -127,6 +115,66 @@ class AppIconRepository
                 addAll(generatedIcons)
             }
         }
+
+        private fun loadBundledIcons(): List<AppIcon> =
+            context.assets
+                .open(CatalogAssetPath)
+                .bufferedReader()
+                .use { reader -> json.decodeFromString<List<GeneratedAppIcon>>(reader.readText()) }
+                .map { generated ->
+                    val drawableResId =
+                        context.resources.getIdentifier(
+                            generated.drawableResourceName,
+                            "drawable",
+                            context.packageName,
+                        )
+                    check(drawableResId != 0) {
+                        "Missing generated drawable ${generated.drawableResourceName} for ${generated.source}."
+                    }
+                    AppIcon(
+                        id = generated.id,
+                        name = generated.name,
+                        author = generated.author,
+                        githubAuthorUrl = generated.githubAuthorUrl.takeIf(String::isNotBlank),
+                        previewDrawableResId = drawableResId,
+                        aliasClassName = generated.aliasClassName,
+                        isDefault = false,
+                    )
+                }
+
+        private fun loadRuntimeIcons(): List<AppIcon> {
+            val catalog = IconPackRuntimeManager.catalogFile(context)
+            if (!catalog.isFile) return emptyList()
+            val entries =
+                runCatching {
+                    catalog.bufferedReader().use { reader ->
+                        json.decodeFromString<List<GeneratedAppIcon>>(reader.readText())
+                    }
+                }.getOrNull() ?: return emptyList()
+            return entries.mapNotNull { generated ->
+                val iconFile =
+                    IconPackRuntimeManager.iconFile(context, generated.drawableResourceName)
+                if (!iconFile.isFile) return@mapNotNull null
+                AppIcon(
+                    id = generated.id,
+                    name = generated.name,
+                    author = generated.author,
+                    githubAuthorUrl = generated.githubAuthorUrl.takeIf(String::isNotBlank),
+                    previewDrawableResId = 0,
+                    previewFilePath = iconFile.absolutePath,
+                    aliasClassName = generated.aliasClassName,
+                    isDefault = false,
+                    runtime = true,
+                )
+            }
+        }
+
+        private fun loadGeneratedIcons(): List<AppIcon> =
+            if (IconPackRuntimeManager.isBundled()) {
+                loadBundledIcons()
+            } else {
+                loadRuntimeIcons()
+            }
 
         private fun findSelectedIcon(icons: List<AppIcon>): AppIcon =
             icons.firstOrNull { icon ->
@@ -153,7 +201,7 @@ class AppIconRepository
             icons: List<AppIcon>,
             selectedIcon: AppIcon,
         ) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
                 packageManager.setComponentEnabledSettings(
                     icons.map { icon ->
                         PackageManager.ComponentEnabledSetting(
@@ -209,8 +257,52 @@ class AppIconRepository
 
         private fun AppIcon.componentName(): ComponentName = ComponentName(context.packageName, aliasClassName)
 
+        private fun findSelectedRuntimeIcon(icons: List<AppIcon>): AppIcon {
+            val prefId = runtimeSelectionPrefs().getString(KEY_RUNTIME_SELECTED, null)
+            return icons.firstOrNull { it.id == prefId && it.componentExists() }
+                ?: findSelectedIcon(icons)
+        }
+
+        private fun runtimeSelectionPrefs() =
+            context.getSharedPreferences("icon_pack_runtime", Context.MODE_PRIVATE)
+
+        private fun applyRuntimeSelection(
+            icons: List<AppIcon>,
+            selectedIcon: AppIcon,
+        ) {
+            if (selectedIcon.aliasClassName.isBlank() || !selectedIcon.componentExists()) {
+                throw IllegalStateException(
+                    "Icon ${selectedIcon.id} has no launcher alias in this build — " +
+                        "the app icon can only be switched with the pack compiled into the APK.",
+                )
+            }
+            applySelection(icons, selectedIcon)
+            runtimeSelectionPrefs().edit().putString(KEY_RUNTIME_SELECTED, selectedIcon.id).apply()
+        }
+
+        private fun AppIcon.componentExists(): Boolean =
+            aliasClassName.isNotBlank() &&
+                runCatching {
+                    packageManager.getActivityInfo(componentName(), 0)
+                    true
+                }.getOrDefault(false)
+
+        private fun removeIconShortcuts() {
+            ShortcutManagerCompat.getShortcuts(context, ShortcutManagerCompat.FLAG_MATCH_PINNED)
+                .filter { it.id.startsWith("app_icon_") }
+                .forEach { shortcut ->
+                    ShortcutManagerCompat.disableShortcuts(
+                        context,
+                        listOf(shortcut.id),
+                        context.getString(R.string.app_name),
+                    )
+                    ShortcutManagerCompat.removeLongLivedShortcuts(context, listOf(shortcut.id))
+                }
+        }
+
         private companion object {
             const val CatalogAssetPath = "icon_pack/catalog.json"
             const val DefaultIconId = "default"
+            const val KEY_RUNTIME_SELECTED = "selected_icon_id"
         }
     }

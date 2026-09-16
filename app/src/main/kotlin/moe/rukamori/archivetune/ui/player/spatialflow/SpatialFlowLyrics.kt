@@ -5,25 +5,11 @@
  * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
  */
 
-/*
- * SpatialFlow player style — the full-screen lyrics overlay.
- *
- * A port of SpatialFlow's FullScreenLyricsOverlay + the circular-reveal
- * modifier (github.com/MythicalSHUB/SpatialFlow, GPL-3.0,
- * ui/player/FullScreenLyricsOverlay.kt): the overlay reveals with a circular
- * clip expanding from the Lyrics chip, carries the centred "LYRICS • Synced
- * Lyrics" header with the song title, the auto-scrolling synced lines (active
- * 38sp Bold, inactive 20sp dimmed, tap to seek), the plain-lyrics fallback and
- * the metadata footer. Dimensions, colors and reveal timing are SpatialFlow's
- * own. The lyric DATA comes from ArchiveTune's own lyrics store
- * (playerConnection.currentLyrics parsed by LyricsUtils) — real providers, no
- * second lyrics implementation.
- */
-
 package moe.rukamori.archivetune.ui.player.spatialflow
 
 import android.os.Build
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -44,14 +30,15 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import moe.rukamori.archivetune.LocalStableSystemBarsTopPadding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -68,10 +55,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -79,25 +64,43 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.ClipOp
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.Image
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.draw.clipToBounds
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import android.graphics.Bitmap
+import coil3.imageLoader
+import coil3.request.ImageRequest
+import coil3.request.SuccessResult
+import coil3.request.allowHardware
+import coil3.size.Size as CoilSize
+import coil3.toBitmap
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import moe.rukamori.archivetune.LocalPlayerConnection
 import moe.rukamori.archivetune.R
+import moe.rukamori.archivetune.utils.ImageBlurUtils
 import moe.rukamori.archivetune.constants.AutoTranslateExcludedLanguagesKey
 import moe.rukamori.archivetune.constants.AutoTranslateLyricsKey
+import moe.rukamori.archivetune.constants.LyricsMode
+import moe.rukamori.archivetune.constants.LyricsModeKey
 import moe.rukamori.archivetune.constants.TranslatorTargetLangKey
 import moe.rukamori.archivetune.db.entities.LyricsEntity
 import moe.rukamori.archivetune.db.entities.LyricsEntity.Companion.LYRICS_NOT_FOUND
@@ -107,16 +110,19 @@ import moe.rukamori.archivetune.lyrics.LyricsUtils
 import moe.rukamori.archivetune.lyrics.WordTimestamp
 import moe.rukamori.archivetune.models.MediaMetadata
 import moe.rukamori.archivetune.ui.component.PlatformBackdrop
+import moe.rukamori.archivetune.ui.component.LyricsEnhanced
+import moe.rukamori.archivetune.ui.component.rememberLiquidGlassEnabled
 import moe.rukamori.archivetune.ui.component.layerBackdrop
 import moe.rukamori.archivetune.ui.component.rememberBackdrop
-import moe.rukamori.archivetune.ui.menu.LyricsMenu
+import moe.rukamori.archivetune.utils.rememberEnumPreference
+import moe.rukamori.archivetune.ui.menu.AnchoredLyricsOverflowMenu
+import moe.rukamori.archivetune.ui.player.blurBackdropFootprint
+import moe.rukamori.archivetune.ui.player.rememberBlurWanderDrift
 import moe.rukamori.archivetune.utils.rememberPreference
 import moe.rukamori.archivetune.viewmodels.LyricsMenuViewModel
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 
-/**
- * Optimized circular reveal modifier utilizing a remembered path and in-place
- * reset/rebuild (SpatialFlow's `circularRevealFrom`).
- */
 private fun Modifier.circularRevealFrom(
     progressProvider: () -> Float,
     centerProvider: () -> Offset?,
@@ -161,8 +167,7 @@ private fun Modifier.drawWithCachePathClip(
                         bottom = revealCenter.y + radius,
                     ),
                 )
-                // clipPath's block receiver is a plain DrawScope; drawContent()
-                // lives on the ContentDrawScope of onDrawWithContent — qualify it.
+
                 clipPath(revealPath, ClipOp.Intersect) {
                     this@onDrawWithContent.drawContent()
                 }
@@ -178,6 +183,7 @@ internal fun SpatialFlowLyricsOverlay(
     currentPositionProvider: () -> Long,
     contentReady: Boolean,
     backgroundBrush: Brush,
+    artUrl: String? = null,
     revealProgressProvider: () -> Float,
     revealCenterProvider: () -> Offset?,
     contentColor: Color,
@@ -189,34 +195,18 @@ internal fun SpatialFlowLyricsOverlay(
     val playerConnection = LocalPlayerConnection.current ?: return
     val currentLyricsEntity by playerConnection.currentLyrics.collectAsStateWithLifecycle(initialValue = null)
 
-    // ── Lyrics overflow menu (2026-09-05) ─────────────────────────────────
-    // The SpatialFlow lyrics screen previously had NO lyrics overflow menu
-    // at all, so Translate / AI Translation / Romanise / Undo / Search were
-    // simply unreachable here (user report: "Translation/AI Translation/
-    // Romanisation doesn't work in ... SpatialFlow lyrics screens"). The
-    // header's leading slot (a 48dp Spacer) becomes the more button opening
-    // the same anchored Apple-Music-style popup the Apple Music and
-    // SimpMusic styles show, rendered as the last child of this overlay's
-    // root Box (always above the lyrics).
+    val lyricsMode by rememberEnumPreference(LyricsModeKey, defaultValue = LyricsMode.ENHANCED)
+
     var showLyricsMenu by remember { mutableStateOf(false) }
     var moreIconBounds by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
-    // Backdrop that records THIS overlay's content (title header + lyrics)
-    // while the popup is open, so its drawBackdrop sampler blurs what is
-    // actually behind the menu. Android 12+ only; below that the popup
-    // falls back to its dark tint. The popup renders as a SIBLING of the
-    // layer-capturing Box (never nested inside it).
+
     val popupBackdrop: PlatformBackdrop? =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        if (rememberLiquidGlassEnabled() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             rememberBackdrop(Color.Transparent)
         } else {
             null
         }
 
-    // ── Automatic AI translation (2026-09-05) ──────────────────────────────
-    // Mirrors the LaunchedEffect in AppleMusicPlayer.kt / LyricsScreen.kt —
-    // the SpatialFlow lyrics screen previously had no auto-translate
-    // trigger (user report: "Auto translation and auto romanisation doesn't
-    // work in ... SpatialFlow lyrics screens").
     val (autoTranslateLyrics) = rememberPreference(AutoTranslateLyricsKey, defaultValue = false)
     val (translatorTargetLang) = rememberPreference(TranslatorTargetLangKey, defaultValue = "")
     val (autoTranslateExcludedLanguages) =
@@ -256,11 +246,6 @@ internal fun SpatialFlowLyricsOverlay(
         )
     }
 
-    // ── AI romanisation (2026-09-05) ─────────────────────────────────────
-    // Mirrors LyricsEnhanced's consumption of AiLyricsRomanization results —
-    // without this the menu's "AI Romanise Now" and the "Auto AI
-    // Romanisation" setting had no visible effect in the SpatialFlow
-    // lyrics screen. Lines are resolved by line TEXT (not index).
     val aiRomanizationSettings = AiLyricsRomanization.rememberSettings()
     val aiRomanizationSessionKey =
         remember(currentLyricsEntity?.lyrics) {
@@ -277,7 +262,10 @@ internal fun SpatialFlowLyricsOverlay(
             if (!aiRomanizationSettings.active || syncedLyrics == null) {
                 emptyList()
             } else {
-                AiLyricsRomanization.linesFor(aiRomanizationSessionKey, syncedLyrics.map { it.text })
+                AiLyricsRomanization.linesFor(
+                    aiRomanizationSessionKey,
+                    syncedLyrics.map { it.text },
+                )
             }
         }
     LaunchedEffect(aiRomanizationSessionKey, syncedLyrics, aiRomanizationSettings) {
@@ -311,14 +299,8 @@ internal fun SpatialFlowLyricsOverlay(
                     interactionSource = consumeClicks,
                     indication = null,
                     onClick = {},
-                ).padding(top = LocalStableSystemBarsTopPadding.current)
-                .navigationBarsPadding()
-                .padding(vertical = 12.dp),
+                ),
     ) {
-        // Inner content Box — records the overlay's header + lyrics into
-        // `popupBackdrop` WHILE the anchored overflow popup is open (same
-        // pattern as the SimpMusic lyrics sheet); the popup renders as a
-        // SIBLING below, never nested inside this layer-capturing Box.
         Box(
             modifier =
                 Modifier.fillMaxSize().let { base ->
@@ -329,8 +311,20 @@ internal fun SpatialFlowLyricsOverlay(
                     }
                 },
         ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            // Centered Title Header Layout
+        SpatialFlowLyricsMovingBlur(
+            artUrl = artUrl,
+            modifier = Modifier.matchParentSize(),
+        )
+
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .padding(top = LocalStableSystemBarsTopPadding.current)
+                    .navigationBarsPadding()
+                    .padding(vertical = 12.dp),
+        ) {
+
             Row(
                 modifier =
                     Modifier
@@ -340,10 +334,32 @@ internal fun SpatialFlowLyricsOverlay(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // 48dp slot reserved for the artwork thumbnail that morphs into
-                // the top-left corner while the lyrics are open (the flying
-                // shared-element layer composed in SpatialFlowPlayer sits here).
-                Spacer(modifier = Modifier.size(48.dp))
+
+                // Overflow (lyrics menu) lives on the leading side.
+                IconButton(
+                    onClick = { showLyricsMenu = true },
+                    modifier =
+                        Modifier.onGloballyPositioned { coords ->
+                            val pos = coords.positionInRoot()
+                            val sz = coords.size
+                            moreIconBounds =
+                                androidx.compose.ui.geometry.Rect(
+                                    offset = pos,
+                                    size =
+                                        androidx.compose.ui.geometry.Size(
+                                            width = sz.width.toFloat(),
+                                            height = sz.height.toFloat(),
+                                        ),
+                                )
+                        },
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.more_vert),
+                        contentDescription = "Lyrics menu",
+                        tint = contentColor.copy(alpha = 0.8f),
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
 
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -392,43 +408,19 @@ internal fun SpatialFlowLyricsOverlay(
                     )
                 }
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                // Dismiss (X) sits alone at the far-right margin as a plain
+                // glyph, mirroring the leading 48dp menu slot so the title
+                // stays dead-centre on the screen.
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.size(48.dp),
                 ) {
-                    IconButton(
-                        onClick = { showLyricsMenu = true },
-                        modifier =
-                            Modifier.onGloballyPositioned { coords ->
-                                val pos = coords.positionInRoot()
-                                val sz = coords.size
-                                moreIconBounds =
-                                    androidx.compose.ui.geometry.Rect(
-                                        offset = pos,
-                                        size =
-                                            androidx.compose.ui.geometry.Size(
-                                                width = sz.width.toFloat(),
-                                                height = sz.height.toFloat(),
-                                            ),
-                                    )
-                            },
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.more_vert),
-                            contentDescription = "Lyrics menu",
-                            tint = contentColor.copy(alpha = 0.8f),
-                            modifier = Modifier.size(24.dp),
-                        )
-                    }
-
-                    IconButton(onClick = onDismiss) {
-                        Icon(
-                            painter = painterResource(R.drawable.close),
-                            contentDescription = "Close Lyrics",
-                            tint = contentColor.copy(alpha = 0.8f),
-                            modifier = Modifier.size(24.dp),
-                        )
-                    }
+                    Icon(
+                        painter = painterResource(R.drawable.close),
+                        contentDescription = "Close Lyrics",
+                        tint = contentColor.copy(alpha = 0.8f),
+                        modifier = Modifier.size(20.dp),
+                    )
                 }
             }
 
@@ -441,6 +433,14 @@ internal fun SpatialFlowLyricsOverlay(
             ) {
                 when {
                     !contentReady -> Unit
+
+                    lyricsMode == LyricsMode.ENHANCED && !syncedLyrics.isNullOrEmpty() ->
+                        LyricsEnhanced(
+                            sliderPositionProvider = { null },
+                            lyricsSyncOffset = 0,
+                            modifier = Modifier.fillMaxSize(),
+                            textColorOverride = contentColor,
+                        )
 
                     !syncedLyrics.isNullOrEmpty() ->
                         SpatialFlowSyncedLyrics(
@@ -503,35 +503,22 @@ internal fun SpatialFlowLyricsOverlay(
                 }
             }
         }
-        } // end inner content Box (popup backdrop recording layer)
+        }
 
-        // ── Anchored Apple-Music-style overflow popup ─────────────────────
-        // Rendered as the LAST child of the overlay's root Box so it draws
-        // above everything else (title header, lyrics). Same menu the Apple
-        // Music and SimpMusic player styles show over their lyrics.
         if (showLyricsMenu) {
-            LyricsMenu(
+            AnchoredLyricsOverflowMenu(
+                iconBoundsInRoot = moreIconBounds,
                 lyricsProvider = { currentLyricsEntity },
                 mediaMetadataProvider = { currentSong },
                 lyricsSyncOffset = 0,
                 onLyricsSyncOffsetChange = {},
                 onDismiss = { showLyricsMenu = false },
+                backdrop = popupBackdrop,
             )
         }
     }
 }
 
-/**
- * The synced-lyrics list — SpatialFlow's SyncedLyricsCompose, INCLUDING the word-by-word
- * karaoke highlighting (ported 2026-09-05 after "word synced lyrics don't work correctly in
- * SpatialFlow player"): a karaoke line renders as a dim base Text plus a fully-lit overlay
- * Text whose not-yet-sung characters are erased with a DstOut sweep — per character, driven
- * by each word's own start/end timestamps, with a soft gradient at the sweep front and a
- * 200ms linear position smoothing so the 100ms position polls sweep continuously. Lines with
- * no word timings keep the line-level highlight (active 38sp Bold, inactive 20sp dimmed);
- * instrumental breaks render SpatialFlow's breathing-note interlude row with a wavy progress
- * bar. Tap a line to seek; the list auto-scrolls so the active line stays centred.
- */
 @Composable
 private fun SpatialFlowSyncedLyrics(
     lyrics: List<LyricsEntry>,
@@ -544,13 +531,11 @@ private fun SpatialFlowSyncedLyrics(
     val listState = rememberLazyListState()
     val dimColor = contentColor.copy(alpha = 0.35f)
 
-    // ── Detect karaoke mode (SpatialFlow's isKaraokeMode) ────────────────────────────
     val isKaraokeMode =
         remember(lyrics) {
             lyrics.any { !it.isInstrumental && LyricsUtils.hasTrueWordSync(it) }
         }
 
-    // ── Filter out interludes when in karaoke mode ───────────────────────────────────
     val displayItems =
         remember(lyrics, isKaraokeMode) {
             lyrics.mapIndexedNotNull { index, line ->
@@ -569,8 +554,6 @@ private fun SpatialFlowSyncedLyrics(
         }
     }
 
-    // Auto-scroll: only animate when the active line CHANGES, and never fight the user's
-    // own scroll (SpatialFlow's guard — animateScrollToItem cancels a drag mid-gesture).
     LaunchedEffect(activeIndex) {
         if (activeIndex >= 0 && !listState.isScrollInProgress) {
             listState.animateScrollToItem(
@@ -621,15 +604,6 @@ private fun SpatialFlowSyncedLyrics(
     }
 }
 
-// ════════════════════════════════════════════════════════════════════════════════
-// ─ Lyric Line Item — SpatialFlow's APPLE-MUSIC-STYLE WORD HIGHLIGHTING ───────────
-// ════════════════════════════════════════════════════════════════════════════════
-
-/**
- * A word span mapped onto the rendered string's character range. [WordTimestamp] carries no
- * char positions, so the spans are computed by sequentially locating each word's text inside
- * the line's text — the same contract SpatialFlow's LyricWord.charRange serves upstream.
- */
 private data class WordCharSpan(
     val start: Int,
     val endExclusive: Int,
@@ -668,9 +642,6 @@ private fun SpatialFlowLyricLineItem(
     val dimColor = contentColor.copy(alpha = 0.35f)
     val litColor = contentColor
 
-    // 200ms linear smoothing of the playback position (SpatialFlow's SmoothKaraokePos): the
-    // position polls every ~100ms, and animating between polls is what makes the per-word
-    // sweep continuous instead of stepping.
     val rawPos = if (isKaraoke && isActive) currentPositionProvider() else line.time
     val smoothedPos by animateFloatAsState(
         targetValue = rawPos.toFloat(),
@@ -701,12 +672,9 @@ private fun SpatialFlowLyricLineItem(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            // Text stack — the base dim text and the karaoke overlay text
-            // OVERLAP here (Box children stack), exactly as before; the
-            // romanisation sub-line then flows below the stack.
+
             Box(modifier = Modifier.fillMaxWidth()) {
-                // Base dim text — for karaoke lines it stays dim and the overlay lights the sung part;
-                // for line-synced lines it carries the whole highlight when active.
+
                 Text(
                     text = line.text,
                     style = mainTextStyle,
@@ -717,7 +685,6 @@ private fun SpatialFlowLyricLineItem(
                     modifier = Modifier.fillMaxWidth(),
                 )
 
-                // Overlay lit text, erased ahead of the sung position (SpatialFlow's eraseFutureText).
                 if (isKaraoke && isActive) {
                     Text(
                         text = line.text,
@@ -730,11 +697,20 @@ private fun SpatialFlowLyricLineItem(
                                 .fillMaxWidth()
                                 .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
                                 .drawWithCache {
+                                    val layout = baseTextLayout.value
+                                    val textLength = layout?.layoutInput?.text?.length ?: 0
+                                    val charPaths =
+                                        if (layout != null && textLength > 0) {
+                                            List(textLength) { charIndex ->
+                                                layout.getPathForRange(charIndex, charIndex + 1)
+                                            }
+                                        } else {
+                                            null
+                                        }
                                     onDrawWithContent {
-                                        val layout = baseTextLayout.value
                                         drawContent()
-                                        if (layout != null) {
-                                            eraseFutureText(layout, spans, smoothedPos.toLong())
+                                        if (layout != null && charPaths != null) {
+                                            eraseFutureText(layout, charPaths, spans, smoothedPos.toLong())
                                         }
                                     }
                                 },
@@ -742,9 +718,6 @@ private fun SpatialFlowLyricLineItem(
                 }
             }
 
-            // AI romanisation sub-line (2026-09-05) — smaller and dimmer under
-            // the lyric line, the same presentation the Apple Music renderer's
-            // romanisation uses.
             romanizedText
                 ?.takeIf { it.isNotBlank() && it != line.text }
                 ?.let { romanized ->
@@ -766,18 +739,13 @@ private fun SpatialFlowLyricLineItem(
     }
 }
 
-/**
- * Erases the characters that have not been sung yet from an overlay text, per character:
- * fully-sung characters stay lit, future characters are erased outright (DstOut), and the
- * character under the sweep front is erased through a short horizontal gradient so the
- * leading edge is soft. Port of SpatialFlow's eraseFutureText/calculateCharProgress.
- */
 private fun DrawScope.eraseFutureText(
     layout: androidx.compose.ui.text.TextLayoutResult,
+    charPaths: List<androidx.compose.ui.graphics.Path>,
     spans: List<WordCharSpan>,
     pos: Long,
 ) {
-    val textLength = layout.layoutInput.text.length
+    val textLength = charPaths.size
     for (charIndex in 0 until textLength) {
         val controllingSpan = findControllingSpan(charIndex, spans)
         val charProgress =
@@ -788,14 +756,14 @@ private fun DrawScope.eraseFutureText(
             }
 
         if (charProgress >= 0.99f) {
-            // Fully swept character: leave it fully lit (do not erase).
+
         } else if (charProgress < 0.01f) {
-            // Fully future character: erase it completely.
-            val path = layout.getPathForRange(charIndex, charIndex + 1)
+
+            val path = charPaths[charIndex]
             drawPath(path, color = Color.Black, blendMode = BlendMode.DstOut)
         } else {
-            // Partially sweeping character: soft gradient erase.
-            val path = layout.getPathForRange(charIndex, charIndex + 1)
+
+            val path = charPaths[charIndex]
             val box = layout.getBoundingBox(charIndex)
 
             val gradientWidth = box.width * 1.5f
@@ -826,7 +794,6 @@ private fun findControllingSpan(
     if (charIndex < spans.first().start) return spans.first()
     if (charIndex >= spans.last().endExclusive) return spans.last()
 
-    // Between words: the word that already passed owns the gap (spaces stay lit with it).
     return spans.lastOrNull { it.endExclusive <= charIndex } ?: spans.first()
 }
 
@@ -835,7 +802,7 @@ private fun calculateCharProgress(
     span: WordCharSpan,
     pos: Long,
 ): Float {
-    // WordTimestamp times are SECONDS (both the TTML and QRC parsers) — milliseconds here.
+
     val wordStartMs = (span.word.startTime * 1000.0).toLong()
     val wordEndMs = (span.word.endTime * 1000.0).toLong().coerceAtLeast(wordStartMs + 120L)
 
@@ -870,10 +837,6 @@ private fun calculateCharProgress(
 
 private fun easeOutCubic(x: Float): Float = 1f - (1f - x) * (1f - x) * (1f - x)
 
-// ════════════════════════════════════════════════════════════════════════════════
-// ─ Interlude Item (instrumental break) ────────────────────────────────────────────
-// ════════════════════════════════════════════════════════════════════════════════
-
 @Composable
 private fun SpatialFlowInterludeItem(
     isActive: Boolean,
@@ -895,7 +858,6 @@ private fun SpatialFlowInterludeItem(
         label = "InterludeProgress",
     )
 
-    // Breathing scale for the note icon (SpatialFlow's InterludeBreathing).
     val infiniteTransition = rememberInfiniteTransition(label = "InterludeBreathing")
     val breatheScale by infiniteTransition.animateFloat(
         initialValue = 0.82f,
@@ -943,6 +905,143 @@ private fun SpatialFlowInterludeItem(
             color = accentColor.copy(alpha = if (isActive) 0.75f else 0.18f),
             trackColor = accentColor.copy(alpha = 0.06f),
             amplitude = { p -> (0.6f + p) },
+        )
+    }
+}
+
+private const val SfLyricsBlurRestScale = 1.2f
+private const val SfLyricsBlurDriftScale = 2.4f
+private val SfLyricsBlurRadius = 64.dp
+
+/**
+ * LRU for the pre-blurred lyrics backdrop bitmaps. [SpatialFlowPlayerContent]
+ * pre-warms this cache the moment a song's artwork is known, so the very
+ * first frame of the lyrics overlay already composes against a ready bitmap
+ * instead of flashing the opaque palette fill while the async blur lands
+ * (the "solid color for a split second" the reveal used to show).
+ */
+internal object SfLyricsBlurBitmapCache {
+    private const val MAX_ENTRIES = 4
+
+    private val cache = object : LinkedHashMap<String, Bitmap>(MAX_ENTRIES, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Bitmap>): Boolean = size > MAX_ENTRIES
+    }
+
+    fun get(url: String): Bitmap? = synchronized(cache) { cache[url] }
+
+    fun put(url: String, bitmap: Bitmap) {
+        synchronized(cache) { cache[url] = bitmap }
+    }
+}
+
+internal suspend fun loadSfLyricsBlurredBitmap(
+    context: android.content.Context,
+    artUrl: String,
+): Bitmap? {
+    SfLyricsBlurBitmapCache.get(artUrl)?.let { return it }
+    val bitmap =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val request =
+                    ImageRequest
+                        .Builder(context)
+                        .data(artUrl)
+                        .allowHardware(false)
+                        .memoryCacheKey("$artUrl#sflyricsblur")
+                        .diskCacheKey("$artUrl#sflyricsblur")
+                        .size(CoilSize(720, 720))
+                        .build()
+                val result = context.imageLoader.execute(request)
+                if (result is SuccessResult) {
+                    val raw =
+                        result.image
+                            .toBitmap()
+                            .copy(Bitmap.Config.ARGB_8888, true)
+                    val density = context.resources.displayMetrics.density
+                    ImageBlurUtils.blur(raw, SfLyricsBlurRadius.value * density)
+                } else {
+                    null
+                }
+            }.getOrNull()
+        }
+    if (bitmap != null) {
+        SfLyricsBlurBitmapCache.put(artUrl, bitmap)
+    }
+    return bitmap
+}
+
+@Composable
+private fun SpatialFlowLyricsMovingBlur(
+    artUrl: String?,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val blurWander = rememberBlurWanderDrift(active = true)
+    val driftDpToPx = with(LocalDensity.current) { 1.dp.toPx() }
+
+    val morph = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        morph.animateTo(1f, animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing))
+    }
+
+    BoxWithConstraints(
+        modifier =
+            modifier
+                .fillMaxSize()
+                .clipToBounds(),
+    ) {
+        val driftFootprint =
+            remember(maxWidth, maxHeight) {
+                blurBackdropFootprint(
+                    width = maxWidth,
+                    height = maxHeight,
+                    restScale = SfLyricsBlurRestScale,
+                    driftScale = SfLyricsBlurDriftScale,
+                )
+            }
+
+        if (artUrl != null) {
+            // Synchronous cache read first: a pre-warmed bitmap composes on the
+            // overlay's FIRST frame, so the reveal never shows the flat fill.
+            var preBlurredBitmap by remember(artUrl) {
+                mutableStateOf(SfLyricsBlurBitmapCache.get(artUrl))
+            }
+            LaunchedEffect(artUrl) {
+                if (preBlurredBitmap == null) {
+                    preBlurredBitmap = loadSfLyricsBlurredBitmap(context, artUrl)
+                }
+            }
+            preBlurredBitmap?.let { bmp ->
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Image(
+                        bitmap = bmp.asImageBitmap(),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier =
+                            Modifier
+                                .requiredSize(driftFootprint)
+                                .graphicsLayer {
+                                    val scale =
+                                        SfLyricsBlurRestScale +
+                                            (SfLyricsBlurDriftScale - SfLyricsBlurRestScale) * morph.value
+                                    scaleX = scale
+                                    scaleY = scale
+                                    translationX = blurWander.xDp.floatValue * driftDpToPx * morph.value
+                                    translationY = blurWander.yDp.floatValue * driftDpToPx * morph.value
+                                },
+                    )
+                }
+            }
+        }
+
+        Box(
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .background(SfCanvasScrimBrush),
         )
     }
 }

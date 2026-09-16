@@ -158,6 +158,15 @@ android {
                 ?: "https://github.com/4nx3b/ArchiveTune/releases/download/tdlight-2b51b33"}\"",
         )
 
+        val slimIconPacks = (project.findProperty("slimIconPacks") as String?)?.toBoolean() ?: false
+        buildConfigField("boolean", "ICON_PACK_BUNDLED", "${!slimIconPacks}")
+        buildConfigField(
+            "String",
+            "ICON_PACK_BASE_URL",
+            "\"${project.findProperty("iconPackBaseUrl") as String?
+                ?: "https://github.com/4nx3B/ArchiveTune/releases/download/icon-pack-v1"}\"",
+        )
+
         // Base URL of the community Source Pool website (Next.js). When set, the app auto-discovers
         // health-checked Tidal/Qobuz instances from it. Precedence: local.properties override, then
         // the SOURCE_PROVIDER_URL env/CI variable, then the baked-in default below. Set to "" in

@@ -590,6 +590,9 @@ enum class PlayerStreamClient {
 val PersistentQueueKey = booleanPreferencesKey("persistentQueue")
 val PermanentShuffleKey = booleanPreferencesKey("permanentShuffle")
 val SkipSilenceKey = booleanPreferencesKey("skipSilence")
+val AudioPlaybackSpeedKey = floatPreferencesKey("audioPlaybackSpeed")
+val AudioPlaybackSpeedPitchMatchKey = booleanPreferencesKey("audioPlaybackSpeedPitchMatch")
+val AudioPlaybackPitchKey = floatPreferencesKey("audioPlaybackPitch")
 val AudioNormalizationKey = booleanPreferencesKey("audioNormalization")
 val AudioOffload = booleanPreferencesKey("audioOffload")
 val CrossfadeEnabledKey = booleanPreferencesKey("crossfadeEnabled")
@@ -628,6 +631,7 @@ val ShowTagsInLibraryKey = booleanPreferencesKey("showTagsInLibrary")
 val MinimalHomeModeKey = booleanPreferencesKey("minimalHomeMode")
 
 val EqualizerEnabledKey = booleanPreferencesKey("equalizerEnabled")
+val EqualizerAudioEffectsEnabledKey = booleanPreferencesKey("audioEffectsEnabled")
 val EqualizerControlModeKey = stringPreferencesKey("equalizerControlMode")
 val EqualizerBandLevelsMbKey = stringPreferencesKey("equalizerBandLevelsMb")
 val EqualizerAutoHeadroomEnabledKey = booleanPreferencesKey("equalizerAutoHeadroomEnabled")
@@ -1095,6 +1099,7 @@ enum class PlayerDesignStyle {
     TIKTOK,
     SIMPMUSIC,
     SPATIALFLOW,
+    LOOPER,
 }
 
 enum class PlayerBackgroundStyle {

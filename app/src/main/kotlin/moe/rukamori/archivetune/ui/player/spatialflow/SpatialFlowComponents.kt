@@ -5,18 +5,6 @@
  * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
  */
 
-/*
- * SpatialFlow player style — shared UI components.
- *
- * Ports of SpatialFlow's PlayerUiComponents.kt
- * (github.com/MythicalSHUB/SpatialFlow, GPL-3.0): the marquee with alpha-faded
- * edges, the artwork-surface color derivation, the split like/dislike chip, the
- * pill chip (with download progress fill), the wavy slider with time labels,
- * and the lyrics metadata footer. Dimensions, typography, spacing and colors
- * are SpatialFlow's own — only the R drawable references and the song model
- * were adapted to ArchiveTune.
- */
-
 package moe.rukamori.archivetune.ui.player.spatialflow
 
 import android.graphics.Bitmap
@@ -28,6 +16,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -46,12 +35,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -89,11 +76,9 @@ import moe.rukamori.archivetune.db.entities.codecLabel
 import moe.rukamori.archivetune.models.MediaMetadata
 import moe.rukamori.archivetune.ui.player.rememberOfflineArtworkImageRequest
 import moe.rukamori.archivetune.utils.ImageBlurUtils
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 
-/**
- * Custom Compose extension to render a marquee with smooth horizontal alpha-faded edges.
- * Uses drawWithCache to avoid allocating Brush and List objects on every frame of the drawing phase.
- */
 @OptIn(ExperimentalFoundationApi::class)
 fun Modifier.basicMarqueeWithFadedEdges(
     edgeWidth: Dp = 12.dp,
@@ -102,7 +87,7 @@ fun Modifier.basicMarqueeWithFadedEdges(
         .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
         .drawWithCache {
             val edgeWidthPx = edgeWidth.toPx()
-            // Cache the brushes so they aren't recreated every frame
+
             val leftBrush =
                 Brush.horizontalGradient(
                     colors = listOf(Color.Transparent, Color.Black),
@@ -155,30 +140,17 @@ internal fun deriveArtworkSurfaceColor(
     return Color(androidx.core.graphics.ColorUtils.HSLToColor(hsl))
 }
 
-/**
- * Full-screen blurred-artwork backdrop — the reference SpatialFlow player's
- * background treatment.
- *
- * A blurred copy of the current artwork fills the screen under a vertical
- * darkening scrim (lighter, more colourful at the top; darker at the bottom),
- * so the player reads as a washed-out version of the song's own colours
- * instead of a flat surface. On Android 12+ the blur is a RenderEffect on the
- * image layer; older devices bake the blur into a downscaled bitmap off the
- * main thread (the same pre-S strategy the Apple Music style's backdrop
- * uses). The caller's palette surface sits underneath, so a song with no
- * artwork still gets a themed screen.
- */
 @Composable
 internal fun SpatialFlowBlurredBackdrop(
     artUrl: String?,
+    withScrim: Boolean = true,
+    isDark: Boolean = isSystemInDarkTheme(),
     modifier: Modifier = Modifier,
 ) {
     val isPreS = Build.VERSION.SDK_INT < Build.VERSION_CODES.S
     val context = LocalContext.current
     val imageLoader = context.imageLoader
 
-    // Pre-S has no RenderEffect, so Modifier.blur is a no-op there — bake the
-    // blur into a bitmap off the main thread instead.
     val preBlurredBitmap by produceState<Bitmap?>(null, artUrl) {
         if (!isPreS || artUrl.isNullOrBlank()) {
             value = null
@@ -234,20 +206,31 @@ internal fun SpatialFlowBlurredBackdrop(
             }
         }
 
-        // Vertical scrim: keeps the top of the wash lighter and more saturated,
-        // deepens toward the bottom so the transport area stays high-contrast.
-        Box(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            0f to Color.Black.copy(alpha = 0.18f),
-                            0.55f to Color.Black.copy(alpha = 0.32f),
-                            1f to Color.Black.copy(alpha = 0.60f),
-                        ),
-                    ),
-        )
+        if (withScrim) {
+            // Theme-aware scrim: in light theme the gradient must be white.
+            // A black scrim over a dark artwork would sink the light-theme
+            // surface (and its near-black text) into an unreadable dark wash.
+            val scrimBrush =
+                if (isDark) {
+                    Brush.verticalGradient(
+                        0f to Color.Black.copy(alpha = 0.18f),
+                        0.55f to Color.Black.copy(alpha = 0.32f),
+                        1f to Color.Black.copy(alpha = 0.60f),
+                    )
+                } else {
+                    Brush.verticalGradient(
+                        0f to Color.White.copy(alpha = 0.30f),
+                        0.55f to Color.White.copy(alpha = 0.55f),
+                        1f to Color.White.copy(alpha = 0.82f),
+                    )
+                }
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .background(scrimBrush),
+            )
+        }
     }
 }
 
@@ -276,7 +259,7 @@ internal fun SplitLikeDislikeChip(
                 .background(backgroundColor),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Like Button
+
         Row(
             modifier =
                 Modifier
@@ -305,7 +288,6 @@ internal fun SplitLikeDislikeChip(
             )
         }
 
-        // Vertical Divider
         Spacer(
             modifier =
                 Modifier
@@ -314,7 +296,6 @@ internal fun SplitLikeDislikeChip(
                     .background(contentColor.copy(alpha = 0.15f)),
         )
 
-        // Dislike Button
         Box(
             modifier =
                 Modifier
@@ -356,7 +337,7 @@ internal fun PillChip(
             contentColor.copy(alpha = if (isDark) 0.08f else 0.06f)
         }
 
-    val tintColor = if (isSelected) accentColor else contentColor.copy(alpha = 0.8f)
+    val tintColor = contentColor.copy(alpha = 0.8f)
     val progressColor = accentColor.copy(alpha = if (isDark) 0.35f else 0.25f)
 
     val animatedFill by animateFloatAsState(
@@ -461,22 +442,19 @@ internal fun WavySliderWithLabels(
             waveLength = 48.dp,
         )
 
-        Row(
+        Box(
             modifier =
                 Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 text = formatDuration(displayPos),
                 style = MaterialTheme.typography.labelSmall,
                 color = contentSecondary,
+                modifier = Modifier.align(Alignment.CenterStart),
             )
 
-            // The centered codec badge from the reference build (its "AAC"
-            // chip): the current stream's codec label in a small rounded pill.
             if (currentFormat != null) {
                 val label =
                     remember(currentFormat.mimeType, currentFormat.codecs) {
@@ -485,6 +463,7 @@ internal fun WavySliderWithLabels(
                 Row(
                     modifier =
                         Modifier
+                            .align(Alignment.Center)
                             .clip(RoundedCornerShape(6.dp))
                             .background(contentColor.copy(alpha = if (isDark) 0.10f else 0.08f))
                             .padding(horizontal = 8.dp, vertical = 3.dp),
@@ -510,16 +489,12 @@ internal fun WavySliderWithLabels(
                 text = formatDuration(duration),
                 style = MaterialTheme.typography.labelSmall,
                 color = contentSecondary,
+                modifier = Modifier.align(Alignment.CenterEnd),
             )
         }
     }
 }
 
-/**
- * Footer showing song metadata at the bottom of lyrics.
- * Displays song name, artist, and lyrics provider — only when values are present.
- * Styled to look "always inactive" with small text and low opacity.
- */
 @Composable
 internal fun LyricsMetadataFooter(
     currentSong: MediaMetadata?,
@@ -545,17 +520,17 @@ internal fun LyricsMetadataFooter(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        // Song title
+
         if (currentSong.title.isNotBlank()) {
             Text(text = currentSong.title, style = metaStyle, maxLines = 1)
         }
-        // Artist
+
         if (currentSong.artists.isNotEmpty() &&
             !currentSong.artists.joinToString { it.name }.equals("Unknown Artist", ignoreCase = true)
         ) {
             Text(text = currentSong.artists.joinToString { it.name }, style = metaStyle, maxLines = 1)
         }
-        // Lyrics provider
+
         if (!selectedProvider.isNullOrBlank()) {
             Text(
                 text = "Lyrics by $selectedProvider",

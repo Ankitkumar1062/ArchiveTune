@@ -165,6 +165,7 @@ import moe.rukamori.archivetune.constants.EqualizerBandLevelsMbKey
 import moe.rukamori.archivetune.constants.EqualizerBassBoostEnabledKey
 import moe.rukamori.archivetune.constants.EqualizerBassBoostStrengthKey
 import moe.rukamori.archivetune.constants.EqualizerEnabledKey
+import moe.rukamori.archivetune.constants.EqualizerAudioEffectsEnabledKey
 import moe.rukamori.archivetune.constants.EqualizerOutputGainEnabledKey
 import moe.rukamori.archivetune.constants.EqualizerOutputGainMbKey
 import moe.rukamori.archivetune.constants.EqualizerReverbEnabledKey
@@ -6848,20 +6849,21 @@ class MusicService :
 
     private fun readEqSettingsFromPrefs(prefs: Preferences): EqSettings {
         val levels = decodeBandLevelsMb(prefs[EqualizerBandLevelsMbKey])
+        val audioEffectsEnabled = prefs[EqualizerAudioEffectsEnabledKey] ?: false
         return EqSettings(
             enabled = prefs[EqualizerEnabledKey] ?: false,
             bandLevelsMb = levels,
-            outputGainEnabled = prefs[EqualizerOutputGainEnabledKey] ?: false,
+            outputGainEnabled = (prefs[EqualizerOutputGainEnabledKey] ?: false) && audioEffectsEnabled,
             outputGainMb = prefs[EqualizerOutputGainMbKey] ?: 0,
-            bassBoostEnabled = prefs[EqualizerBassBoostEnabledKey] ?: false,
+            bassBoostEnabled = (prefs[EqualizerBassBoostEnabledKey] ?: false) && audioEffectsEnabled,
             bassBoostStrength = (prefs[EqualizerBassBoostStrengthKey] ?: 0).coerceIn(0, 1000),
-            virtualizerEnabled = prefs[EqualizerVirtualizerEnabledKey] ?: false,
+            virtualizerEnabled = (prefs[EqualizerVirtualizerEnabledKey] ?: false) && audioEffectsEnabled,
             virtualizerStrength = (prefs[EqualizerVirtualizerStrengthKey] ?: 0).coerceIn(0, 1000),
-            autoHeadroomEnabled = prefs[EqualizerAutoHeadroomEnabledKey] ?: false,
-            reverbEnabled = prefs[EqualizerReverbEnabledKey] ?: false,
+            autoHeadroomEnabled = (prefs[EqualizerAutoHeadroomEnabledKey] ?: false) && audioEffectsEnabled,
+            reverbEnabled = (prefs[EqualizerReverbEnabledKey] ?: false) && audioEffectsEnabled,
             reverbPreset = EqReverbPreset.fromStorage(prefs[EqualizerReverbPresetKey] ?: 0).storageValue,
-            balance = (prefs[EqualizerBalanceKey] ?: 0f).coerceIn(-1f, 1f),
-            eightDEnabled = prefs[Equalizer8DEnabledKey] ?: false,
+            balance = if (audioEffectsEnabled) (prefs[EqualizerBalanceKey] ?: 0f).coerceIn(-1f, 1f) else 0f,
+            eightDEnabled = (prefs[Equalizer8DEnabledKey] ?: false) && audioEffectsEnabled,
             eightDSpeedHz = (prefs[Equalizer8DSpeedKey] ?: 0.2f).coerceIn(0.03f, 0.25f),
         )
     }

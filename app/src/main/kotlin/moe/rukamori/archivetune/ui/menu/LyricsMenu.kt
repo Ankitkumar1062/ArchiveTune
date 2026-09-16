@@ -12,7 +12,14 @@ import android.content.Intent
 import android.content.res.Configuration
 import android.widget.Toast
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -29,6 +36,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
@@ -37,9 +45,29 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ripple
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.sp
+import com.kyant.backdrop.drawBackdrop
+import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.colorControls
+import com.kyant.backdrop.effects.lens
+import kotlinx.coroutines.launch
+import moe.rukamori.archivetune.ui.component.PlatformBackdrop
 import androidx.compose.material3.AlertDialogDefaults
 import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.material3.Button
@@ -144,6 +172,7 @@ fun LyricsMenu(
     viewModel: LyricsMenuViewModel = hiltViewModel(),
     // The control preferences are optional because the standalone lyrics screen owns their state;
     // callers that do not provide callbacks keep the menu focused on lyric actions only.
+    transparentSurface: Boolean = false,
 ) {
     val context = LocalContext.current
 
@@ -734,116 +763,197 @@ fun LyricsMenu(
         }
 
         item {
-            MenuSurfaceSection(modifier = Modifier.padding(vertical = 6.dp)) {
-                NewActionGrid(
-                    actions =
-                        listOf(
-                            NewAction(
-                                icon = {
-                                    Icon(
-                                        painter = painterResource(R.drawable.edit),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(28.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                },
-                                text = stringResource(R.string.edit),
-                                onClick = { showEditDialog = true },
-                            ),
-                            NewAction(
-                                icon = {
-                                    Icon(
-                                        painter = painterResource(R.drawable.cached),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(28.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                },
-                                text = stringResource(R.string.refetch),
-                                onClick = {
-                                    viewModel.refetchLyrics(mediaMetadataProvider())
-                                },
-                            ),
-                            NewAction(
-                                icon = {
-                                    Icon(
-                                        painter = painterResource(R.drawable.translate),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(28.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                },
-                                text = stringResource(R.string.translate),
-                                onClick = { showTranslateDialog = true },
-                                enabled = isTranslateEnabled,
-                            ),
-                            NewAction(
-                                icon = {
-                                    Icon(
-                                        painter = painterResource(R.drawable.language),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(28.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                },
-                                text = stringResource(R.string.ai_romanize_now),
-                                onClick = {
-                                    val lyricsText = lyricsProvider()?.lyrics.orEmpty()
-                                    AiLyricsRomanization.request(
-                                        sessionKey =
-                                            AiLyricsRomanization.sessionKey(
-                                                mediaId = mediaMetadataProvider().id,
-                                                lyrics = lyricsText,
-                                            ),
-                                        lines = AiLyricsRomanization.linesOf(lyricsText, mediaMetadataProvider().duration),
-                                        settings = aiRomanizationSettings,
-                                    )
-                                    Toast
-                                        .makeText(context, context.getString(R.string.ai_romanize_started), Toast.LENGTH_SHORT)
-                                        .show()
-                                },
-                                enabled = isAiRomanizationEnabled,
-                            ),
-                            NewAction(
-                                icon = {
-                                    Icon(
-                                        painter = painterResource(R.drawable.restore),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(28.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                },
-                                text = stringResource(R.string.undo_translation),
-                                onClick = { viewModel.undoTranslation(mediaMetadataProvider().id) },
-                                enabled = canUndoTranslation,
-                            ),
-                            NewAction(
-                                icon = {
-                                    Icon(
-                                        painter = painterResource(R.drawable.speed),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(28.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                },
-                                text = stringResource(R.string.lyrics_sync_offset),
-                                onClick = { showLyricsSyncOffsetDialog = true },
-                            ),
-                            NewAction(
-                                icon = {
-                                    Icon(
-                                        painter = painterResource(R.drawable.search),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(28.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                },
-                                text = stringResource(R.string.search),
-                                onClick = { showSearchDialog = true },
-                            ),
-                        ),
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
+            val appleMenuItems =
+                listOf(
+                    AppleMusicLyricsMenuItem(
+                        label = stringResource(R.string.edit),
+                        iconRes = R.drawable.edit,
+                        onClick = { showEditDialog = true },
+                    ),
+                    AppleMusicLyricsMenuItem(
+                        label = stringResource(R.string.refetch),
+                        iconRes = R.drawable.cached,
+                        onClick = { viewModel.refetchLyrics(mediaMetadataProvider()) },
+                    ),
+                    AppleMusicLyricsMenuItem(
+                        label = stringResource(R.string.translate),
+                        iconRes = R.drawable.translate,
+                        enabled = isTranslateEnabled,
+                        onClick = { showTranslateDialog = true },
+                    ),
+                    AppleMusicLyricsMenuItem(
+                        label = stringResource(R.string.ai_romanize_now),
+                        iconRes = R.drawable.language,
+                        enabled = isAiRomanizationEnabled,
+                        onClick = {
+                            val lyricsText = lyricsProvider()?.lyrics.orEmpty()
+                            AiLyricsRomanization.request(
+                                sessionKey =
+                                    AiLyricsRomanization.sessionKey(
+                                        mediaId = mediaMetadataProvider().id,
+                                        lyrics = lyricsText,
+                                    ),
+                                lines = AiLyricsRomanization.linesOf(lyricsText, mediaMetadataProvider().duration),
+                                settings = aiRomanizationSettings,
+                            )
+                            Toast
+                                .makeText(context, context.getString(R.string.ai_romanize_started), Toast.LENGTH_SHORT)
+                                .show()
+                        },
+                    ),
+                    AppleMusicLyricsMenuItem(
+                        label = stringResource(R.string.undo_translation),
+                        iconRes = R.drawable.restore,
+                        isDestructive = true,
+                        enabled = canUndoTranslation,
+                        onClick = { viewModel.undoTranslation(mediaMetadataProvider().id) },
+                    ),
+                    AppleMusicLyricsMenuItem(
+                        label = stringResource(R.string.lyrics_sync_offset),
+                        iconRes = R.drawable.speed,
+                        onClick = { showLyricsSyncOffsetDialog = true },
+                    ),
+                    AppleMusicLyricsMenuItem(
+                        label = stringResource(R.string.search),
+                        iconRes = R.drawable.search,
+                        onClick = { showSearchDialog = true },
+                    ),
                 )
+
+            if (transparentSurface) {
+                Surface(
+                    shape = MaterialTheme.shapes.extraLarge,
+                    color = Color.Transparent,
+                    modifier = Modifier.padding(vertical = 4.dp).fillMaxWidth(),
+                ) {
+                    Column(modifier = Modifier.padding(vertical = 0.dp)) {
+                        appleMenuItems.forEachIndexed { index, item ->
+                            AppleMusicLyricsMenuRow(
+                                item = item,
+                            )
+
+                            if (index < appleMenuItems.size - 1) {
+                                HorizontalDivider(
+                                    color = Color.White.copy(alpha = 0.12f),
+                                    thickness = 0.5.dp,
+                                    modifier = Modifier.padding(horizontal = 16.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                MenuSurfaceSection {
+                    NewActionGrid(
+                        actions =
+                            listOf(
+                                NewAction(
+                                    icon = {
+                                        Icon(
+                                            painter = painterResource(R.drawable.edit),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(28.dp),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    },
+                                    text = stringResource(R.string.edit),
+                                    onClick = { showEditDialog = true },
+                                ),
+                                NewAction(
+                                    icon = {
+                                        Icon(
+                                            painter = painterResource(R.drawable.cached),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(28.dp),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    },
+                                    text = stringResource(R.string.refetch),
+                                    onClick = {
+                                        viewModel.refetchLyrics(mediaMetadataProvider())
+                                    },
+                                ),
+                                NewAction(
+                                    icon = {
+                                        Icon(
+                                            painter = painterResource(R.drawable.translate),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(28.dp),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    },
+                                    text = stringResource(R.string.translate),
+                                    onClick = { showTranslateDialog = true },
+                                    enabled = isTranslateEnabled,
+                                ),
+                                NewAction(
+                                    icon = {
+                                        Icon(
+                                            painter = painterResource(R.drawable.language),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(28.dp),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    },
+                                    text = stringResource(R.string.ai_romanize_now),
+                                    onClick = {
+                                        val lyricsText = lyricsProvider()?.lyrics.orEmpty()
+                                        AiLyricsRomanization.request(
+                                            sessionKey =
+                                                AiLyricsRomanization.sessionKey(
+                                                    mediaId = mediaMetadataProvider().id,
+                                                    lyrics = lyricsText,
+                                                ),
+                                            lines = AiLyricsRomanization.linesOf(lyricsText, mediaMetadataProvider().duration),
+                                            settings = aiRomanizationSettings,
+                                        )
+                                        Toast
+                                            .makeText(context, context.getString(R.string.ai_romanize_started), Toast.LENGTH_SHORT)
+                                            .show()
+                                    },
+                                    enabled = isAiRomanizationEnabled,
+                                ),
+                                NewAction(
+                                    icon = {
+                                        Icon(
+                                            painter = painterResource(R.drawable.restore),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(28.dp),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    },
+                                    text = stringResource(R.string.undo_translation),
+                                    onClick = { viewModel.undoTranslation(mediaMetadataProvider().id) },
+                                    enabled = canUndoTranslation,
+                                ),
+                                NewAction(
+                                    icon = {
+                                        Icon(
+                                            painter = painterResource(R.drawable.speed),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(28.dp),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    },
+                                    text = stringResource(R.string.lyrics_sync_offset),
+                                    onClick = { showLyricsSyncOffsetDialog = true },
+                                ),
+                                NewAction(
+                                    icon = {
+                                        Icon(
+                                            painter = painterResource(R.drawable.search),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(28.dp),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    },
+                                    text = stringResource(R.string.search),
+                                    onClick = { showSearchDialog = true },
+                                ),
+                            ),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
+                    )
+                }
             }
         }
     }
@@ -1661,6 +1771,255 @@ private fun LyricsSearchInputActions(
             )
             Spacer(Modifier.width(ButtonDefaults.IconSpacing))
             Text(stringResource(R.string.search))
+        }
+    }
+}
+
+@Immutable
+private data class AppleMusicLyricsMenuItem(
+    val label: String,
+    val iconRes: Int,
+    val isDestructive: Boolean = false,
+    val enabled: Boolean = true,
+    val onClick: () -> Unit,
+)
+
+@Composable
+private fun AppleMusicLyricsMenuRow(
+    item: AppleMusicLyricsMenuItem,
+    modifier: Modifier = Modifier,
+) {
+    val headlineColor =
+        if (item.isDestructive) {
+            Color(0xFFFF453A)
+        } else {
+            Color.White
+        }
+    val iconColor =
+        if (item.isDestructive) {
+            Color(0xFFFF453A)
+        } else {
+            Color.White
+        }
+    val headlineWeight = if (item.isDestructive) FontWeight.SemiBold else FontWeight.Medium
+
+    val interactionSource = remember { MutableInteractionSource() }
+    Row(
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .heightIn(min = 44.dp)
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = ripple(),
+                    enabled = item.enabled,
+                    onClick = item.onClick,
+                )
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = item.label,
+            color = headlineColor,
+            fontWeight = headlineWeight,
+            fontSize = 16.sp,
+        )
+        Icon(
+            painter = painterResource(item.iconRes),
+            contentDescription = null,
+            modifier = Modifier.size(20.dp),
+            tint = iconColor,
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+fun AnchoredLyricsOverflowMenu(
+    iconBoundsInRoot: Rect,
+    lyricsProvider: () -> LyricsEntity?,
+    mediaMetadataProvider: () -> MediaMetadata,
+    lyricsSyncOffset: Int,
+    onLyricsSyncOffsetChange: (Int) -> Unit,
+    onDismiss: () -> Unit,
+    viewModel: LyricsMenuViewModel = hiltViewModel(),
+    backdrop: PlatformBackdrop? = null,
+    scrimColor: Color = Color.Black.copy(alpha = 0.45f),
+) {
+    var dismissed by remember { mutableStateOf(false) }
+
+    val density = LocalDensity.current
+    val scope = rememberCoroutineScope()
+
+    val scaleAnim = remember { Animatable(0.3f) }
+    val alphaAnim = remember { Animatable(0f) }
+
+    LaunchedEffect(Unit) {
+        if (dismissed) return@LaunchedEffect
+
+        val scaleJob = scope.launch {
+            scaleAnim.animateTo(
+                targetValue = 1f,
+                animationSpec =
+                    spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMediumLow,
+                    ),
+            )
+        }
+        val alphaJob = scope.launch {
+            alphaAnim.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(180),
+            )
+        }
+        scaleJob.join()
+        alphaJob.join()
+    }
+
+    LaunchedEffect(dismissed) {
+        if (!dismissed) return@LaunchedEffect
+        val scaleJob = scope.launch {
+            scaleAnim.animateTo(
+                targetValue = 0.3f,
+                animationSpec =
+                    spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMedium,
+                    ),
+            )
+        }
+        val alphaJob = scope.launch {
+            alphaAnim.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(180),
+            )
+        }
+        scaleJob.join()
+        alphaJob.join()
+
+        onDismiss()
+    }
+
+    val scale = scaleAnim.value
+    val alpha = alphaAnim.value
+
+    var anchorSpaceHeightPx by remember { mutableIntStateOf(0) }
+    var popupHeightPx by remember { mutableIntStateOf(0) }
+    val verticalOffsetPx = with(density) { 4.dp.toPx() }.toInt()
+
+    fun opensAboveAnchor(): Boolean {
+        val neededHeightPx =
+            if (popupHeightPx > 0) popupHeightPx else with(density) { 360.dp.toPx() }.toInt()
+        return anchorSpaceHeightPx > 0 &&
+            (iconBoundsInRoot.bottom.toInt() + verticalOffsetPx + neededHeightPx) > anchorSpaceHeightPx
+    }
+
+    val frostedBlurModifier = remember(backdrop) {
+        if (backdrop != null) {
+            Modifier.drawBackdrop(
+                backdrop = backdrop,
+                effects = {
+                    colorControls(saturation = 1.7f)
+                    blur(20f.dp.toPx())
+                    lens(
+                        refractionHeight = 16f.dp.toPx(),
+                        refractionAmount = 40f.dp.toPx(),
+                    )
+                },
+                onDrawBackdrop = { drawBackdrop ->
+                    drawBackdrop()
+                },
+                shape = { RoundedCornerShape(16.dp) },
+            )
+        } else {
+            null
+        }
+    }
+
+    Box(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .onSizeChanged { anchorSpaceHeightPx = it.height }
+                .background(scrimColor.copy(alpha = scrimColor.alpha * alpha))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                ) {
+                    if (!dismissed) dismissed = true
+                },
+    ) {
+        Box(
+            modifier =
+                Modifier
+                    .offset {
+                        val popupWidthPx = with(density) { 220.dp.toPx() }.toInt()
+                        val horizontalMarginPx = with(density) { 16.dp.toPx() }.toInt()
+                        val iconRight = iconBoundsInRoot.right.toInt()
+                        val iconBottom = iconBoundsInRoot.bottom.toInt()
+                        val iconTop = iconBoundsInRoot.top.toInt()
+                        val x =
+                            (iconRight - popupWidthPx)
+                                .coerceAtLeast(horizontalMarginPx)
+                        val y =
+                            if (opensAboveAnchor()) {
+                                val neededHeightPx =
+                                    if (popupHeightPx > 0) popupHeightPx else with(density) { 360.dp.toPx() }.toInt()
+                                (iconTop - verticalOffsetPx - neededHeightPx)
+                                    .coerceAtLeast(0)
+                            } else {
+                                iconBottom + verticalOffsetPx
+                            }
+                        IntOffset(x = x, y = y)
+                    }
+                    .widthIn(max = 220.dp)
+                    .heightIn(max = 520.dp)
+                    .onSizeChanged { popupHeightPx = it.height }
+                    .graphicsLayer {
+                        this.alpha = alpha
+                        this.scaleX = scale
+                        this.scaleY = scale
+
+                        val popupWidthPx = 220.dp.toPx()
+                        val horizontalMarginPx = 16.dp.toPx()
+                        val popupLeftPx =
+                            (iconBoundsInRoot.right - popupWidthPx)
+                                .coerceAtLeast(horizontalMarginPx)
+                        val iconCenterX = (iconBoundsInRoot.left + iconBoundsInRoot.right) / 2f
+                        val pivotX =
+                            ((iconCenterX - popupLeftPx) / popupWidthPx.coerceAtLeast(1f))
+                                .coerceIn(0.02f, 0.98f)
+                        this.transformOrigin =
+                            TransformOrigin(pivotX, if (opensAboveAnchor()) 1f else 0f)
+
+                        this.shadowElevation = 16.dp.toPx()
+                        this.shape = RoundedCornerShape(16.dp)
+                        this.clip = false
+                    }
+                    .then(
+                        frostedBlurModifier
+                            ?: Modifier.background(Color.Black.copy(alpha = 0.65f * alpha)),
+                    )
+                    .background(Color.Black.copy(alpha = 0.55f))
+                    .clip(RoundedCornerShape(16.dp))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                    ) {},
+        ) {
+            LyricsMenu(
+                lyricsProvider = lyricsProvider,
+                mediaMetadataProvider = mediaMetadataProvider,
+                lyricsSyncOffset = lyricsSyncOffset,
+                onLyricsSyncOffsetChange = onLyricsSyncOffsetChange,
+                onDismiss = {
+                    if (!dismissed) dismissed = true
+                },
+                viewModel = viewModel,
+                transparentSurface = true,
+            )
         }
     }
 }

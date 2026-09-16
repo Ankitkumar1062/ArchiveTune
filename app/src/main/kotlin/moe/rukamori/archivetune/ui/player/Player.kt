@@ -245,9 +245,13 @@ import moe.rukamori.archivetune.ui.player.bitchord.BitChordPlayerContent
 import moe.rukamori.archivetune.ui.player.tiktok.TikTokPlayerContent
 import moe.rukamori.archivetune.utils.makeTimeString
 import moe.rukamori.archivetune.utils.rememberEnumPreference
-import moe.rukamori.archivetune.utils.rememberLowDataModeActive
 import moe.rukamori.archivetune.utils.rememberPreference
+import moe.rukamori.archivetune.utils.rememberLowDataModeActive
 import moe.rukamori.archivetune.ui.player.simpmusic.SimpMusicPlayerContent
+import moe.rukamori.archivetune.ui.player.spatialflow.SpatialFlowFloatingArtwork
+import moe.rukamori.archivetune.ui.player.looper.LooperPlayerContent
+import moe.rukamori.archivetune.ui.utils.highRes
+import androidx.compose.ui.geometry.Rect
 import moe.rukamori.archivetune.ui.player.spatialflow.SpatialFlowPlayerContent
 import java.util.Locale
 import kotlin.math.abs
@@ -431,7 +435,8 @@ fun BottomSheetPlayer(
             playerDesignStyle == PlayerDesignStyle.BITCHORD ||
             playerDesignStyle == PlayerDesignStyle.TIKTOK ||
             playerDesignStyle == PlayerDesignStyle.SIMPMUSIC ||
-            playerDesignStyle == PlayerDesignStyle.SPATIALFLOW
+            playerDesignStyle == PlayerDesignStyle.SPATIALFLOW ||
+            playerDesignStyle == PlayerDesignStyle.LOOPER
     val playerBackground =
         if (playerUsesFixedBackground) PlayerBackgroundStyle.DEFAULT else storedPlayerBackground
 
@@ -558,6 +563,10 @@ fun BottomSheetPlayer(
     // syllable animation in the inline Enhanced lyrics view.
     val positionUpdatedState = rememberUpdatedState(position)
     val positionProvider = remember { { positionUpdatedState.value } }
+
+    val spatialFlowMiniArtworkRect = remember { mutableStateOf<Rect?>(null) }
+    val spatialFlowFullArtworkRect = remember { mutableStateOf<Rect?>(null) }
+    var spatialFlowPagerArtworkActive by remember { mutableStateOf(true) }
     var duration by rememberSaveable(mediaMetadata?.id) {
         mutableLongStateOf(playerConnection.player.duration)
     }
@@ -1037,7 +1046,8 @@ fun BottomSheetPlayer(
             playerDesignStyle == PlayerDesignStyle.BITCHORD ||
             playerDesignStyle == PlayerDesignStyle.TIKTOK ||
             playerDesignStyle == PlayerDesignStyle.SIMPMUSIC ||
-            playerDesignStyle == PlayerDesignStyle.SPATIALFLOW
+            playerDesignStyle == PlayerDesignStyle.SPATIALFLOW ||
+            playerDesignStyle == PlayerDesignStyle.LOOPER
         ) {
             0.dp
         } else if (playerDesignStyle == PlayerDesignStyle.V9) {
@@ -1238,6 +1248,7 @@ fun BottomSheetPlayer(
     CompositionLocalProvider(
         LocalPlayerSheetVisible provides playerSheetCanvasVisible,
         LocalVideoArtworkState provides videoState,
+        LocalVideoPlaybackFailed provides videoPlaybackFailed,
         LocalVideoPreferredHeight provides videoPreferredHeight,
         LocalVideoOnPreferredHeightChange provides { videoPreferredHeight = it },
         LocalVideoAvailableHeights provides videoAvailableHeights,
@@ -1403,13 +1414,47 @@ fun BottomSheetPlayer(
         },
         backHandlerEnabled = !aodModeEnabled && !isLyricsScreenVisible,
         keepContentAlive = true,
+        morphMode = playerDesignStyle == PlayerDesignStyle.SPATIALFLOW,
         navbarHiddenOffset = navbarHiddenOffset,
+        sharedLayer =
+            if (playerDesignStyle == PlayerDesignStyle.SPATIALFLOW) {
+                {
+                    mediaMetadata?.let { metadata ->
+                        SpatialFlowFloatingArtwork(
+                            state = state,
+                            mediaMetadata = metadata,
+                            queueWindows = queueWindows,
+                            currentWindowIndex = currentWindowIndex,
+                            artUrl = metadata.thumbnailUrl?.highRes(),
+                            isPlaying = isPlaying,
+                            fullArtworkRect = spatialFlowFullArtworkRect.value,
+                            miniArtworkRect = spatialFlowMiniArtworkRect.value,
+                            lyricsOpen = isLyricsScreenVisible,
+                            onPlaySongAtWindow = { windowIndex ->
+                                val window = queueWindows.getOrNull(windowIndex) ?: return@SpatialFlowFloatingArtwork
+                                playerConnection.player.seekToDefaultPosition(window.firstPeriodIndex)
+                                playerConnection.player.playWhenReady = true
+                            },
+                        )
+                    }
+                }
+            } else {
+                null
+            },
         collapsedContent = {
             MiniPlayer(
                 positionProvider = positionProvider,
                 durationProvider = durationProvider,
                 pureBlack = pureBlack,
                 isPairedWithNavigation = isMiniPlayerPairedWithNavigation,
+                artworkPlaceholder =
+                    playerDesignStyle == PlayerDesignStyle.SPATIALFLOW &&
+                        spatialFlowPagerArtworkActive,
+                onArtworkSlotPositioned = { rect ->
+                    if (playerDesignStyle == PlayerDesignStyle.SPATIALFLOW) {
+                        spatialFlowMiniArtworkRect.value = rect
+                    }
+                },
             )
         },
     ) {
@@ -1436,6 +1481,17 @@ fun BottomSheetPlayer(
         val seekEnabled = duration > 0L && duration != C.TIME_UNSET
         val updatedOnSliderValueChange by rememberUpdatedState(onSliderValueChange)
         val updatedOnSliderValueChangeFinished by rememberUpdatedState(onSliderValueChangeFinished)
+
+        val openQueue =
+            remember(state, queueSheetState) {
+                {
+                    isLyricsScreenVisible = false
+                    if (!state.isExpandedOrExpanding) {
+                        state.expandSoft()
+                    }
+                    queueSheetState.expandSoft()
+                }
+            }
 
         val nextUpMetadata =
             remember(queueWindows, currentWindowIndex) {
@@ -1577,7 +1633,8 @@ fun BottomSheetPlayer(
             playerDesignStyle != PlayerDesignStyle.BITCHORD &&
             playerDesignStyle != PlayerDesignStyle.TIKTOK &&
             playerDesignStyle != PlayerDesignStyle.SIMPMUSIC &&
-            playerDesignStyle != PlayerDesignStyle.SPATIALFLOW
+            playerDesignStyle != PlayerDesignStyle.SPATIALFLOW &&
+            playerDesignStyle != PlayerDesignStyle.LOOPER
         ) {
             PlayerBackground(
                 playerBackground = playerBackground,
@@ -1964,6 +2021,13 @@ fun BottomSheetPlayer(
                             positionProvider = { position },
                             onSeek = onSliderValueChange,
                             onSeekFinished = onSliderValueChangeFinished,
+                            floatingArtwork = true,
+                            onArtworkSlotPositioned = { rect ->
+                                spatialFlowFullArtworkRect.value = rect
+                            },
+                            onPagerArtworkActiveChange = { active ->
+                                spatialFlowPagerArtworkActive = active
+                            },
                             modifier =
                                 Modifier
                                     .fillMaxSize()
@@ -1971,6 +2035,38 @@ fun BottomSheetPlayer(
                                     // the style's edge-to-edge content clears a landscape
                                     // side cutout; the top inset is handled inside the style via
                                     // LocalStableSystemBarsTopPadding.
+                                    .windowInsetsPadding(
+                                        WindowInsets.systemBars.only(WindowInsetsSides.Horizontal),
+                                    ).nestedScroll(state.preUpPostDownNestedScrollConnection),
+                        )
+                    }
+} else if (playerDesignStyle == PlayerDesignStyle.LOOPER) {
+                    enrichedMetadata?.let { metadata ->
+                        LooperPlayerContent(
+                            mediaMetadata = metadata,
+                            isPlaying = isPlaying,
+                            isLoading = isLoading,
+                            canSkipPrevious = canSkipPrevious,
+                            canSkipNext = canSkipNext,
+                            sliderPosition = sliderPosition,
+                            position = position,
+                            duration = duration,
+                            playerConnection = playerConnection,
+                            navController = navController,
+                            state = state,
+                            menuState = menuState,
+                            bottomSheetPageState = bottomSheetPageState,
+                            currentFormat = currentFormat,
+                            canvasPrimaryUrl = artworkCanvas?.animated,
+                            canvasFallbackUrl = artworkCanvas?.videoUrl,
+                            onSeek = onSliderValueChange,
+                            onSeekFinished = onSliderValueChangeFinished,
+                            onLyricsClick = { isLyricsScreenVisible = !isLyricsScreenVisible },
+                            onQueueClick = openQueue,
+                            lyricsVisible = isLyricsScreenVisible,
+                            modifier =
+                                Modifier
+                                    .fillMaxSize()
                                     .windowInsetsPadding(
                                         WindowInsets.systemBars.only(WindowInsetsSides.Horizontal),
                                     ).nestedScroll(state.preUpPostDownNestedScrollConnection),
@@ -2458,6 +2554,13 @@ fun BottomSheetPlayer(
                             positionProvider = { position },
                             onSeek = onSliderValueChange,
                             onSeekFinished = onSliderValueChangeFinished,
+                            floatingArtwork = true,
+                            onArtworkSlotPositioned = { rect ->
+                                spatialFlowFullArtworkRect.value = rect
+                            },
+                            onPagerArtworkActiveChange = { active ->
+                                spatialFlowPagerArtworkActive = active
+                            },
                             modifier =
                                 Modifier
                                     .fillMaxSize()
@@ -2465,6 +2568,38 @@ fun BottomSheetPlayer(
                                     // the style's edge-to-edge content clears a landscape
                                     // side cutout; the top inset is handled inside the style via
                                     // LocalStableSystemBarsTopPadding.
+                                    .windowInsetsPadding(
+                                        WindowInsets.systemBars.only(WindowInsetsSides.Horizontal),
+                                    ).nestedScroll(state.preUpPostDownNestedScrollConnection),
+                        )
+                    }
+} else if (playerDesignStyle == PlayerDesignStyle.LOOPER) {
+                    enrichedMetadata?.let { metadata ->
+                        LooperPlayerContent(
+                            mediaMetadata = metadata,
+                            isPlaying = isPlaying,
+                            isLoading = isLoading,
+                            canSkipPrevious = canSkipPrevious,
+                            canSkipNext = canSkipNext,
+                            sliderPosition = sliderPosition,
+                            position = position,
+                            duration = duration,
+                            playerConnection = playerConnection,
+                            navController = navController,
+                            state = state,
+                            menuState = menuState,
+                            bottomSheetPageState = bottomSheetPageState,
+                            currentFormat = currentFormat,
+                            canvasPrimaryUrl = artworkCanvas?.animated,
+                            canvasFallbackUrl = artworkCanvas?.videoUrl,
+                            onSeek = onSliderValueChange,
+                            onSeekFinished = onSliderValueChangeFinished,
+                            onLyricsClick = { isLyricsScreenVisible = !isLyricsScreenVisible },
+                            onQueueClick = openQueue,
+                            lyricsVisible = isLyricsScreenVisible,
+                            modifier =
+                                Modifier
+                                    .fillMaxSize()
                                     .windowInsetsPadding(
                                         WindowInsets.systemBars.only(WindowInsetsSides.Horizontal),
                                     ).nestedScroll(state.preUpPostDownNestedScrollConnection),
@@ -2657,6 +2792,7 @@ fun BottomSheetPlayer(
                 playerDesignStyle == PlayerDesignStyle.TIKTOK ||
                 playerDesignStyle == PlayerDesignStyle.SIMPMUSIC ||
                 playerDesignStyle == PlayerDesignStyle.SPATIALFLOW ||
+                playerDesignStyle == PlayerDesignStyle.LOOPER ||
                 useBlackBackground
             ) {
                 Color.White

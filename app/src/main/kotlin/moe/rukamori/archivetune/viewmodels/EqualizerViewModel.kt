@@ -62,6 +62,7 @@ data class EqualizerUiModel(
     val presets: EqualizerPresetUiModels,
     val tones: EqualizerToneUiModels,
     val bands: EqualizerBandUiModels,
+    val fixedBandsMb: List<Int>,
     val minimumBandLevelMb: Int,
     val maximumBandLevelMb: Int,
     val outputGainEnabled: Boolean,
@@ -84,11 +85,7 @@ data class EqualizerUiModel(
 @Immutable
 data class EqualizerPresetUiModels(
     private val values: List<EqualizerPresetUiModel>,
-) {
-    val size: Int get() = values.size
-
-    operator fun get(index: Int): EqualizerPresetUiModel = values[index]
-}
+) : List<EqualizerPresetUiModel> by values
 
 @Immutable
 data class EqualizerPresetUiModel(
@@ -100,11 +97,7 @@ data class EqualizerPresetUiModel(
 @Immutable
 data class EqualizerToneUiModels(
     private val values: List<EqualizerToneUiModel>,
-) {
-    val size: Int get() = values.size
-
-    operator fun get(index: Int): EqualizerToneUiModel = values[index]
-}
+) : List<EqualizerToneUiModel> by values
 
 @Immutable
 data class EqualizerToneUiModel(
@@ -115,11 +108,7 @@ data class EqualizerToneUiModel(
 @Immutable
 data class EqualizerBandUiModels(
     private val values: List<EqualizerBandUiModel>,
-) {
-    val size: Int get() = values.size
-
-    operator fun get(index: Int): EqualizerBandUiModel = values[index]
-}
+) : List<EqualizerBandUiModel> by values
 
 @Immutable
 data class EqualizerBandUiModel(
@@ -131,11 +120,7 @@ data class EqualizerBandUiModel(
 @Immutable
 data class EqualizerProfileUiModels(
     private val values: List<EqualizerProfileUiModel>,
-) {
-    val size: Int get() = values.size
-
-    operator fun get(index: Int): EqualizerProfileUiModel = values[index]
-}
+) : List<EqualizerProfileUiModel> by values
 
 @Immutable
 data class EqualizerProfileUiModel(
@@ -165,6 +150,7 @@ sealed interface EqualizerEffect {
 
 private data class EqualizerDraft(
     val bandLevelsMb: List<Int>? = null,
+    val fixedBandLevelsMb: List<Int>? = null,
     val toneLevelsMb: Map<EqualizerTone, Int> = emptyMap(),
     val outputGainMb: Int? = null,
     val bassBoostStrength: Int? = null,
@@ -295,6 +281,32 @@ class EqualizerViewModel
                 if (index in levels.indices) levels[index] = valueMb
                 current.copy(bandLevelsMb = levels)
             }
+        }
+
+        fun updateFixedBandDraft(
+            index: Int,
+            valueMb: Int,
+        ) {
+            val config = configuration ?: return
+            draft.update { current ->
+                val levels =
+                    resampleLevels(
+                        levelsMb = current.fixedBandLevelsMb ?: config.settings.bandLevelsMb,
+                        targetCount = FIXED_UI_BAND_COUNT,
+                    ).toMutableList()
+                if (index in levels.indices) levels[index] = valueMb
+                current.copy(fixedBandLevelsMb = levels)
+            }
+        }
+
+        fun commitFixedBands() {
+            val capabilities = configuration?.capabilities ?: return
+            val levels = draft.value.fixedBandLevelsMb ?: return
+            bandCommitJob?.cancel()
+            bandCommitJob =
+                launchUpdate {
+                    updateEqualizer.updateBandLevels(resampleLevels(levels, capabilities.bandCount))
+                }
         }
 
         fun commitBands() {
@@ -454,7 +466,10 @@ private fun EqualizerConfiguration.withDraft(draft: EqualizerDraft): EqualizerCo
     copy(
         settings =
             settings.copy(
-                bandLevelsMb = draft.bandLevelsMb ?: settings.bandLevelsMb,
+                bandLevelsMb =
+                    draft.fixedBandLevelsMb?.let { fixed ->
+                        resampleLevels(fixed, settings.bandLevelsMb.size.coerceAtLeast(1))
+                    } ?: draft.bandLevelsMb ?: settings.bandLevelsMb,
                 outputGainMb = draft.outputGainMb ?: settings.outputGainMb,
                 bassBoostStrength = draft.bassBoostStrength ?: settings.bassBoostStrength,
                 virtualizerStrength = draft.virtualizerStrength ?: settings.virtualizerStrength,
@@ -495,6 +510,7 @@ private fun EqualizerConfiguration.toUiModel(
                     EqualizerBandUiModel(index, capabilities.centerFreqHz.getOrElse(index) { 0 }, bandLevels[index])
                 },
             ),
+        fixedBandsMb = resampleLevels(bandLevels, FIXED_UI_BAND_COUNT),
         minimumBandLevelMb = capabilities.minBandLevelMb,
         maximumBandLevelMb = maxOf(capabilities.maxBandLevelMb, capabilities.minBandLevelMb + 1),
         outputGainEnabled = settings.outputGainEnabled,
@@ -519,3 +535,6 @@ private fun EqualizerConfiguration.toUiModel(
         manageProfilesVisible = manageProfilesVisible,
     )
 }
+
+/** Number of bands the redesigned (SpatialFlow-style) effects screen shows. */
+private const val FIXED_UI_BAND_COUNT = 5

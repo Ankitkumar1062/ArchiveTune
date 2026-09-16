@@ -66,7 +66,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.runtime.State
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalView
 import moe.rukamori.archivetune.ui.player.PlayerFadeConfig
 import androidx.compose.ui.res.painterResource
@@ -374,11 +376,29 @@ private fun MiniPlayerArtwork(
     progress: () -> Float,
     isLoading: Boolean,
     colors: MiniPlayerContentColors,
+    artworkPlaceholder: Boolean = false,
+    onArtworkSlotPositioned: ((androidx.compose.ui.geometry.Rect) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Box(
         contentAlignment = Alignment.Center,
-        modifier = modifier.size(52.dp),
+        modifier =
+            modifier
+                .size(52.dp)
+                .onGloballyPositioned { coordinates ->
+                    if (onArtworkSlotPositioned != null) {
+                        onArtworkSlotPositioned(
+                            androidx.compose.ui.geometry.Rect(
+                                offset = coordinates.positionInRoot(),
+                                size =
+                                    androidx.compose.ui.geometry.Size(
+                                        width = coordinates.size.width.toFloat(),
+                                        height = coordinates.size.height.toFloat(),
+                                    ),
+                            ),
+                        )
+                    }
+                },
     ) {
         if (isLoading) {
             CircularWavyProgressIndicator(
@@ -408,6 +428,9 @@ private fun MiniPlayerArtwork(
                         shape = CircleShape,
                     ),
         ) {
+            if (artworkPlaceholder) {
+                return@Box
+            }
             val baseThumbnailUrl = mediaMetadata?.thumbnailUrl
             if (baseThumbnailUrl != null) {
                 val thumbnailSwapState =
@@ -567,6 +590,8 @@ fun NewMiniPlayerContent(
     duration: Long,
     playerConnection: PlayerConnection,
     colors: MiniPlayerContentColors,
+    artworkPlaceholder: Boolean = false,
+    onArtworkSlotPositioned: ((androidx.compose.ui.geometry.Rect) -> Unit)? = null,
 ) {
     val isPlaying by playerConnection.isPlaying.collectAsStateWithLifecycle()
     val playbackState by playerConnection.playbackState.collectAsStateWithLifecycle()
@@ -593,6 +618,8 @@ fun NewMiniPlayerContent(
             progress = progressProvider,
             isLoading = isLoading,
             colors = colors,
+            artworkPlaceholder = artworkPlaceholder,
+            onArtworkSlotPositioned = onArtworkSlotPositioned,
         )
 
         mediaMetadata?.let {

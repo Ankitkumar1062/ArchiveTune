@@ -92,6 +92,8 @@ fun CanvasArtworkPlayer(
     // the player instance was retained.
     visible: Boolean = true,
     source: CanvasSource? = null,
+    maxVideoEdgePx: Int? = null,
+    onPlaybackAvailabilityChange: ((available: Boolean) -> Unit)? = null,
 ) {
     val provider = source ?: CanvasSource.ALL
     val context = LocalContext.current
@@ -115,6 +117,7 @@ fun CanvasArtworkPlayer(
     val playbackActive = isPlaying && sheetVisible
     val contentVisible = visible && sheetVisible
     val shouldPlay by rememberUpdatedState(playbackActive)
+    val reportAvailability by rememberUpdatedState(onPlaybackAvailabilityChange)
 
     val okHttpClient =
         remember(provider) {
@@ -187,12 +190,19 @@ fun CanvasArtworkPlayer(
             DefaultRenderersFactory(context).setEnableDecoderFallback(true)
         }
     val trackSelector =
-        remember(context) {
+        remember(context, maxVideoEdgePx) {
             DefaultTrackSelector(context).apply {
                 setParameters(
                     buildUponParameters()
                         .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, true)
                         .setForceHighestSupportedBitrate(true)
+                        .let { parameters ->
+                            if (maxVideoEdgePx != null) {
+                                parameters.setMaxVideoSize(maxVideoEdgePx, maxVideoEdgePx)
+                            } else {
+                                parameters
+                            }
+                        }
                         .build(),
                 )
             }
@@ -271,6 +281,7 @@ fun CanvasArtworkPlayer(
             if (stalledForMs >= CanvasPlaybackStallTimeoutMs) {
                 currentUrl = fallback
                 isVideoReady = false
+                reportAvailability?.invoke(false)
                 return@LaunchedEffect
             }
 
@@ -311,11 +322,13 @@ fun CanvasArtworkPlayer(
                         currentUrl = next
                     } else {
                         exoPlayer.stop()
+                        reportAvailability?.invoke(false)
                     }
                 }
 
                 override fun onRenderedFirstFrame() {
                     isVideoReady = true
+                    reportAvailability?.invoke(true)
                     if (shouldPlay && !hasPlaybackFailed && exoPlayer.playerError == null) {
                         exoPlayer.setCanvasPlayback(isPlaying = true)
                     }
@@ -342,13 +355,17 @@ fun CanvasArtworkPlayer(
                 }
             }
         exoPlayer.addListener(listener)
-        onDispose { exoPlayer.removeListener(listener) }
+        onDispose {
+            reportAvailability?.invoke(false)
+            exoPlayer.removeListener(listener)
+        }
     }
 
     LaunchedEffect(currentUrl, exoPlayer) {
         val normalized = currentUrl.trim()
         isVideoReady = false
         hasPlaybackFailed = false
+        reportAvailability?.invoke(false)
         val lowercaseUrl = normalized.lowercase(Locale.ROOT)
         val mimeType =
             when {

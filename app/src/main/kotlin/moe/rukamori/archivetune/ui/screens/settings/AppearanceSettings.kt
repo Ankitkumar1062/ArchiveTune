@@ -452,6 +452,7 @@ fun AppearanceSectionSettings(
             PlayerDesignStyle.TIKTOK,
             PlayerDesignStyle.SIMPMUSIC,
             PlayerDesignStyle.SPATIALFLOW,
+            PlayerDesignStyle.LOOPER,
             -> false
 
             else -> true
@@ -959,6 +960,8 @@ fun AppearanceSectionSettings(
                                             stringResource(R.string.player_design_simpmusic)
                                         PlayerDesignStyle.SPATIALFLOW ->
                                             stringResource(R.string.player_design_spatialflow)
+                                        PlayerDesignStyle.LOOPER ->
+                                            stringResource(R.string.player_design_looper)
                                     }
                                 },
                             )

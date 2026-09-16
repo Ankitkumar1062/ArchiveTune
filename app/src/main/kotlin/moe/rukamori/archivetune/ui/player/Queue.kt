@@ -698,6 +698,10 @@ fun Queue(
                 PlayerDesignStyle.SPATIALFLOW -> {
                     // SpatialFlow renders its own queue UI inline or via its own sheets.
                 }
+
+                PlayerDesignStyle.LOOPER -> {
+                    // Looper handles queue via overlay or its own sheets.
+                }
             }
 
             if (showSleepTimerDialog) {
