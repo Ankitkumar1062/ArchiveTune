@@ -885,7 +885,7 @@ fun PlayerMenu(
             item {
                 MenuSurfaceSection(modifier = Modifier.padding(vertical = 6.dp)) {
                     ListItem(
-                        headlineContent = { Text(text = stringResource(R.string.save_canvas)) },
+                        headlineContent = { Text(text = stringResource(R.string.canvas_menu_title)) },
                         leadingContent = {
                             Icon(
                                 painter = painterResource(R.drawable.motion_photos_on),

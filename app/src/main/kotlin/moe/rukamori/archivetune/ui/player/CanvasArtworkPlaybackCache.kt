@@ -55,6 +55,13 @@ object CanvasArtworkPlaybackCache {
     private const val DOWNLOAD_MAX_ATTEMPTS = 4
     private const val DOWNLOAD_RETRY_DELAY_MS = 750L
     private const val CACHE_SIZE_BYTES_PER_MEGABYTE = 1024L * 1024L
+    /**
+     * Re-validate cached canvas videos with [File.isValidCanvasVideo] at most
+     * once per day. The probe is expensive (~50-200ms per file via
+     * MediaExtractor) and was the dominant contributor to canvas startup
+     * latency on cache hits.
+     */
+    private const val STALE_AFTER_MS = 24L * 60L * 60L * 1000L
 
     private val map = LinkedHashMap<String, CanvasCacheEntry>(DEFAULT_MAX_SIZE_MEGABYTES, 0.75f, true)
     private val cacheJobs = LinkedHashMap<String, Job>()
@@ -152,6 +159,76 @@ object CanvasArtworkPlaybackCache {
         map[mediaId] = entry.copy(lastAccessedAtMs = System.currentTimeMillis())
         schedulePersist()
         return playable
+    }
+
+    /**
+     * Fast-path variant of [get] that skips the expensive [File.isValidCanvasVideo]
+     * MediaExtractor probe. Use this for hot paths like the player's "refetch
+     * canvas" menu visibility check and the canvas LaunchedEffect.
+     */
+    @Synchronized
+    fun getCachedOnlyFast(mediaId: String): CanvasArtwork? {
+        if (maxSizeBytes == 0L || mediaId.isBlank()) return null
+        val entry = map[mediaId] ?: return null
+        val directory = cacheDirectory ?: return null
+        val now = System.currentTimeMillis()
+        val isStale = now - entry.lastValidatedAtMs > STALE_AFTER_MS
+
+        val regularUri = entry.regularFileName
+            ?.let(directory::resolve)
+            ?.takeIf { file -> file.isUsableFile() }
+            ?.let { file -> Uri.fromFile(file).toString() }
+        val verticalUri = entry.verticalFileName
+            ?.let(directory::resolve)
+            ?.takeIf { file -> file.isUsableFile() }
+            ?.let { file -> Uri.fromFile(file).toString() }
+
+        if (regularUri == null && verticalUri == null) {
+            if (isStale) {
+                map.remove(mediaId)
+                schedulePersist()
+            }
+            return null
+        }
+
+        if (isStale) {
+            persistScope.launch {
+                runCatching {
+                    val current = synchronized(this@CanvasArtworkPlaybackCache) { map[mediaId] } ?: return@launch
+                    val regularValid = current.regularFileName
+                        ?.let(directory::resolve)
+                        ?.takeIf(File::isUsableFile)
+                        ?.isValidCanvasVideo() == true
+                    val verticalValid = current.verticalFileName
+                        ?.let(directory::resolve)
+                        ?.takeIf(File::isUsableFile)
+                        ?.isValidCanvasVideo() == true
+                    if (!regularValid && !verticalValid) {
+                        synchronized(this@CanvasArtworkPlaybackCache) {
+                            map.remove(mediaId)
+                            schedulePersist()
+                        }
+                        return@launch
+                    }
+                    synchronized(this@CanvasArtworkPlaybackCache) {
+                        map[mediaId] = current.copy(
+                            lastValidatedAtMs = now,
+                            lastAccessedAtMs = now,
+                        )
+                        schedulePersist()
+                    }
+                }
+            }
+        }
+
+        map[mediaId] = entry.copy(lastAccessedAtMs = now)
+        schedulePersist()
+        return entry.artwork.copy(
+            animated = regularUri ?: entry.artwork.animated,
+            videoUrl = regularUri ?: entry.artwork.videoUrl,
+            animatedVertical = verticalUri ?: entry.artwork.animatedVertical,
+            videoUrlVertical = verticalUri ?: entry.artwork.videoUrlVertical,
+        )
     }
 
     suspend fun put(
@@ -277,6 +354,7 @@ object CanvasArtworkPlaybackCache {
                 url = regularUrl,
                 currentFileName = current?.regularFileName ?: current?.verticalFileName.takeIf { sharedVideo },
             )
+        val nowAfterRegular = System.currentTimeMillis()
         persistEntry(
             directory = directory,
             entry =
@@ -285,8 +363,9 @@ object CanvasArtworkPlaybackCache {
                     artwork = artwork,
                     regularFileName = regularFileName,
                     verticalFileName = current?.verticalFileName,
-                    createdAtMs = current?.createdAtMs ?: System.currentTimeMillis(),
-                    lastAccessedAtMs = System.currentTimeMillis(),
+                    createdAtMs = current?.createdAtMs ?: nowAfterRegular,
+                    lastAccessedAtMs = nowAfterRegular,
+                    lastValidatedAtMs = nowAfterRegular,
                 ),
         )
         val verticalFileName = if (sharedVideo && regularFileName != null) {
@@ -311,6 +390,7 @@ object CanvasArtworkPlaybackCache {
                 verticalFileName = verticalFileName,
                 createdAtMs = current?.createdAtMs ?: now,
                 lastAccessedAtMs = now,
+                lastValidatedAtMs = now,
             )
 
         if (regularFileName == null && verticalFileName == null) {
@@ -715,6 +795,7 @@ object CanvasArtworkPlaybackCache {
         val verticalFileName: String? = null,
         val createdAtMs: Long,
         val lastAccessedAtMs: Long,
+        val lastValidatedAtMs: Long = 0L,
     ) {
         fun byteSize(directory: File): Long =
             listOfNotNull(regularFileName, verticalFileName)

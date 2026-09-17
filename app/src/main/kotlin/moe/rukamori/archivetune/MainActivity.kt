@@ -154,6 +154,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -530,11 +532,10 @@ class MainActivity : ComponentActivity() {
             service.clearResolvedSources(currentMediaId)
         }
 
-        // Refresh pool accounts in the background (non-forced — respects
-        // the 30-min throttle). This ensures Qobuz tokens are fresh when
-        // the user returns to the app, without hammering the pool API.
+        // Every-launch background pool refresh — silent, throttled to one
+        // server fetch per 10 minutes so restarts never hammer the feed.
         lifecycleScope.launch(Dispatchers.IO) {
-            runCatching { PoolAccountManager.refresh(this@MainActivity, force = false) }
+            runCatching { PoolAccountManager.refreshForLaunch(this@MainActivity) }
         }
     }
 
@@ -693,6 +694,7 @@ class MainActivity : ComponentActivity() {
 
         lifecycleScope.launch(Dispatchers.IO) {
             runCatching { downloadUtil.prewarmDownloadConnections() }
+            runCatching { PoolAccountManager.refreshForLaunch(this@MainActivity) }
         }
 
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
@@ -2200,10 +2202,26 @@ class MainActivity : ComponentActivity() {
                                     var railPositionInRoot by remember {
                                         mutableStateOf(Offset.Zero)
                                     }
+                                    val railDarkScheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
+                                    // Scheme-adaptive tinted rail — matches the tinted bar: light
+                                    // accent pastel in light mode, deep accent-tinted dark bar in
+                                    // dark mode, with the content polarity flipping with the scheme.
+                                    val railTintedBaseColor =
+                                        if (railDarkScheme) {
+                                            lerp(Color.Black, MaterialTheme.colorScheme.primary, 0.30f)
+                                        } else {
+                                            lerp(Color.White, MaterialTheme.colorScheme.primary, 0.26f)
+                                        }
+                                    val railTintedContentColor =
+                                        if (railDarkScheme) {
+                                            lerp(Color.White, MaterialTheme.colorScheme.primary, 0.45f)
+                                        } else {
+                                            lerp(MaterialTheme.colorScheme.primary, Color.Black, 0.55f)
+                                        }
                                     val railContainerColor =
                                         when {
                                             canRailLiquidGlass -> Color.Transparent
-                                            canRailBlur && navigationBarTintFrostedBlur -> Color.Black.copy(alpha = 0.55f)
+                                            canRailBlur && navigationBarTintFrostedBlur -> railTintedBaseColor
                                             canRailBlur ->
                                                 if (pureBlack) Color.Black.copy(alpha = 0.45f)
                                                 else MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.85f)
@@ -2213,7 +2231,7 @@ class MainActivity : ComponentActivity() {
                                     val railContentColor =
                                         when {
                                             canRailLiquidGlass -> Color.White
-                                            navigationBarTintFrostedBlur && canRailBlur -> Color.White
+                                            navigationBarTintFrostedBlur && canRailBlur -> railTintedContentColor
                                             pureBlack -> Color.White
                                             else -> MaterialTheme.colorScheme.onSurfaceVariant
                                         }

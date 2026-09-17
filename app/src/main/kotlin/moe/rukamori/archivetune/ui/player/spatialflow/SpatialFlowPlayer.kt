@@ -259,7 +259,27 @@ fun SpatialFlowPlayerContent(
             SolidColor(finalColor)
         }
 
-    var lyricsModeEnabled by rememberSaveable(mediaMetadata.id) { mutableStateOf(false) }
+    // Deliberately NOT keyed on mediaMetadata.id: an input-keyed
+    // rememberSaveable resets to false on ANY id change — including the
+    // transient metadata re-emissions (source/queue resolver swapping the
+    // current item mid-playback) that can land while the lyrics overlay is
+    // open. On-device that read as the lyrics page "closing itself" ~0.9s
+    // after every tap on the Lyrics pill, with the reveal circle animating
+    // shut exactly like a user dismissal. The per-track reset below is
+    // explicit and only fires when a NEW id stays stable for 250ms.
+    var lyricsModeEnabled by rememberSaveable { mutableStateOf(false) }
+    var lyricsModeSongId by rememberSaveable { mutableStateOf(mediaMetadata.id) }
+    LaunchedEffect(mediaMetadata.id) {
+        val candidate = mediaMetadata.id
+        if (candidate == lyricsModeSongId) return@LaunchedEffect
+        // A genuine track change persists; a resolver flicker reverts within
+        // the window and the lyrics page stays open.
+        delay(250)
+        if (mediaMetadata.id == candidate) {
+            lyricsModeSongId = candidate
+            lyricsModeEnabled = false
+        }
+    }
     val videoShowing =
         videoState != null &&
             mediaMetadata.isMusicVideo &&
@@ -587,6 +607,14 @@ fun SpatialFlowPlayerContent(
                                     onArtworkSlotPositioned?.invoke(rect)
                                 },
                     )
+                    androidx.compose.runtime.DisposableEffect(Unit) {
+                        onDispose {
+                            if (!lyricsModeEnabled) {
+                                artworkPagerBoundsInRoot = null
+                                onArtworkSlotPositioned?.invoke(null)
+                            }
+                        }
+                    }
                     // Breathing room to the title stack, matching the video
                     // and in-column pager branches so the title sits at the
                     // same height whichever branch owns the artwork slot.
@@ -1094,7 +1122,16 @@ fun SpatialFlowPlayerContent(
                             Modifier
                                 .graphicsLayer {
                                     val t = lyricsArtworkProgress.coerceIn(0f, 1f)
-                                    val bounds = artworkPagerBoundsInRoot ?: return@graphicsLayer
+                                    val bounds = artworkPagerBoundsInRoot
+                                    if (bounds == null) {
+                                        // Never draw the shared element at its
+                                        // raw (0,0) layout slot: a mid-transition
+                                        // null rect used to flash the full-size
+                                        // artwork in the top-left corner for one
+                                        // frame right as the lyrics reveal ended.
+                                        alpha = 0f
+                                        return@graphicsLayer
+                                    }
                                     val fullSizePx = albumArtSize.toPx()
                                     // 56dp — the Apple Music lyrics header artwork size.
                                     val thumbSizePx = 56.dp.toPx()

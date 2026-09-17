@@ -105,6 +105,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -325,6 +326,18 @@ internal class DeviceMusicVolumeController(
             0
         }
 }
+
+/**
+ * Persists the SpatialFlow floating-artwork slot rects across activity
+ * re-creation: the measured geometry survives the notification-reopen path
+ * (system destroyed the backgrounded activity, sheet restored straight into
+ * the expanded anchor) so the shared morph layer can draw immediately.
+ */
+private val SpatialFlowArtworkRectSaver =
+    Saver<Rect?, List<Float>>(
+        save = { rect -> rect?.let { listOf(it.left, it.top, it.right, it.bottom) } },
+        restore = { values -> Rect(values[0], values[1], values[2], values[3]) },
+    )
 
 @Composable
 internal fun rememberDeviceMusicVolumeController(): DeviceMusicVolumeController {
@@ -564,8 +577,17 @@ fun BottomSheetPlayer(
     val positionUpdatedState = rememberUpdatedState(position)
     val positionProvider = remember { { positionUpdatedState.value } }
 
-    val spatialFlowMiniArtworkRect = remember { mutableStateOf<Rect?>(null) }
-    val spatialFlowFullArtworkRect = remember { mutableStateOf<Rect?>(null) }
+    // Saveable: when the app is reopened from the media notification after
+    // the system destroyed the backgrounded activity, the sheet restores
+    // straight into the EXPANDED anchor — the mini player never composes on
+    // that path (BottomSheet only composes collapsedContent below the
+    // expanded anchor), so a plain remember would leave the mini rect null
+    // and the shared layer would not draw at all (the invisible artwork
+    // until the next collapse/expand cycle).
+    val spatialFlowMiniArtworkRect =
+        rememberSaveable(stateSaver = SpatialFlowArtworkRectSaver) { mutableStateOf<Rect?>(null) }
+    val spatialFlowFullArtworkRect =
+        rememberSaveable(stateSaver = SpatialFlowArtworkRectSaver) { mutableStateOf<Rect?>(null) }
     var spatialFlowPagerArtworkActive by remember { mutableStateOf(true) }
     var duration by rememberSaveable(mediaMetadata?.id) {
         mutableLongStateOf(playerConnection.player.duration)

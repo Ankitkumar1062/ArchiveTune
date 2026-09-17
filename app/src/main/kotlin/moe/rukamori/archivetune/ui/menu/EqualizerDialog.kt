@@ -186,22 +186,16 @@ fun EqualizerDialog(
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties =
-            DialogProperties(
-                usePlatformDefaultWidth = false,
-                decorFitsSystemWindows = false,
-            ),
+        // Window config intentionally matches the long-working pre-restoration
+        // dialog (plain DialogWindowTheme path). The 6c8639207 rework had
+        // experimented with decorFitsSystemWindows=false — which silently
+        // switched the dialog onto the FloatingDialogWindowTheme +
+        // FLAG_LAYOUT_INSET_DECOR/setFitInsetsTypes(0) window path and was
+        // never validated outside the compile — and it crashed on open for
+        // real devices. The "status-bar gap" stays solved the old way:
+        // KeepStatusBarHiddenInDialog hides the bar while the dialog shows.
+        properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
-        // Edge-to-edge: the dialog draws behind the status bar (the old
-        // decor-fits window left the status-bar strip showing the screen
-        // behind the dialog — the "gap around the header"), and a transparent
-        // window background lets the liquid-glass surface read through.
-        val dialogView = LocalView.current
-        SideEffect {
-            (dialogView.parent as? android.view.Window)?.setBackgroundDrawable(
-                android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT),
-            )
-        }
         KeepStatusBarHiddenInDialog()
         EqualizerScreen(
             state = state,
