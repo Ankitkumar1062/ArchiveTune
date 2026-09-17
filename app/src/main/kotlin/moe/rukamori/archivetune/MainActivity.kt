@@ -1464,10 +1464,16 @@ class MainActivity : ComponentActivity() {
                                     source: NestedScrollSource,
                                 ): Offset {
                                     if (!shouldShowNavigationBar || useRail) return Offset.Zero
-                                    if (consumed.y < -navBarHideScrollThresholdPx) {
-                                        isNavBarHiddenByScroll = true
-                                    } else if (consumed.y > navBarHideScrollThresholdPx) {
-                                        isNavBarHiddenByScroll = false
+                                    // Only real user gestures (drag or fling) drive the
+                                    // hide/show; programmatic scrolls (scroll-position
+                                    // restore on playlists, settings auto-scroll) must
+                                    // not touch the bar.
+                                    if (source == NestedScrollSource.UserInput) {
+                                        if (consumed.y < -navBarHideScrollThresholdPx) {
+                                            isNavBarHiddenByScroll = true
+                                        } else if (consumed.y > navBarHideScrollThresholdPx) {
+                                            isNavBarHiddenByScroll = false
+                                        }
                                     }
                                     return Offset.Zero
                                 }

@@ -1611,29 +1611,7 @@ fun BottomSheetPlayer(
         // hazeSource (queueArtHazeState) that always contains a real high-frequency
         // image, so the queue's hazeEffect always has something meaningful to
         // sample regardless of playerBackground style.
-        // The queue sheet is now opaque (queueSurfaceColor passed as its
-        // backgroundColor with opaqueBackground = true in Queue.kt), so the
-        // dedicated frosted-glass haze overlay that used to sit behind the
-        // transparent queue sheet is no longer needed. Setting this to 0f
-        // disables both the haze-source Box and the haze-effect overlay
-        // (they're gated on queueHazeAlpha > 0f), which also saves the GPU
-        // blur work during queue drag.
-        val queueHazeAlpha = 0f
-
         val lowDataModeActive = rememberLowDataModeActive()
-        val queueArtHazeState = remember { HazeState() }
-        val queueArtContext = LocalContext.current
-        // Use the same swap-state logic as PlayerBackground so the queue's blur
-        // source matches the artwork the user actually sees (e.g., music-video
-        // thumbnail when isMusicVideo is true).
-        val queueArtSwapState =
-            rememberThumbnailSwapState(
-                videoId = mediaMetadata?.id,
-                ytmUrl = mediaMetadata?.thumbnailUrl,
-                lowDataMode = lowDataModeActive,
-                isMusicVideo = mediaMetadata?.isMusicVideo ?: false,
-            )
-        val queueArtUrl = queueArtSwapState.displayUrl
 
         Box(
             modifier =
@@ -2741,58 +2719,6 @@ fun BottomSheetPlayer(
         }
         } // close player-content haze-source Box
 
-        // Dedicated album-art hazeSource for the queue sheet (Issue 5 fix).
-        // Rendered as a sibling Box BEHIND the player-content Box (drawn first,
-        // so the user never sees it directly — player-content draws on top).
-        // Haze samples this Box's OWN drawing (the album-art image), not the
-        // composited result, so it always has high-frequency content to blur
-        // regardless of playerBackground style. Only rendered while the queue
-        // is visible (progress > 0) to save GPU on idle frames.
-        if (queueHazeAlpha > 0f && queueArtUrl != null) {
-            Box(
-                modifier =
-                    Modifier
-                        .fillMaxSize()
-                        .hazeSource(state = queueArtHazeState),
-            ) {
-                AsyncImage(
-                    model =
-                        ImageRequest
-                            .Builder(queueArtContext)
-                            .data(queueArtUrl)
-                            .size(256, 256)
-                            .allowHardware(false)
-                            .build(),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-        }
-
-        // Haze-effect overlay — renders the blurred album-art source (queueArtHazeState)
-        // as a frosted-glass layer that tracks the queue sheet's drag progress.
-        // Exact vivi-music parameters: blurRadius = 80.dp, tint = HazeTint(Black 0.30),
-        // noiseFactor = 0.15. The queue sheet (rendered next, with a transparent
-        // background) sits on top of this overlay so the frosted-glass effect shows
-        // through behind the queue list.
-        if (queueHazeAlpha > 0f) {
-            Box(
-                modifier =
-                    Modifier
-                        .fillMaxSize()
-                        .graphicsLayer { alpha = queueHazeAlpha }
-                        .hazeEffect(
-                            state = queueArtHazeState,
-                            style =
-                                HazeStyle(
-                                    blurRadius = 80.dp,
-                                    tint = HazeTint(Color.Black.copy(alpha = 0.30f)),
-                                    noiseFactor = 0.15f,
-                                ),
-                        ),
-            )
-        }
 
         // Queue text color policy:
         //  - Apple Music style keeps a dark frosted backdrop in both light & dark

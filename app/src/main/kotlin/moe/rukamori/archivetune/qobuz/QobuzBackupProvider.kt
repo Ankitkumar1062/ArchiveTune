@@ -456,7 +456,10 @@ object QobuzBackupProvider {
                 // Trust the bytes over the labels: a mirror that serves FLAC is FLAC even when the
                 // CDN mislabels the Content-Type, and the header is already in hand.
                 val streamInfo = headerBytes?.let(FlacStreamInfo::parse)
-                val isFlac = streamInfo != null || contentType.contains("flac") || url.contains("/lossless/")
+                val isFlac =
+                    streamInfo != null ||
+                        contentType.contains("flac") ||
+                        url.contains("/lossless/", ignoreCase = true)
                 ResolvedStream(
                     uri = url,
                     mimeType = if (isFlac) "audio/flac" else "audio/mp4",

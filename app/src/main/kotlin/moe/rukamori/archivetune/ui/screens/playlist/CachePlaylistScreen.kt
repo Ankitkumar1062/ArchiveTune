@@ -235,8 +235,8 @@ fun CachePlaylistScreen(
                     }
                 }.let { if (sortDescending) it.reversed() else it }
 
-            sortedSongs.map { song -> ItemWrapper(song) }
-        }.toMutableStateList()
+            sortedSongs.map { song -> ItemWrapper(song) }.toMutableStateList()
+        }
 
     var selection by remember { mutableStateOf(false) }
     var isSearching by remember { mutableStateOf(false) }
