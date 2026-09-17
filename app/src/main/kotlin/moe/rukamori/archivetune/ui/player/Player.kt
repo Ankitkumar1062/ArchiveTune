@@ -1830,6 +1830,7 @@ fun BottomSheetPlayer(
                                 canvasStaticUrl = v7CanvasArtwork?.static,
                                 canvasPrimaryUrl = v7CanvasArtwork?.animatedVertical,
                                 canvasFallbackUrl = v7CanvasArtwork?.videoUrlVertical,
+                                canvasSource = v7CanvasArtwork?.source,
                                 isPlaying = isPlaying && !isLyricsScreenVisible,
                                 disableBlur = disableBlur,
                                 backdropBlurAmount = backdropBlurAmount,
@@ -2366,6 +2367,7 @@ fun BottomSheetPlayer(
                                 canvasStaticUrl = v7CanvasArtwork?.static,
                                 canvasPrimaryUrl = v7CanvasArtwork?.animatedVertical,
                                 canvasFallbackUrl = v7CanvasArtwork?.videoUrlVertical,
+                                canvasSource = v7CanvasArtwork?.source,
                                 isPlaying = isPlaying && !isLyricsScreenVisible,
                                 disableBlur = disableBlur,
                                 backdropBlurAmount = backdropBlurAmount,
@@ -3190,6 +3192,7 @@ private fun V7PlayerBackdrop(
     backdropBlurAmount: Int,
     label: String,
     modifier: Modifier = Modifier,
+    canvasSource: CanvasSource? = null,
 ) {
     val configuration = LocalConfiguration.current
     val context = LocalContext.current
@@ -3284,11 +3287,12 @@ private fun V7PlayerBackdrop(
     }
 
     val backdropState =
-        remember(sharpArtworkUrl, canvasPrimary, canvasFallback) {
+        remember(sharpArtworkUrl, canvasPrimary, canvasFallback, canvasSource) {
             V7PlayerBackdropState(
                 artworkUrl = sharpArtworkUrl,
                 canvasPrimaryUrl = canvasPrimary,
                 canvasFallbackUrl = canvasFallback,
+                canvasSource = canvasSource,
             )
         }
     var backdropArtworkModel by remember(backdropArtworkUrl, backdropArtworkSizePx) {
@@ -3473,6 +3477,7 @@ private fun V7PlayerBackdrop(
 
                 if (hasCanvas) {
                     CanvasArtworkPlayer(
+                        source = backdrop.canvasSource,
                         primaryUrl = backdrop.canvasPrimaryUrl,
                         fallbackUrl = backdrop.canvasFallbackUrl,
                         isPlaying = isPlaying,
@@ -3545,6 +3550,7 @@ private data class V7PlayerBackdropState(
     val artworkUrl: String?,
     val canvasPrimaryUrl: String?,
     val canvasFallbackUrl: String?,
+    val canvasSource: CanvasSource? = null,
 )
 
 @OptIn(ExperimentalMaterial3Api::class)

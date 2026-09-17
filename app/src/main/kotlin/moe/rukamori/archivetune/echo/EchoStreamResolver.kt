@@ -578,10 +578,25 @@ object EchoStreamResolver {
                 ?.filter { it.isAudio }
                 .orEmpty()
 
+        val explicitlyOriginal = allAudio.filter { format ->
+            val track = format.audioTrack ?: return@filter false
+            val name = track.displayName.orEmpty()
+            val id = track.id.orEmpty()
+            name.contains("original", ignoreCase = true) || id.contains("original", ignoreCase = true)
+        }
+        val nonDubbed = allAudio.filter { format ->
+            val track = format.audioTrack ?: return@filter true
+            val name = track.displayName.orEmpty()
+            val id = track.id.orEmpty()
+            !name.contains("dub", ignoreCase = true) && !id.contains("dub", ignoreCase = true)
+        }
+        val candidates = when {
+            explicitlyOriginal.isNotEmpty() -> explicitlyOriginal
+            nonDubbed.isNotEmpty() -> nonDubbed.filter { it.isDefaultAudioTrack }.ifEmpty { nonDubbed }
+            else -> allAudio.filter { it.isDefaultAudioTrack }.ifEmpty { allAudio }
+        }
         val format =
-            allAudio
-                .filter { it.isDefaultAudioTrack }
-                .ifEmpty { allAudio }
+            candidates
                 .maxByOrNull {
                     it.bitrate * 1 + (if (it.mimeType.startsWith("audio/webm")) 10240 else 0)
                 }

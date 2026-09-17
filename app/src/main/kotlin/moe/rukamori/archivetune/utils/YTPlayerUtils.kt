@@ -1571,14 +1571,27 @@ object YTPlayerUtils {
                 ?.toList()
                 .orEmpty()
 
-        // A dubbed video lists every language as its own adaptive format, identical in every field
-        // the ranking below sorts on. Ranking them together means the winner is whichever language
-        // happened to be encoded best, so the same song came back in a different language whenever
-        // the chosen itag changed — switching source or quality was enough to do it. Confine the
-        // choice to the released track; the dubs are only considered if there is nothing else,
-        // which keeps a video whose default track is unplayable working as before.
-        val audioFormats =
-            allAudioFormats.filter { it.isDefaultAudioTrack }.ifEmpty { allAudioFormats }
+        // Multi-language videos (podcasts, creators with multi-audio, AI dubs) provide localized dubs.
+        // YouTube often sets `audioIsDefault = true` on the localized dubbed track based on IP/locale (e.g. Hindi in India),
+        // while the original released track (e.g. English) has `displayName` containing "original" and `audioIsDefault = false`.
+        // Prioritize the creator's original track and filter out dubbed tracks.
+        val explicitlyOriginal = allAudioFormats.filter { format ->
+            val track = format.audioTrack ?: return@filter false
+            val name = track.displayName.orEmpty()
+            val id = track.id.orEmpty()
+            name.contains("original", ignoreCase = true) || id.contains("original", ignoreCase = true)
+        }
+        val nonDubbed = allAudioFormats.filter { format ->
+            val track = format.audioTrack ?: return@filter true
+            val name = track.displayName.orEmpty()
+            val id = track.id.orEmpty()
+            !name.contains("dub", ignoreCase = true) && !id.contains("dub", ignoreCase = true)
+        }
+        val audioFormats = when {
+            explicitlyOriginal.isNotEmpty() -> explicitlyOriginal
+            nonDubbed.isNotEmpty() -> nonDubbed.filter { it.isDefaultAudioTrack }.ifEmpty { nonDubbed }
+            else -> allAudioFormats.filter { it.isDefaultAudioTrack }.ifEmpty { allAudioFormats }
+        }
 
         if (audioFormats.isEmpty()) return emptyList()
 

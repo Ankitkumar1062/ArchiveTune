@@ -30,7 +30,7 @@ object CanvasNetworkAccess {
     @Synchronized
     internal fun update(policy: CanvasPolicy) {
         mutablePolicy.value = policy
-        calls.filterValues { source -> !policy.networkAllowed || !policy.configuration.source.accepts(source) }
+        calls.filterValues { source -> !policy.networkAllowed || (source != CanvasSource.ALL && !policy.configuration.source.accepts(source)) }
             .keys.toList().forEach(Call::cancel)
     }
 
@@ -43,7 +43,7 @@ object CanvasNetworkAccess {
     }
 
     private fun requireAllowed(current: CanvasPolicy, source: CanvasSource?) {
-        if (!current.networkAllowed || (source != null && !current.configuration.source.accepts(source))) {
+        if (!current.networkAllowed || (source != null && source != CanvasSource.ALL && !current.configuration.source.accepts(source))) {
             throw IOException("Canvas network access is disabled by the current policy")
         }
     }

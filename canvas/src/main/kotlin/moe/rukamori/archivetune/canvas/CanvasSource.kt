@@ -18,7 +18,7 @@ enum class CanvasSource {
     ALL;
 
     fun accepts(provider: CanvasSource?): Boolean =
-        provider != null && provider != ALL && (this == ALL || this == provider)
+        provider != null && (this == ALL || provider == ALL || this == provider)
 
     companion object {
         fun fromPreference(value: String?): CanvasSource =
