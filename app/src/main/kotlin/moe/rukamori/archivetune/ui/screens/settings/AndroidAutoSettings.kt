@@ -77,15 +77,17 @@ private val secondaryAndroidAutoActions = AndroidAutoCustomAction.entries
 fun AndroidAutoSettings(
     navController: NavController,
     viewModel: AndroidAutoSettingsViewModel = hiltViewModel(),
+    scrollTo: String? = null,
 ) {
     val onBack = remember(navController) { { navController.navigateUp(); Unit } }
-    AndroidAutoSettingsRoute(onBack = onBack, viewModel = viewModel)
+    AndroidAutoSettingsRoute(onBack = onBack, viewModel = viewModel, scrollTo = scrollTo)
 }
 
 @Composable
 fun AndroidAutoSettingsRoute(
     onBack: () -> Unit,
     viewModel: AndroidAutoSettingsViewModel = hiltViewModel(),
+    scrollTo: String? = null,
 ) {
     val context = LocalContext.current
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -116,7 +118,7 @@ fun AndroidAutoSettingsRoute(
             }
         }
     }
-    AndroidAutoSettingsContent(state = state, onAction = onAction, onBack = onBack)
+    AndroidAutoSettingsContent(state = state, onAction = onAction, onBack = onBack, scrollTo = scrollTo)
 }
 
 @Composable
@@ -124,6 +126,7 @@ private fun AndroidAutoSettingsContent(
     state: AndroidAutoSettingsState,
     onAction: (AndroidAutoSettingsAction) -> Unit,
     onBack: () -> Unit,
+    scrollTo: String? = null,
     modifier: Modifier = Modifier,
 ) {
     val playerAwareBottomPadding =
@@ -156,6 +159,7 @@ private fun AndroidAutoSettingsContent(
             is AndroidAutoSettingsState.Success -> AndroidAutoSettingsBody(
                 model = state.model,
                 onAction = onAction,
+                scrollTo = scrollTo,
                 bottomBarPadding = playerAwareBottomPadding,
                 modifier = Modifier.padding(padding),
             )
@@ -173,15 +177,20 @@ private fun AndroidAutoSettingsContent(
 private fun AndroidAutoSettingsBody(
     model: AndroidAutoSettingsUiModel,
     onAction: (AndroidAutoSettingsAction) -> Unit,
+    scrollTo: String? = null,
     bottomBarPadding: Dp = 0.dp,
     modifier: Modifier = Modifier,
 ) {
     val configuration = model.snapshot.configuration
+    val positions = rememberPreferencePositions()
+    val scrollState = rememberScrollState()
+    LaunchedEffect(scrollTo, model) { positions.scrollToKey(scrollTo, scrollState) }
     Column(
         modifier =
             modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(scrollState)
+                .then(positions.containerModifier())
                 .padding(bottom = bottomBarPadding + SettingsDimensions.ScreenBottomPadding),
     ) {
         AndroidAutoConnectionPreferences(snapshot = model.snapshot, onAction = onAction)
@@ -189,6 +198,7 @@ private fun AndroidAutoSettingsBody(
         PreferenceGroup(title = stringResource(R.string.android_auto_content)) {
             item {
                 SwitchPreference(
+                    modifier = positions.modifierFor("android_auto_online_recommendations"),
                     title = { Text(stringResource(R.string.android_auto_online_recommendations)) },
                     description = stringResource(R.string.android_auto_online_recommendations_desc),
                     icon = { Icon(painterResource(R.drawable.discover_tune), null) },
@@ -201,6 +211,7 @@ private fun AndroidAutoSettingsBody(
             }
             item {
                 SwitchPreference(
+                    modifier = positions.modifierFor("android_auto_online_voice_search"),
                     title = { Text(stringResource(R.string.android_auto_online_voice_search)) },
                     description = stringResource(R.string.android_auto_online_voice_search_desc),
                     icon = { Icon(painterResource(R.drawable.mic), null) },
@@ -213,6 +224,7 @@ private fun AndroidAutoSettingsBody(
             }
             item {
                 SwitchPreference(
+                    modifier = positions.modifierFor("android_auto_local_songs"),
                     title = { Text(stringResource(R.string.android_auto_local_songs)) },
                     description =
                         stringResource(
@@ -240,6 +252,7 @@ private fun AndroidAutoSettingsBody(
         PreferenceGroup(title = stringResource(R.string.android_auto_data)) {
             item {
                 SwitchPreference(
+                    modifier = positions.modifierFor("android_auto_metered_playback"),
                     title = { Text(stringResource(R.string.android_auto_metered_playback)) },
                     description = stringResource(R.string.android_auto_metered_playback_desc),
                     icon = { Icon(painterResource(R.drawable.android_cell), null) },
@@ -252,6 +265,7 @@ private fun AndroidAutoSettingsBody(
             }
             item {
                 SwitchPreference(
+                    modifier = positions.modifierFor("android_auto_metered_artwork"),
                     title = { Text(stringResource(R.string.android_auto_metered_artwork)) },
                     description = stringResource(R.string.android_auto_metered_artwork_desc),
                     icon = { Icon(painterResource(R.drawable.image), null) },
@@ -267,6 +281,7 @@ private fun AndroidAutoSettingsBody(
         PreferenceGroup(title = stringResource(R.string.android_auto_controls)) {
             item {
                 ListPreference(
+                    modifier = positions.modifierFor("android_auto_primary_action"),
                     title = { Text(stringResource(R.string.android_auto_primary_action)) },
                     icon = {
                         Icon(
@@ -292,6 +307,7 @@ private fun AndroidAutoSettingsBody(
             }
             item {
                 ListPreference(
+                    modifier = positions.modifierFor("android_auto_secondary_action"),
                     title = { Text(stringResource(R.string.android_auto_secondary_action)) },
                     icon = {
                         Icon(

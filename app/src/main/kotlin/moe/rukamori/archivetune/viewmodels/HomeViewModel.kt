@@ -21,6 +21,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.withTimeoutOrNull
 import moe.rukamori.archivetune.R
 import moe.rukamori.archivetune.aicontentfilter.FilterAiContentUseCase
 import moe.rukamori.archivetune.aicontentfilter.LoadAiContentFilterPolicyUseCase
@@ -239,7 +240,13 @@ class HomeViewModel
         private val loadAiContentFilterPolicy: LoadAiContentFilterPolicyUseCase,
         private val filterAiContent: FilterAiContentUseCase,
     ) : ViewModel() {
+        private companion object {
+            private const val HOME_LOAD_TIMEOUT_MS = 90_000L
+            private const val REFRESH_STUCK_WATCHDOG_MS = 120_000L
+        }
+
         private val isRefreshing = MutableStateFlow(false)
+        private val refreshStartedAtMs = java.util.concurrent.atomic.AtomicLong(0L)
         private val isLoading = MutableStateFlow(false)
         private val isInitialLoadComplete = MutableStateFlow(false)
         private val loadError = MutableStateFlow<Int?>(null)
@@ -1011,31 +1018,36 @@ class HomeViewModel
         }
 
         private fun refresh() {
-            if (isRefreshing.value) return
+            val startedAt = refreshStartedAtMs.get()
+            val stuck = startedAt != 0L && System.currentTimeMillis() - startedAt > REFRESH_STUCK_WATCHDOG_MS
+            if (isRefreshing.value && !stuck) return
+            refreshStartedAtMs.set(System.currentTimeMillis())
             viewModelScope.launch(Dispatchers.IO) {
                 isRefreshing.value = true
                 try {
-                    supervisorScope {
-                        launch { load() }
-                        launch { refreshQuickPicks() }
-                        // Re-shuffle hero picks on every manual pull-to-refresh so the
-                        // "Jump back in" hero at the top of the home page surfaces fresh
-                        // listening-preference-based songs each visit. Uses the current
-                        // quickPicks pool (or recentlyPlayed fallback) so it works even
-                        // before refreshQuickPicks() finishes.
-                        launch {
-                            val pool = quickPicks.value.orEmpty()
-                            val source = if (pool.isNotEmpty()) {
-                                pool
-                            } else {
-                                recentlyPlayed.value.orEmpty()
+                    withTimeoutOrNull(HOME_LOAD_TIMEOUT_MS) {
+                        supervisorScope {
+                            launch { load() }
+                            launch { refreshQuickPicks() }
+                            // Re-shuffle hero picks on every manual pull-to-refresh so the
+                            // "Jump back in" hero at the top of the home page surfaces fresh
+                            // listening-preference-based songs each visit. Uses the current
+                            // quickPicks pool (or recentlyPlayed fallback) so it works even
+                            // before refreshQuickPicks() finishes.
+                            launch {
+                                val pool = quickPicks.value.orEmpty()
+                                val source = if (pool.isNotEmpty()) {
+                                    pool
+                                } else {
+                                    recentlyPlayed.value.orEmpty()
+                                }
+                                // Tiny delay so quickPicks refresh can race ahead and
+                                // populate the pool first if it's faster than this launch.
+                                kotlinx.coroutines.delay(50L)
+                                val finalPool = quickPicks.value.orEmpty()
+                                val finalSource = if (finalPool.isNotEmpty()) finalPool else source
+                                refreshHeroPicks(finalSource)
                             }
-                            // Tiny delay so quickPicks refresh can race ahead and
-                            // populate the pool first if it's faster than this launch.
-                            kotlinx.coroutines.delay(50L)
-                            val finalPool = quickPicks.value.orEmpty()
-                            val finalSource = if (finalPool.isNotEmpty()) finalPool else source
-                            refreshHeroPicks(finalSource)
                         }
                     }
                 } catch (e: CancellationException) {
@@ -1043,6 +1055,7 @@ class HomeViewModel
                 } catch (e: Exception) {
                     reportException(e)
                 } finally {
+                    refreshStartedAtMs.set(0L)
                     isRefreshing.value = false
                 }
             }

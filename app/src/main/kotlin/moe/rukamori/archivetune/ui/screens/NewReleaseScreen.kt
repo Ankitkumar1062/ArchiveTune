@@ -93,6 +93,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -565,56 +566,90 @@ fun NewReleaseScreen(
                         .navigationBarsPadding()
                         .fillMaxWidth(),
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                Column(
+                    modifier = Modifier.padding(horizontal = 16.dp),
                 ) {
                     Text(
                         text = stringResource(R.string.selected_count, selectedReleaseIds.size),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(horizontal = 12.dp),
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 12.dp),
                     )
-                    Spacer(Modifier.weight(1f))
-                    TextButton(
-                        onClick = {
-                            // Select every release currently in the feed.
-                            val state = uiState
-                            if (state is NewReleaseUiState.Success) {
-                                selectedReleaseIds.addAll(
-                                    (state.content.albums + state.content.singles + state.content.eps)
-                                        .map { it.id },
-                                )
-                            }
-                        },
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 6.dp),
                     ) {
-                        Text(stringResource(R.string.select_all))
-                    }
-                    TextButton(
-                        onClick = {
-                            isSelectionMode = false
-                            selectedReleaseIds.clear()
-                        },
-                    ) {
-                        Text(stringResource(R.string.cancel))
-                    }
-                    FilledTonalButton(
-                        onClick = {
-                            viewModel.markAsRead(selectedReleaseIds.toSet())
-                            showMarkedAsReadToast()
-                            selectedReleaseIds.clear()
-                            isSelectionMode = false
-                        },
-                        shape = RoundedCornerShape(20.dp),
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.solar_check_circle_linear),
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(stringResource(R.string.mark_as_read))
+                        TextButton(
+                            onClick = {
+                                // Select every release currently in the feed.
+                                val state = uiState
+                                if (state is NewReleaseUiState.Success) {
+                                    selectedReleaseIds.addAll(
+                                        (state.content.albums + state.content.singles + state.content.eps)
+                                            .map { it.id },
+                                    )
+                                }
+                            },
+                            contentPadding = PaddingValues(horizontal = 12.dp),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text(
+                                stringResource(R.string.select_all),
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        TextButton(
+                            onClick = {
+                                isSelectionMode = false
+                                selectedReleaseIds.clear()
+                            },
+                            contentPadding = PaddingValues(horizontal = 12.dp),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text(
+                                stringResource(R.string.cancel),
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        FilledTonalButton(
+                            onClick = {
+                                viewModel.markAsRead(selectedReleaseIds.toSet())
+                                showMarkedAsReadToast()
+                                selectedReleaseIds.clear()
+                                isSelectionMode = false
+                            },
+                            shape = RoundedCornerShape(20.dp),
+                            contentPadding = PaddingValues(horizontal = 16.dp),
+                            modifier = Modifier.weight(1.5f),
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.solar_check_circle_linear),
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                stringResource(R.string.mark_as_read),
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                 }
             }

@@ -148,7 +148,6 @@ private val CROSS_PAGE_SCROLL_OWNERS: Map<String, String> =
             "deezer_enable", "deezer_audio_quality", "jiosaavn_enable", "jiosaavn_audio_quality",
             "amazon_enable",
         )
-        own("ytdlp", "playback", "ytdlp")
         own("sources", "deezer", "deezer_enable", "deezer_audio_quality")
         own("qobuz", "sources", "qobuz")
         own("tidal", "sources", "tidal")
@@ -201,7 +200,7 @@ private fun searchableSettingsRoute(parentKey: String, scrollKey: String?): Stri
             "navigation_bar" -> "settings/appearance/navigation_bar"
             "lyrics_animations" -> "settings/appearance/lyrics_animations"
             "playback" -> "settings/player"
-            "ytdlp" -> "settings/player/ytdlp"
+            "android_auto" -> "settings/android_auto"
             "sources" -> "settings/sources"
             "applemusic" -> "settings/applemusic"
             "jiosaavn" -> "settings/jiosaavn"
