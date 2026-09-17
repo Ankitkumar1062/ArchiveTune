@@ -572,12 +572,17 @@ object EchoStreamResolver {
     ): PlayerResponse.StreamingData.Format? {
         Timber.tag(logTag).d("Finding format with audioQuality: $audioQuality, network metered: ${connectivityManager.isActiveNetworkMetered}")
 
-        val format =
-            playerResponse.streamingData?.adaptiveFormats
-                // No isOriginal here — that field marks the undubbed track and this fork's
-                // PlayerResponse does not carry it, so every audio format stays a candidate.
+        val allAudio =
+            playerResponse.streamingData
+                ?.adaptiveFormats
                 ?.filter { it.isAudio }
-                ?.maxByOrNull {
+                .orEmpty()
+
+        val format =
+            allAudio
+                .filter { it.isDefaultAudioTrack }
+                .ifEmpty { allAudio }
+                .maxByOrNull {
                     it.bitrate * 1 + (if (it.mimeType.startsWith("audio/webm")) 10240 else 0)
                 }
 
