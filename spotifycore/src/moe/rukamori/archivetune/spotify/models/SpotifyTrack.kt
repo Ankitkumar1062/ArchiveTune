@@ -24,6 +24,7 @@ data class SpotifyTrack(
     val uri: String? = null,
     @SerialName("external_ids") val externalIds: SpotifyExternalIds? = null,
     val popularity: Int? = null,
+) {
     /**
      * The recording's ISRC, when Spotify returned one.
      *

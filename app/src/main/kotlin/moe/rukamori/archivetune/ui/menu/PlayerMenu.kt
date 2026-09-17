@@ -2169,7 +2169,6 @@ private fun SongSourceDialog(
             // Amazon serves CENC-protected streams this fork ships no decryption step for (see
             // AmazonEnabledKey in PreferenceKeys.kt), so there is no provider to search here —
             // this fork's source-search dialog simply never gets Amazon results.
-            AudioSourceType.AMAZON -> emptyList()
         }
         value = out
     }

@@ -54,6 +54,8 @@ import moe.rukamori.archivetune.ui.screens.search.OnlineSearchProviderArgument
 import moe.rukamori.archivetune.ui.screens.search.OnlineSearchResultRoute
 import moe.rukamori.archivetune.ui.screens.search.OnlineSearchResultRoutePrefix
 import moe.rukamori.archivetune.ui.screens.search.SearchScreen
+import moe.rukamori.archivetune.ui.screens.podcast.PodcastRoute
+import moe.rukamori.archivetune.ui.screens.podcast.PodcastScreen
 import moe.rukamori.archivetune.ui.screens.settings.AndroidAutoSettings
 import moe.rukamori.archivetune.ui.screens.settings.AboutScreen
 import moe.rukamori.archivetune.ui.screens.settings.AccountSettings
@@ -312,6 +314,17 @@ fun NavGraphBuilder.navigationBuilder(
             ),
     ) {
         AlbumScreen(navController, scrollBehavior)
+    }
+    composable(
+        route = PodcastRoute,
+        arguments =
+            listOf(
+                navArgument("browseId") {
+                    type = NavType.StringType
+                },
+            ),
+    ) {
+        PodcastScreen(navController)
     }
     composable(
         route = "artist/{artistId}",

@@ -50,6 +50,7 @@ import moe.rukamori.archivetune.ui.menu.*
 import moe.rukamori.archivetune.viewmodels.OnlineSearchSuggestionViewModel
 import moe.rukamori.archivetune.ui.screens.search.SpotifySearchItemRow
 import moe.rukamori.archivetune.ui.screens.search.queryText
+import moe.rukamori.archivetune.applemusic.appleMusicQueryText
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalComposeUiApi::class, ExperimentalMaterial3Api::class)
 @Composable

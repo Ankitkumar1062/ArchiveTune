@@ -99,6 +99,7 @@ public fun MediaDetailHero(
     // 60 Hz karaoke lyrics sweep.
     canvasVisible: Boolean = true,
     useBlurredPlayButton: Boolean = false,
+    isToggleAddEnabled: Boolean = true,
 ) {
     // The Apple Music Experience swaps every one of these headers at once. Seven screens call
     // MediaDetailHero — playlists local and online, albums, top/auto/cache playlists, Spotify
@@ -302,6 +303,7 @@ public fun MediaDetailHero(
                 modifier = Modifier.padding(top = 12.dp),
                 thumbnailUrl = thumbnailUrl,
                 useBlurredPlayButton = useBlurredPlayButton,
+                isToggleAddEnabled = isToggleAddEnabled,
             )
         }
     }
@@ -362,6 +364,7 @@ public fun MediaDetailPrimaryActions(
     // sampling has been removed; see useBlurredPlayButton below.)
     thumbnailUrl: String? = null,
     useBlurredPlayButton: Boolean = false,
+    isToggleAddEnabled: Boolean = true,
 ) {
     val secondaryButtonColors =
         IconButtonDefaults.filledTonalIconButtonColors(
@@ -473,6 +476,7 @@ public fun MediaDetailPrimaryActions(
                 onToggleAdd?.let { toggleAdd ->
                     FilledTonalIconButton(
                         onClick = toggleAdd,
+                        enabled = isToggleAddEnabled,
                         shape = CircleShape,
                         colors = secondaryButtonColors,
                         modifier =

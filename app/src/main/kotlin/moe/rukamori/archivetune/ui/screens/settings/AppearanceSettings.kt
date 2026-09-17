@@ -1376,12 +1376,14 @@ fun AppearanceSectionSettings(
                             listOf(
                                 LibraryFilter.LIBRARY,
                                 LibraryFilter.PLAYLISTS,
+                                LibraryFilter.PODCASTS,
                                 LibraryFilter.SONGS,
                                 LibraryFilter.ALBUMS,
                                 LibraryFilter.ARTISTS,
                             ),
                         valueText = {
                             when (it) {
+                                LibraryFilter.PODCASTS -> stringResource(R.string.podcasts)
                                 LibraryFilter.SONGS -> stringResource(R.string.songs)
                                 LibraryFilter.ARTISTS -> stringResource(R.string.artists)
                                 LibraryFilter.ALBUMS -> stringResource(R.string.albums)

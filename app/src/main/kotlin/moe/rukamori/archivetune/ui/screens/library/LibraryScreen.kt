@@ -102,6 +102,7 @@ fun LibraryScreen(navController: NavController) {
             listOf(
                 LibraryFilter.LIBRARY,
                 LibraryFilter.PLAYLISTS,
+                LibraryFilter.PODCASTS,
                 LibraryFilter.SONGS,
                 LibraryFilter.ARTISTS,
                 LibraryFilter.ALBUMS,
@@ -282,7 +283,7 @@ fun LibraryScreen(navController: NavController) {
                         )
                     }
 
-                    LibraryFilter.ALBUMS -> {
+                    LibraryFilter.ALBUMS ->
                         LibraryAlbumsScreen(
                             navController = navController,
                             onDeselect = {
@@ -291,7 +292,11 @@ fun LibraryScreen(navController: NavController) {
                                 }
                             },
                         )
-                    }
+
+                    LibraryFilter.PODCASTS ->
+                        LibraryPodcastsScreen(
+                            navController = navController,
+                        )
                 }
                 }
 
@@ -315,6 +320,7 @@ fun LibraryScreen(navController: NavController) {
                             when (filter) {
                                 LibraryFilter.LIBRARY -> stringResource(R.string.filter_library)
                                 LibraryFilter.PLAYLISTS -> stringResource(R.string.playlists)
+                                LibraryFilter.PODCASTS -> stringResource(R.string.podcasts)
                                 LibraryFilter.SONGS -> stringResource(R.string.songs)
                                 LibraryFilter.ARTISTS -> stringResource(R.string.artists)
                                 LibraryFilter.ALBUMS -> stringResource(R.string.albums)
@@ -323,6 +329,7 @@ fun LibraryScreen(navController: NavController) {
                             when (filter) {
                                 LibraryFilter.LIBRARY -> R.drawable.graphic_eq
                                 LibraryFilter.PLAYLISTS -> R.drawable.queue_music
+                                LibraryFilter.PODCASTS -> R.drawable.podcast
                                 LibraryFilter.SONGS -> R.drawable.music_note
                                 LibraryFilter.ARTISTS -> R.drawable.person
                                 LibraryFilter.ALBUMS -> R.drawable.album

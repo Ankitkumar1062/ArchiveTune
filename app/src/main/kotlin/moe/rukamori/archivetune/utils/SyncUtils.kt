@@ -27,6 +27,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.cancellation.CancellationException
 import moe.rukamori.archivetune.constants.InnerTubeCookieKey
 import moe.rukamori.archivetune.constants.SelectedYtmPlaylistsKey
 import moe.rukamori.archivetune.constants.YtmSyncKey
@@ -35,6 +36,7 @@ import moe.rukamori.archivetune.db.entities.ArtistEntity
 import moe.rukamori.archivetune.db.entities.Playlist
 import moe.rukamori.archivetune.db.entities.PlaylistEntity
 import moe.rukamori.archivetune.db.entities.PlaylistSongMap
+import moe.rukamori.archivetune.db.entities.PodcastEntity
 import moe.rukamori.archivetune.db.entities.SongEntity
 import moe.rukamori.archivetune.innertube.YouTube
 import moe.rukamori.archivetune.innertube.models.AlbumItem
@@ -44,11 +46,17 @@ import moe.rukamori.archivetune.innertube.models.SongItem
 import moe.rukamori.archivetune.innertube.utils.completed
 import moe.rukamori.archivetune.innertube.utils.hasYouTubeLoginCookie
 import moe.rukamori.archivetune.models.toMediaMetadata
+import moe.rukamori.archivetune.podcast.PODCAST_LIBRARY_BROWSE_ID
+import moe.rukamori.archivetune.podcast.PodcastItem
 import timber.log.Timber
 import java.time.LocalDateTime
 import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
+
+class LibraryLoginRequiredException : IllegalStateException()
+
+class LibrarySyncDisabledException : IllegalStateException()
 
 @Singleton
 class SyncUtils
@@ -63,6 +71,7 @@ class SyncUtils
 
         private val syncMutex = Mutex()
         private val playlistSyncMutex = Mutex()
+        private val podcastSyncMutex = Mutex()
         private val dbWriteSemaphore = Semaphore(2)
 
         init {
@@ -79,7 +88,7 @@ class SyncUtils
             }
         }
 
-        suspend fun performFullSync(authoritative: Boolean = false) =
+        suspend fun performFullSync(authoritative: Boolean = false, propagateFailures: Boolean = false) =
             withContext(Dispatchers.IO) {
                 if (authoritative) {
                     syncGeneration.incrementAndGet()
@@ -91,33 +100,52 @@ class SyncUtils
 
                 try {
                     if (!isLoggedIn()) {
+                        if (propagateFailures) throw LibraryLoginRequiredException()
                         Timber.w("Skipping full sync - user not logged in")
                         return@withContext
                     }
                     if (!isYtmSyncEnabled()) {
+                        if (propagateFailures) throw LibrarySyncDisabledException()
                         Timber.w("Skipping full sync - sync disabled")
                         return@withContext
                     }
 
                     supervisorScope {
-                        syncLikedSongs(authoritative = authoritative)
-                        syncLibrarySongs(authoritative = authoritative)
-
-                        listOf(
-                            async { syncLikedAlbums(authoritative = authoritative) },
-                            async { syncArtistsSubscriptions(authoritative = authoritative) },
-                        ).awaitAll()
-
-                        syncSavedPlaylists(authoritative = authoritative)
-                        if (!authoritative) {
-                            syncAutoSyncPlaylists()
+                        val results =
+                            listOf(
+                                async { captureSyncFailure { syncLikedSongs(authoritative) } },
+                                async { captureSyncFailure { syncLibrarySongs(authoritative) } },
+                                async { captureSyncFailure { syncLikedAlbums(authoritative) } },
+                                async { captureSyncFailure { syncArtistsSubscriptions(authoritative) } },
+                                async { captureSyncFailure { syncSavedPlaylists(authoritative) } },
+                                async { captureSyncFailure { syncSavedPodcasts() } },
+                            ).awaitAll()
+                        if (propagateFailures) {
+                            results.firstNotNullOfOrNull { it.exceptionOrNull() }?.let { throw it }
                         }
+                        if (!authoritative) syncAutoSyncPlaylists()
                     }
                 } catch (e: Exception) {
+                    if (e is CancellationException || propagateFailures) throw e
                     Timber.e(e, "Error during full sync")
                 } finally {
                     syncMutex.unlock()
                 }
+            }
+
+        suspend fun requireLibrarySyncEnabled() {
+            if (!isLoggedIn()) throw LibraryLoginRequiredException()
+            if (!isYtmSyncEnabled()) throw LibrarySyncDisabledException()
+        }
+
+        private suspend fun captureSyncFailure(block: suspend () -> Unit): Result<Unit> =
+            try {
+                block()
+                Result.success(Unit)
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                Timber.e(e, "Library category sync failed")
+                Result.failure(e)
             }
 
         suspend fun cleanupDuplicatePlaylists() =
@@ -878,6 +906,61 @@ class SyncUtils
                 }
             }
         }
+
+        suspend fun syncSavedPodcasts(propagateFailures: Boolean = false) =
+            podcastSyncMutex.withLock {
+                if (!isLoggedIn()) {
+                    if (propagateFailures) throw LibraryLoginRequiredException()
+                    return@withLock
+                }
+                if (!isYtmSyncEnabled()) {
+                    if (propagateFailures) throw LibrarySyncDisabledException()
+                    return@withLock
+                }
+
+                try {
+                    val remotePodcasts =
+                        YouTube
+                            .library(PODCAST_LIBRARY_BROWSE_ID)
+                            .completed()
+                            .getOrThrow()
+                            .items
+                            .filterIsInstance<PodcastItem>()
+                            .distinctBy(PodcastItem::browseId)
+                    val remoteIds = remotePodcasts.mapTo(HashSet()) { podcast -> podcast.browseId }
+                    val now = LocalDateTime.now()
+
+                    database.withTransaction {
+                        getAllPodcasts()
+                            .asSequence()
+                            .filter { podcast -> podcast.remoteSavedAt != null && podcast.browseId !in remoteIds }
+                            .forEach { podcast ->
+                                upsert(podcast.copy(remoteSavedAt = null, lastUpdateTime = now))
+                            }
+                        remotePodcasts.forEach { podcast ->
+                            val existing = getPodcast(podcast.browseId)
+                            upsert(
+                                PodcastEntity(
+                                    browseId = podcast.browseId,
+                                    playlistId = podcast.playlistId,
+                                    title = podcast.title,
+                                    authorName = podcast.author?.name,
+                                    authorId = podcast.author?.id,
+                                    thumbnailUrl = podcast.thumbnail,
+                                    localSavedAt = existing?.localSavedAt,
+                                    remoteSavedAt = existing?.remoteSavedAt ?: now,
+                                    lastUpdateTime = now,
+                                ),
+                            )
+                        }
+                    }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    Timber.e(error, "syncSavedPodcasts: Failed to sync saved podcasts")
+                    if (propagateFailures) throw error
+                }
+            }
     }
 
 internal fun likedSongTimestamp(

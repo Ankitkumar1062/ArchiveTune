@@ -8,7 +8,9 @@ package moe.rukamori.archivetune.ui.screens.settings
 
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import moe.rukamori.archivetune.utils.dataStore
 import moe.rukamori.archivetune.constants.AmazonAccountNameKey
 import moe.rukamori.archivetune.constants.AmazonAccountPremiumKey
 import moe.rukamori.archivetune.constants.AudioSourceType

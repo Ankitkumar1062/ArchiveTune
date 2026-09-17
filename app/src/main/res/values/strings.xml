@@ -904,6 +904,11 @@
     <string name="metadata_source_spotify">Spotify</string>
     <string name="search_source_youtube">YouTube Music</string>
     <string name="search_source_spotify">Spotify</string>
+    <string name="search_source_apple_music">Apple Music</string>
+    <string name="download_source_apple_music">Apple Music</string>
+    <string name="search_apple_music">Search Apple Music</string>
+    <string name="apple_music_track_unavailable">Apple Music track could not be mapped to a playable source.</string>
+    <string name="stats_remote_rate_limited">Spotify is rate-limiting requests. Try again in a few minutes.</string>
     <string name="spotify_catalog_source">Spotify catalog</string>
     <string name="spotify_catalog_source_desc">Use Spotify for metadata and search only; audio comes from other sources.</string>
     <string name="search_spotify">Search Spotify</string>
@@ -1833,4 +1838,34 @@
     <string name="mark_as_read">Mark as read</string>
     <string name="marked_as_read">Marked as read</string>
     <string name="mark_all_as_read">Mark all as read</string>
+
+    <!-- Podcast strings -->
+    <string name="podcasts">Podcasts</string>
+    <string name="podcast">Podcast</string>
+    <string name="episode">Episode</string>
+    <string name="episodes">Episodes</string>
+    <string name="save_podcast">Save podcast</string>
+    <string name="unsave_podcast">Unsave podcast</string>
+    <string name="podcast_saved">Podcast saved</string>
+    <string name="podcast_unsaved">Podcast removed from library</string>
+    <string name="save_episode">Save episode</string>
+    <string name="unsave_episode">Unsave episode</string>
+    <string name="episode_saved">Episode saved</string>
+    <string name="episode_unsaved">Episode removed from library</string>
+    <string name="play_all_episodes">Play all</string>
+    <string name="load_more_episodes">Load more episodes</string>
+    <string name="no_podcasts">No podcasts saved</string>
+    <string name="no_podcasts_description">Podcasts you save will appear here.</string>
+    <string name="podcast_load_error">Failed to load podcast</string>
+    <string name="podcast_save_error">Failed to save podcast</string>
+    <string name="episode_library_error">Failed to update episode library status</string>
+
+    <!-- Library refresh strings -->
+    <string name="login_required_to_sync">Sign in to sync your library</string>
+    <string name="ytm_sync_disabled">YouTube Music sync is disabled</string>
+    <string name="library_sync_error">Failed to sync library</string>
+    <string name="library_sync_success">Library synced</string>
+
+    <!-- Generic error string used by multiple screens -->
+    <string name="error">An error occurred</string>
 </resources>

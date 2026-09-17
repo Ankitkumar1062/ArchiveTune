@@ -83,6 +83,10 @@ import moe.rukamori.archivetune.library.ObserveLibraryTopMixesUseCase
 import moe.rukamori.archivetune.library.RefreshLibraryTopMixesResult
 import moe.rukamori.archivetune.library.RefreshLibraryTopMixesUseCase
 import moe.rukamori.archivetune.library.TopMixGenerationFailure
+import moe.rukamori.archivetune.library.LibrarySyncFailure
+import moe.rukamori.archivetune.library.LibrarySyncTarget
+import moe.rukamori.archivetune.library.RefreshLibraryResult
+import moe.rukamori.archivetune.library.RefreshLibraryUseCase
 import moe.rukamori.archivetune.models.MediaMetadata
 import moe.rukamori.archivetune.models.toMediaMetadata
 import moe.rukamori.archivetune.playback.DownloadUtil
@@ -872,3 +876,62 @@ class LibraryViewModel
         private val curScreen = mutableStateOf(LibraryFilter.LIBRARY)
         val filter: MutableState<LibraryFilter> = curScreen
     }
+
+// ---------------------------------------------------------------------------
+// Library refresh state & base ViewModel
+// ---------------------------------------------------------------------------
+
+sealed interface LibraryRefreshState {
+    data object Idle : LibraryRefreshState
+
+    data object Refreshing : LibraryRefreshState
+
+    data object Success : LibraryRefreshState
+
+    data class LoginRequired(
+        val messageResId: Int = R.string.login_required_to_sync,
+    ) : LibraryRefreshState
+
+    data class SyncDisabled(
+        val messageResId: Int = R.string.ytm_sync_disabled,
+    ) : LibraryRefreshState
+
+    data class Error(
+        val messageResId: Int = R.string.error,
+    ) : LibraryRefreshState
+}
+
+/**
+ * Base class for library-section ViewModels that support a pull-to-refresh gesture driving a
+ * [RefreshLibraryUseCase] invocation.
+ *
+ * Subclasses supply [syncTarget] and receive [refreshState] + [onRefresh] for free.
+ */
+abstract class LibraryRefreshViewModel(
+    private val refreshUseCase: RefreshLibraryUseCase,
+    protected val syncTarget: LibrarySyncTarget,
+) : ViewModel() {
+    private val _refreshState = MutableStateFlow<LibraryRefreshState>(LibraryRefreshState.Idle)
+    val refreshState = _refreshState.asStateFlow()
+
+    fun onRefresh() {
+        if (_refreshState.value is LibraryRefreshState.Refreshing) return
+        viewModelScope.launch {
+            _refreshState.value = LibraryRefreshState.Refreshing
+            _refreshState.value =
+                when (val result = refreshUseCase(syncTarget)) {
+                    is RefreshLibraryResult.Success -> LibraryRefreshState.Success
+                    is RefreshLibraryResult.Failure ->
+                        when (result.reason) {
+                            LibrarySyncFailure.LoginRequired -> LibraryRefreshState.LoginRequired()
+                            LibrarySyncFailure.SyncDisabled -> LibraryRefreshState.SyncDisabled()
+                            LibrarySyncFailure.RequestFailed -> LibraryRefreshState.Error()
+                        }
+                }
+        }
+    }
+
+    fun acknowledgeRefreshResult() {
+        _refreshState.value = LibraryRefreshState.Idle
+    }
+}
