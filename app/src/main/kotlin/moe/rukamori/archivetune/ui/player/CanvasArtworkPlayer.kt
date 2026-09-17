@@ -15,8 +15,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -45,6 +47,7 @@ import androidx.media3.ui.compose.SURFACE_TYPE_TEXTURE_VIEW
 import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import moe.rukamori.archivetune.di.CanvasCacheEntryPoint
 import moe.rukamori.archivetune.innertube.YouTube
 import moe.rukamori.archivetune.utils.StreamClientUtils
@@ -108,6 +111,8 @@ fun CanvasArtworkPlayer(
     var currentUrl by remember(initial) { mutableStateOf(initial) }
     var isVideoReady by remember(initial) { mutableStateOf(false) }
     var hasPlaybackFailed by remember(initial) { mutableStateOf(false) }
+    var retryCount by remember(initial) { mutableIntStateOf(0) }
+    val coroutineScope = rememberCoroutineScope()
 
     // Gate on sheet visibility: an invisible canvas is paused AND its surface
     // is dropped from composition (see contentVisible below), so neither the
@@ -311,8 +316,22 @@ fun CanvasArtworkPlayer(
             object : Player.Listener {
                 override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                     Timber.tag(CanvasPlaybackLogTag).w(error, "Canvas playback failed")
-                    hasPlaybackFailed = true
                     isVideoReady = false
+                    if (retryCount < 1) {
+                        retryCount++
+                        coroutineScope.launch {
+                            delay(600)
+                            if (exoPlayer.playerError != null) {
+                                hasPlaybackFailed = false
+                                exoPlayer.prepare()
+                                if (shouldPlay) {
+                                    exoPlayer.setCanvasPlayback(isPlaying = true)
+                                }
+                            }
+                        }
+                        return
+                    }
+                    hasPlaybackFailed = true
                     val next =
                         when (currentUrl) {
                             primary -> fallback?.takeIf { it != currentUrl }

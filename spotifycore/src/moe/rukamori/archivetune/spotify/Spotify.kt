@@ -1231,7 +1231,7 @@ object Spotify {
      */
     suspend fun recentlyPlayed(limit: Int = 50): Result<SpotifyPaging<SpotifyPlayHistory>> =
         runCatching {
-            authenticatedGet("me/player/recently-played", failFastOn429 = true) {
+            authenticatedGet("me/player/recently-played", failFastOn429 = false) {
                 parameter("limit", limit.coerceIn(1, 50))
             }
         }
@@ -1302,7 +1302,7 @@ object Spotify {
     ): Result<SpotifySearchResult> =
         runCatching {
             try {
-                hydrateSearchTracks(searchGraphQl(query, types, limit, offset))
+                searchGraphQl(query, types, limit, offset)
             } catch (cancel: CancellationException) {
                 throw cancel
             } catch (error: Throwable) {
@@ -1314,32 +1314,7 @@ object Spotify {
             }
         }
 
-    private suspend fun hydrateSearchTracks(result: SpotifySearchResult): SpotifySearchResult {
-        val tracks = result.tracks?.items.orEmpty()
-        if (tracks.isEmpty()) return result
-        val ids = tracks.mapNotNull { it.id.takeIf(String::isNotBlank) }.distinct()
-        if (ids.isEmpty()) return result
-
-        val hydrated =
-            try {
-                authenticatedGet<SpotifyTracksResponse>("tracks") {
-                    parameter("ids", ids.joinToString(","))
-                }.tracks
-            } catch (cancel: CancellationException) {
-                throw cancel
-            } catch (error: Throwable) {
-                // Search remains useful when Spotify's REST detail endpoint is unavailable; the GQL
-                // payload still contains the identity fields needed by the UI and mapper.
-                log("W", "Spotify track detail hydration failed: ${error.message}")
-                return result
-        }
-        if (hydrated.isEmpty()) return result
-        val byId = hydrated.associateBy { it.id }
-        val currentTracks = result.tracks ?: return result
-        return result.copy(
-            tracks = currentTracks.copy(items = tracks.map { byId[it.id] ?: it }),
-        )
-    }
+    private suspend fun hydrateSearchTracks(result: SpotifySearchResult): SpotifySearchResult = result
 
     private suspend fun searchGraphQl(
         query: String,

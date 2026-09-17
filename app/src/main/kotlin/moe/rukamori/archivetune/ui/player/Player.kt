@@ -1549,7 +1549,10 @@ fun BottomSheetPlayer(
         }
 
         val resolvedCanvas = manualCanvasVideo ?: (canvasState as? CanvasPlaybackState.Success)
-            ?.takeIf { it.request == canvasRequest }
+            ?.takeIf {
+                it.request.mediaId == canvasRequest?.mediaId &&
+                    it.request.requireVertical == canvasRequest?.requireVertical
+            }
             ?.video
         val v7CanvasArtwork = resolvedCanvas.takeIf { playerDesignStyle == PlayerDesignStyle.V7 }
         val artworkCanvas = resolvedCanvas.takeIf { playerDesignStyle != PlayerDesignStyle.V7 }

@@ -73,6 +73,7 @@ class SpotifyLibraryViewModel
                     _artists.value = SpotifyLibrarySectionState()
                     _albums.value = SpotifyLibrarySectionState()
                     _recentlyPlayed.value = SpotifyLibrarySectionState()
+                    repository.clearRecentlyPlayedCache()
                     _accountRevision.value += 1
                 }
             }
@@ -103,7 +104,7 @@ class SpotifyLibraryViewModel
         fun loadAlbums(force: Boolean = false) = load(force, _albums) { repository.libraryAlbums() }
 
         fun loadRecentlyPlayed(force: Boolean = false) =
-            load(force, _recentlyPlayed) { repository.recentlyPlayed() }
+            load(force, _recentlyPlayed) { repository.recentlyPlayed(force) }
 
         private fun <T> load(
             force: Boolean,
@@ -141,7 +142,11 @@ internal suspend fun <T> loadSpotifySection(
         throw error
     } catch (error: Exception) {
         currentCoroutineContext().ensureActive()
-        target.value = previous.copy(errorMessage = error.message ?: error.javaClass.simpleName)
+        val preservedItems = previous.items
+        target.value = previous.copy(
+            items = preservedItems,
+            errorMessage = if (preservedItems.isNullOrEmpty()) (error.message ?: error.javaClass.simpleName) else null,
+        )
     } finally {
         // An account change may already have reset the state or started its replacement request.
         if (target.value === loading) target.value = previous

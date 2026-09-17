@@ -323,14 +323,38 @@ class SpotifyLibraryRepository
                 }
             }
 
+        @Volatile
+        private var cachedRecentlyPlayed: List<SpotifyPlayHistory>? = null
+        @Volatile
+        private var lastRecentlyPlayedFetchMs = 0L
+
+        fun clearRecentlyPlayedCache() {
+            cachedRecentlyPlayed = null
+            lastRecentlyPlayedFetchMs = 0L
+        }
+
         /**
-         * The user's play history, most recent first. Not paged: Spotify caps this endpoint at the
-         * last 50 plays and offers no way further back, so [collectPages] would spin on one page.
+         * The user's play history, most recent first. Cached in memory for 60s to prevent
+         * hammering Spotify's rate-limited REST endpoint when navigating tabs.
          */
-        suspend fun recentlyPlayed(): List<SpotifyPlayHistory> =
+        suspend fun recentlyPlayed(force: Boolean = false): List<SpotifyPlayHistory> =
             withContext(Dispatchers.IO) {
                 ensureAuthenticated()
-                spotifyCallWithTokenRetry { Spotify.recentlyPlayed().getOrThrow() }.items
+                val now = System.currentTimeMillis()
+                if (!force && cachedRecentlyPlayed != null && now - lastRecentlyPlayedFetchMs < 60_000L) {
+                    return@withContext cachedRecentlyPlayed.orEmpty()
+                }
+                try {
+                    val result = spotifyCallWithTokenRetry { Spotify.recentlyPlayed().getOrThrow() }.items
+                    cachedRecentlyPlayed = result
+                    lastRecentlyPlayedFetchMs = now
+                    result
+                } catch (e: Spotify.SpotifyException) {
+                    if (e.statusCode == 429 && !cachedRecentlyPlayed.isNullOrEmpty()) {
+                        return@withContext cachedRecentlyPlayed.orEmpty()
+                    }
+                    throw e
+                }
             }
 
         /** Every album the user has saved. Backs the Library's Albums section on the Spotify source. */
