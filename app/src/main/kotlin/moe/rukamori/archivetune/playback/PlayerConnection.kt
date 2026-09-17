@@ -56,9 +56,13 @@ import moe.rukamori.archivetune.utils.isLocalMediaId
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import moe.rukamori.archivetune.utils.reportException
+import moe.rukamori.archivetune.canvas.models.CanvasArtwork
 import java.util.Locale
 
-
+internal data class CanvasArtworkUpdate(
+    val mediaId: String,
+    val artwork: CanvasArtwork,
+)
 
 internal enum class CanvasArtworkRefetchResult {
     Success,
@@ -71,7 +75,7 @@ class PlayerConnection(
     context: Context,
     binder: MusicBinder,
     val database: MusicDatabase,
-    scope: CoroutineScope,
+    private val scope: CoroutineScope,
 ) : Player.Listener {
     val service = binder.service
 
@@ -147,6 +151,8 @@ class PlayerConnection(
     private val canvasArtworkRefetchMutex = Mutex()
     private val _isCanvasArtworkRefetching = MutableStateFlow(false)
     internal val isCanvasArtworkRefetching = _isCanvasArtworkRefetching.asStateFlow()
+    private val _canvasArtworkUpdates = MutableSharedFlow<CanvasArtworkUpdate>(extraBufferCapacity = 1)
+    internal val canvasArtworkUpdates = _canvasArtworkUpdates.asSharedFlow()
 
     private var metadataExtractionJob: Job? = null
 
@@ -430,6 +436,27 @@ class PlayerConnection(
         } finally {
             _isCanvasArtworkRefetching.value = false
             canvasArtworkRefetchMutex.unlock()
+        }
+    }
+
+    /**
+     * Pushes a freshly pinned canvas (the "Choose Canvas source" picker's
+     * selection) straight into every live canvas render state. The player
+     * sheet's and the full-player thumbnail's collectors apply the artwork on
+     * the next frame, so the visible canvas swaps immediately instead of
+     * waiting for the next track change or a manual refetch.
+     */
+    internal fun publishCanvasArtworkUpdate(
+        mediaId: String,
+        artwork: CanvasArtwork,
+    ) {
+        scope.launch {
+            _canvasArtworkUpdates.emit(
+                CanvasArtworkUpdate(
+                    mediaId = mediaId,
+                    artwork = artwork,
+                ),
+            )
         }
     }
 

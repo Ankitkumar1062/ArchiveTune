@@ -80,6 +80,11 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.Player
 import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
+import coil3.request.CachePolicy
+import coil3.request.ImageRequest
+import androidx.compose.ui.platform.LocalContext
+import moe.rukamori.archivetune.ui.utils.getNextFallbackUrl
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -376,10 +381,10 @@ private fun MiniPlayerArtwork(
     progress: () -> Float,
     isLoading: Boolean,
     colors: MiniPlayerContentColors,
-    artworkPlaceholder: Boolean = false,
     onArtworkSlotPositioned: ((androidx.compose.ui.geometry.Rect) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
     Box(
         contentAlignment = Alignment.Center,
         modifier =
@@ -428,9 +433,6 @@ private fun MiniPlayerArtwork(
                         shape = CircleShape,
                     ),
         ) {
-            if (artworkPlaceholder) {
-                return@Box
-            }
             val baseThumbnailUrl = mediaMetadata?.thumbnailUrl
             if (baseThumbnailUrl != null) {
                 val thumbnailSwapState =
@@ -440,10 +442,29 @@ private fun MiniPlayerArtwork(
                         lowDataMode = rememberLowDataModeActive(),
                         isMusicVideo = mediaMetadata.isMusicVideo,
                     )
+                var displayUrl by remember(thumbnailSwapState.displayUrl) {
+                    mutableStateOf(thumbnailSwapState.displayUrl)
+                }
+                val artworkRequest =
+                    remember(displayUrl) {
+                        ImageRequest
+                            .Builder(context)
+                            .data(displayUrl)
+                            .memoryCacheKey(displayUrl)
+                            .diskCacheKey(displayUrl)
+                            .diskCachePolicy(CachePolicy.ENABLED)
+                            .networkCachePolicy(CachePolicy.ENABLED)
+                            .build()
+                    }
                 AsyncImage(
-                    model = thumbnailSwapState.displayUrl,
+                    model = artworkRequest,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
+                    onState = { state ->
+                        if (state is AsyncImagePainter.State.Error) {
+                            getNextFallbackUrl(displayUrl)?.let { displayUrl = it }
+                        }
+                    },
                     modifier = Modifier.fillMaxSize(),
                 )
             } else {
@@ -590,7 +611,6 @@ fun NewMiniPlayerContent(
     duration: Long,
     playerConnection: PlayerConnection,
     colors: MiniPlayerContentColors,
-    artworkPlaceholder: Boolean = false,
     onArtworkSlotPositioned: ((androidx.compose.ui.geometry.Rect) -> Unit)? = null,
 ) {
     val isPlaying by playerConnection.isPlaying.collectAsStateWithLifecycle()
@@ -618,7 +638,6 @@ fun NewMiniPlayerContent(
             progress = progressProvider,
             isLoading = isLoading,
             colors = colors,
-            artworkPlaceholder = artworkPlaceholder,
             onArtworkSlotPositioned = onArtworkSlotPositioned,
         )
 

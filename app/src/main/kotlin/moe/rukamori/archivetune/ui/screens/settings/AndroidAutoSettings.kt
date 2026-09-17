@@ -22,12 +22,16 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.unit.Dp
+import moe.rukamori.archivetune.LocalPlayerAwareWindowInsets
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -122,8 +126,17 @@ private fun AndroidAutoSettingsContent(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val playerAwareBottomPadding =
+        LocalPlayerAwareWindowInsets.current
+            .only(WindowInsetsSides.Bottom)
+            .asPaddingValues()
+            .calculateBottomPadding()
+
     Scaffold(
-        modifier = modifier.windowInsetsPadding(WindowInsets.safeDrawing),
+        modifier =
+            modifier.windowInsetsPadding(
+                LocalPlayerAwareWindowInsets.current.only(WindowInsetsSides.Horizontal),
+            ),
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.android_auto)) },
@@ -143,6 +156,7 @@ private fun AndroidAutoSettingsContent(
             is AndroidAutoSettingsState.Success -> AndroidAutoSettingsBody(
                 model = state.model,
                 onAction = onAction,
+                bottomBarPadding = playerAwareBottomPadding,
                 modifier = Modifier.padding(padding),
             )
             AndroidAutoSettingsState.Empty -> AndroidAutoSettingsFailure(onAction, Modifier.padding(padding))
@@ -159,6 +173,7 @@ private fun AndroidAutoSettingsContent(
 private fun AndroidAutoSettingsBody(
     model: AndroidAutoSettingsUiModel,
     onAction: (AndroidAutoSettingsAction) -> Unit,
+    bottomBarPadding: Dp = 0.dp,
     modifier: Modifier = Modifier,
 ) {
     val configuration = model.snapshot.configuration
@@ -167,7 +182,7 @@ private fun AndroidAutoSettingsBody(
             modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(bottom = SettingsDimensions.ScreenBottomPadding),
+                .padding(bottom = bottomBarPadding + SettingsDimensions.ScreenBottomPadding),
     ) {
         AndroidAutoConnectionPreferences(snapshot = model.snapshot, onAction = onAction)
 

@@ -126,12 +126,6 @@ import androidx.compose.ui.unit.sp
 import moe.rukamori.archivetune.LocalStableSystemBarsTopPadding
 import moe.rukamori.archivetune.equalizer.EqualizerControlMode
 import moe.rukamori.archivetune.equalizer.EqualizerTone
-import moe.rukamori.archivetune.ui.component.LiquidGlassIconButton
-import moe.rukamori.archivetune.ui.component.glassAwareSurface
-import moe.rukamori.archivetune.ui.screens.GlassScreenHeader
-import moe.rukamori.archivetune.ui.screens.ScreenHeaderHaze
-import moe.rukamori.archivetune.ui.screens.glassHeaderSource
-import moe.rukamori.archivetune.ui.screens.rememberGlassScreenHeader
 import moe.rukamori.archivetune.viewmodels.EqualizerBandUiModel
 import moe.rukamori.archivetune.viewmodels.EqualizerToneUiModel
 import kotlin.math.roundToInt
@@ -292,7 +286,6 @@ private fun AudioEffectsContent(
     val scrollState = rememberScrollState()
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
-    val glassHeader = rememberGlassScreenHeader()
 
     // Playback speed + pitch matching live in the player preferences; the
     // MusicService applies them to the (primary and crossfade) players.
@@ -334,10 +327,17 @@ private fun AudioEffectsContent(
         modifier =
             Modifier
                 .fillMaxSize()
-                .background(glassAwareSurface())
-                .glassHeaderSource(glassHeader)
-                .verticalScroll(scrollState)
+                // Plain opaque surface. The 16.0 rework had drawn the kyant
+                // liquid-glass header (layerBackdrop + drawBackdrop AGSL
+                // effects + hazeSource) INSIDE this Dialog window — this is
+                // the only real Dialog in the app that ever did, and it is
+                // the one ingredient the dialog still had that the long-
+                // working pre-16.0 version did not. Removed: the dialog now
+                // renders exactly like every other working dialog (plain
+                // material3, opaque window background).
+                .background(MaterialTheme.colorScheme.surface)
                 .statusBarsPadding()
+                .verticalScroll(scrollState)
                 .padding(horizontal = 24.dp)
                 .padding(top = 8.dp, bottom = 120.dp),
     ) {
@@ -362,48 +362,23 @@ private fun AudioEffectsContent(
                         .weight(1f)
                         .padding(top = 8.dp),
             )
-            val glassBackdrop = glassHeader.backdrop
-            if (glassBackdrop != null) {
-                LiquidGlassIconButton(
-                    backdrop = glassBackdrop,
+            IconButton(onClick = viewModel::showSaveProfileDialog) {
+                Icon(
                     painter = painterResource(R.drawable.add),
                     contentDescription = stringResource(R.string.eq_save_profile),
-                    interactive = true,
-                    onClick = viewModel::showSaveProfileDialog,
                 )
-                LiquidGlassIconButton(
-                    backdrop = glassBackdrop,
+            }
+            IconButton(onClick = viewModel::showManageProfiles, enabled = model.profiles.size > 0) {
+                Icon(
                     painter = painterResource(R.drawable.tune),
                     contentDescription = stringResource(R.string.eq_manage),
-                    interactive = true,
-                    onClick = viewModel::showManageProfiles,
                 )
-                LiquidGlassIconButton(
-                    backdrop = glassBackdrop,
+            }
+            IconButton(onClick = onDismiss) {
+                Icon(
                     painter = painterResource(R.drawable.close),
                     contentDescription = stringResource(R.string.eq_close),
-                    interactive = true,
-                    onClick = onDismiss,
                 )
-            } else {
-                IconButton(onClick = viewModel::showSaveProfileDialog) {
-                    Icon(
-                        painter = painterResource(R.drawable.add),
-                        contentDescription = stringResource(R.string.eq_save_profile),
-                    )
-                }
-                IconButton(onClick = viewModel::showManageProfiles, enabled = model.profiles.size > 0) {
-                    Icon(
-                        painter = painterResource(R.drawable.tune),
-                        contentDescription = stringResource(R.string.eq_manage),
-                    )
-                }
-                IconButton(onClick = onDismiss) {
-                    Icon(
-                        painter = painterResource(R.drawable.close),
-                        contentDescription = stringResource(R.string.eq_close),
-                    )
-                }
             }
         }
 

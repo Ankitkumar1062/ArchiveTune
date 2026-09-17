@@ -578,6 +578,7 @@ fun PlayerMenu(
                 val country = java.util.Locale.getDefault().country
                 if (country.length == 2) country.lowercase(java.util.Locale.ROOT) else "us"
             },
+            playerConnection = playerConnection,
             onDismiss = { showSaveCanvasDialog = false },
         )
     }

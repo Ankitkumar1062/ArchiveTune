@@ -8133,6 +8133,11 @@ class MusicService :
                 // already promoting itself or never became ready — either way, releasing it
                 // here is safe and prevents a stuck `pauseAtEndOfMediaItems`.
                 cancelCrossfade(resetVolume = true, resetPauseAtEnd = true)
+                if (player.hasNextMediaItem() && player.playWhenReady) {
+                    player.seekToNextMediaItem()
+                    player.prepare()
+                    player.play()
+                }
             }
             if (playbackState == Player.STATE_ENDED &&
                 !suppressAutoPlayback &&

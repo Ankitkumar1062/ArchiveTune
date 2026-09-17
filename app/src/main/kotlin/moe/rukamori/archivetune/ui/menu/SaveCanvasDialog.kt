@@ -54,6 +54,10 @@ import moe.rukamori.archivetune.canvas.CanvasSource
 import moe.rukamori.archivetune.canvas.SpotifyCanvasProvider
 import moe.rukamori.archivetune.canvas.TidalCanvasProvider
 import moe.rukamori.archivetune.canvas.models.CanvasArtwork
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import moe.rukamori.archivetune.ui.player.CanvasArtworkPlaybackCache
 import moe.rukamori.archivetune.utils.CanvasSaver
 import moe.rukamori.archivetune.utils.CanvasSaveResult
 
@@ -86,6 +90,7 @@ fun SaveCanvasDialog(
     artistName: String,
     albumTitle: String?,
     storefront: String,
+    playerConnection: moe.rukamori.archivetune.playback.PlayerConnection? = null,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -121,7 +126,19 @@ fun SaveCanvasDialog(
 
     AlertDialog(
         onDismissRequest = { onDismiss() },
-        title = { Text(text = stringResource(R.string.save_canvas_dialog_title)) },
+        title = {
+            Box(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = stringResource(R.string.save_canvas_dialog_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                )
+            }
+        },
         text = {
             Box(modifier = Modifier.fillMaxWidth()) {
                 when {
@@ -166,6 +183,20 @@ fun SaveCanvasDialog(
                                     source = source,
                                     isSavingThis = savingSourceIndex == index,
                                     isSavingAny = isSaving,
+                                    onSelect = {
+                                        coroutineScope.launch {
+                                            val artwork = withContext(Dispatchers.IO) {
+                                                CanvasArtworkPlaybackCache.replace(mediaId, source.artwork)
+                                            }
+                                            playerConnection?.publishCanvasArtworkUpdate(mediaId, artwork)
+                                            Toast.makeText(
+                                                context,
+                                                context.getString(R.string.canvas_source_selected, source.sourceName),
+                                                Toast.LENGTH_SHORT,
+                                            ).show()
+                                        }
+                                        onDismiss()
+                                    },
                                     onSaveRegular = {
                                         if (isSaving) {
                                             Toast.makeText(
@@ -185,6 +216,8 @@ fun SaveCanvasDialog(
                                             onSavingChange = { isSaving = it },
                                             onIndexChange = { savingSourceIndex = if (it) index else null },
                                             onDismiss = onDismiss,
+                                            mediaId = mediaId,
+                                            playerConnection = playerConnection,
                                         )
                                     },
                                     onSaveVertical = {
@@ -206,6 +239,8 @@ fun SaveCanvasDialog(
                                             onSavingChange = { isSaving = it },
                                             onIndexChange = { savingSourceIndex = if (it) index else null },
                                             onDismiss = onDismiss,
+                                            mediaId = mediaId,
+                                            playerConnection = playerConnection,
                                         )
                                     },
                                 )
@@ -234,6 +269,7 @@ private fun CanvasSourceRow(
     source: CanvasSourceResult,
     isSavingThis: Boolean,
     isSavingAny: Boolean,
+    onSelect: () -> Unit,
     onSaveRegular: () -> Unit,
     onSaveVertical: () -> Unit,
 ) {
@@ -242,15 +278,34 @@ private fun CanvasSourceRow(
     val regularDownloadable = CanvasSaver.isDownloadableUrl(regularUrl)
     val verticalDownloadable = CanvasSaver.isDownloadableUrl(verticalUrl)
 
+    val sourceIcon =
+        when {
+            source.sourceName.contains("Spotify", ignoreCase = true) -> R.drawable.spotify_icon
+            source.sourceName.contains("Apple", ignoreCase = true) -> R.drawable.apple_music_icon
+            source.sourceName.contains("Tidal", ignoreCase = true) -> R.drawable.provider_tidal
+            else -> R.drawable.motion_photos_on
+        }
+
     Column(
         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Text(
-            text = source.sourceName,
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                painter = painterResource(sourceIcon),
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = Color.Unspecified,
+            )
+            Text(
+                text = source.sourceName,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
         Text(
             text = "${stringResource(R.string.save_canvas_variant_regular)}: " +
                 if (regularDownloadable) {
@@ -287,6 +342,9 @@ private fun CanvasSourceRow(
                     style = MaterialTheme.typography.bodySmall,
                 )
             } else {
+                TextButton(onClick = onSelect, enabled = !isSavingAny) {
+                    Text(text = stringResource(R.string.play))
+                }
                 if (regularDownloadable) {
                     TextButton(onClick = onSaveRegular, enabled = !isSavingAny) {
                         Text(text = stringResource(R.string.save_canvas_variant_regular))
@@ -311,6 +369,8 @@ private fun saveCanvas(
     onSavingChange: (Boolean) -> Unit,
     onIndexChange: (Boolean) -> Unit,
     onDismiss: () -> Unit,
+    mediaId: String? = null,
+    playerConnection: moe.rukamori.archivetune.playback.PlayerConnection? = null,
 ) {
     if (url.isNullOrBlank()) {
         Toast.makeText(context, R.string.save_canvas_not_downloadable, Toast.LENGTH_SHORT).show()
@@ -337,6 +397,16 @@ private fun saveCanvas(
         onIndexChange(false)
         when (result) {
             is CanvasSaveResult.Success -> {
+                if (mediaId != null) {
+                    val playable: CanvasArtwork? =
+                        withContext(Dispatchers.IO) {
+                            CanvasArtworkPlaybackCache.get(mediaId, preferCachedOnly = true)
+                        }
+                    if (playable != null) {
+                        CanvasArtworkPlaybackCache.replace(mediaId, playable)
+                        playerConnection?.publishCanvasArtworkUpdate(mediaId, playable)
+                    }
+                }
                 Toast.makeText(context, R.string.save_canvas_saved, Toast.LENGTH_LONG).show()
                 onDismiss()
             }

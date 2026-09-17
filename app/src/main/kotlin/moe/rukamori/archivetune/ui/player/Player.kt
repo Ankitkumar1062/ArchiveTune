@@ -1430,6 +1430,7 @@ fun BottomSheetPlayer(
                             fullArtworkRect = spatialFlowFullArtworkRect.value,
                             miniArtworkRect = spatialFlowMiniArtworkRect.value,
                             lyricsOpen = isLyricsScreenVisible,
+                            artworkActive = spatialFlowPagerArtworkActive,
                             onPlaySongAtWindow = { windowIndex ->
                                 val window = queueWindows.getOrNull(windowIndex) ?: return@SpatialFlowFloatingArtwork
                                 playerConnection.player.seekToDefaultPosition(window.firstPeriodIndex)
@@ -1447,9 +1448,6 @@ fun BottomSheetPlayer(
                 durationProvider = durationProvider,
                 pureBlack = pureBlack,
                 isPairedWithNavigation = isMiniPlayerPairedWithNavigation,
-                artworkPlaceholder =
-                    playerDesignStyle == PlayerDesignStyle.SPATIALFLOW &&
-                        spatialFlowPagerArtworkActive,
                 onArtworkSlotPositioned = { rect ->
                     if (playerDesignStyle == PlayerDesignStyle.SPATIALFLOW) {
                         spatialFlowMiniArtworkRect.value = rect
@@ -1532,7 +1530,25 @@ fun BottomSheetPlayer(
                 val country = Locale.getDefault().country
                 if (country.length == 2) country.lowercase(Locale.ROOT) else "us"
             }
-        val resolvedCanvas = (canvasState as? CanvasPlaybackState.Success)
+        var manualCanvasVideo by remember(mediaMetadata?.id) {
+            mutableStateOf<CanvasVideo?>(null)
+        }
+
+        LaunchedEffect(playerConnection, mediaMetadata?.id) {
+            playerConnection.canvasArtworkUpdates.collect { update ->
+                if (update.mediaId != mediaMetadata?.id) return@collect
+                manualCanvasVideo = CanvasVideo(
+                    source = update.artwork.source ?: CanvasSource.APPLE_MUSIC,
+                    static = update.artwork.static,
+                    animated = update.artwork.animated,
+                    videoUrl = update.artwork.videoUrl,
+                    animatedVertical = update.artwork.animatedVertical,
+                    videoUrlVertical = update.artwork.videoUrlVertical,
+                )
+            }
+        }
+
+        val resolvedCanvas = manualCanvasVideo ?: (canvasState as? CanvasPlaybackState.Success)
             ?.takeIf { it.request == canvasRequest }
             ?.video
         val v7CanvasArtwork = resolvedCanvas.takeIf { playerDesignStyle == PlayerDesignStyle.V7 }

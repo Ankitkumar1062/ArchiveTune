@@ -7,14 +7,21 @@
 
 package moe.rukamori.archivetune.ui.player.spatialflow
 
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
@@ -38,6 +45,17 @@ import moe.rukamori.archivetune.ui.component.BottomSheetState
  * the sheet's graphicsLayer slide does not affect layout positions, and since
  * every participant (mini slot, full slot, this layer) lives inside the same
  * sliding sheet box, the shared offset cancels out.
+ *
+ * Overlay choreography (matching the original's PlayerBottomSheetCompose):
+ * while the lyrics overlay is open its own flying artwork owns the morph, and
+ * while the queue drawer is expanded the drawer owns the whole screen — the
+ * shared layer fades to 0 (animated with the same spring family as the
+ * drawer's slide / the flying artwork's morph, so the handoff is a crossfade
+ * between two identical images rather than an instant pop) instead of
+ * floating above them. `artworkActive` covers the canvas/video case: when the
+ * player's artwork slot is occupied by a canvas or music video, the layer
+ * never draws over the media surface (the mini player renders its own
+ * thumbnail then).
  */
 @Composable
 fun BoxScope.SpatialFlowFloatingArtwork(
@@ -50,6 +68,8 @@ fun BoxScope.SpatialFlowFloatingArtwork(
     fullArtworkRect: Rect?,
     miniArtworkRect: Rect?,
     lyricsOpen: Boolean,
+    queueOpen: Boolean = false,
+    artworkActive: Boolean = true,
     onPlaySongAtWindow: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -58,18 +78,62 @@ fun BoxScope.SpatialFlowFloatingArtwork(
     }
     val full = fullArtworkRect
     val mini = miniArtworkRect
+
+    // Animated fade for the queue drawer (the original animates the shared
+    // layer's alpha with the drawer's spring so the two never fight). Lyrics
+    // takes an animated spring too: with an instant boolean the layer snapped
+    // back to fully opaque the MOMENT lyrics closed, drawing the artwork under
+    // the still-closing reveal while the flying shared-element was still in
+    // flight — two artworks on screen at once read as a flicker. The spring
+    // crossfades the two identical images instead (open: layer fades out as
+    // the flying artwork takes over; close: layer fades back in exactly as
+    // the flying artwork lands on the slot).
+    val queueFade by animateFloatAsState(
+        targetValue = if (queueOpen) 0f else 1f,
+        animationSpec =
+            spring(
+                dampingRatio = Spring.DampingRatioLowBouncy,
+                stiffness = 300f,
+            ),
+        label = "SfFloatingArtworkQueueFade",
+    )
+    val lyricsFade by animateFloatAsState(
+        targetValue = if (lyricsOpen) 0f else 1f,
+        animationSpec =
+            spring(
+                dampingRatio = Spring.DampingRatioNoBouncy,
+                stiffness = 420f,
+            ),
+        label = "SfFloatingArtworkLyricsFade",
+    )
+
     Box(
         modifier =
             modifier
                 .align(Alignment.TopStart)
+                // Base layout position = the full player's artwork slot. The
+                // layer Box is laid out AT the slot's top-left (root layout
+                // coordinates — the sheet's graphicsLayer slide cancels out
+                // for every participant), so at progress 1 the zero
+                // translation below lands the artwork exactly on the slot.
+                // Without this offset the Box sat at the sheet root's
+                // (0, 0): the expanded artwork drew over the top bar with a
+                // gap where the slot actually is (the "weird thumbnail
+                // position" for non-canvas songs).
+                .offset { IntOffset(full.left.roundToInt(), full.top.roundToInt()) }
                 .size(with(androidx.compose.ui.platform.LocalDensity.current) { full.width.toDp() })
                 .graphicsLayer {
                     val p = state.progress.coerceIn(0f, 1f)
-                    // Hide while the lyrics overlay owns the artwork morph
-                    // (the flying artwork in SpatialFlowPlayer takes over).
-                    val visible = !lyricsOpen
-                    alpha = if (visible) 1f else 0f
-                    if (!visible) return@graphicsLayer
+                    // The lyrics overlay and the queue drawer only exist on the
+                    // expanded side, so their suppression scales with progress:
+                    // collapsing the sheet under an open overlay smoothly hands
+                    // the mini circle back to this layer instead of leaving it
+                    // stuck invisible. Canvas/video suppression applies at every
+                    // progress (the mini player renders its own artwork then).
+                    val lyricsSuppress = lerp(1f, lyricsFade, p)
+                    val queueSuppress = lerp(1f, queueFade, p)
+                    alpha = (if (artworkActive) 1f else 0f) * lyricsSuppress * queueSuppress
+                    if (alpha <= 0.01f) return@graphicsLayer
 
                     // Scale the full-size artwork down to the mini circle.
                     val scale = lerp(mini.width / full.width, 1f, p)
@@ -96,7 +160,7 @@ fun BoxScope.SpatialFlowFloatingArtwork(
             mediaMetadata = mediaMetadata,
             queueWindows = queueWindows,
             currentWindowIndex = currentWindowIndex,
-            userScrollEnabled = state.progress > 0.95f && !lyricsOpen,
+            userScrollEnabled = state.progress > 0.95f && !lyricsOpen && !queueOpen,
             artUrl = artUrl,
             isPlaying = isPlaying,
             cornerRadius = 16.dp,
