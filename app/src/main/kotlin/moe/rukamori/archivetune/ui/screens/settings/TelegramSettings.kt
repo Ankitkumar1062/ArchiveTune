@@ -84,7 +84,9 @@ fun TelegramSettings(
 
     // Start TDLib eagerly so the session is restored (or the login step is ready) on entry.
     LaunchedEffect(Unit) {
-        TelegramClient.ensureStarted(context)
+        if (!TdLibNativeLibrary.needsDownload(context)) {
+            TelegramClient.ensureStarted(context)
+        }
     }
 
     LaunchedEffect(isReady) {
@@ -252,7 +254,9 @@ fun TelegramSettings(
                             description = stringResource(R.string.telegram_login_summary),
                             icon = { Icon(painterResource(R.drawable.provider_telegram), contentDescription = null) },
                             onClick = {
-                                TelegramClient.ensureStarted(context)
+                                if (!TdLibNativeLibrary.needsDownload(context)) {
+                                    TelegramClient.ensureStarted(context)
+                                }
                                 navController.navigate(TELEGRAM_LOGIN_ROUTE)
                             },
                         )

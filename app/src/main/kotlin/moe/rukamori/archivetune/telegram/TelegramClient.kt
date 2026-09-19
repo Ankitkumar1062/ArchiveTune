@@ -136,13 +136,19 @@ object TelegramClient {
             appContext = ctx
             runCatching { Client.execute(TdApi.SetLogVerbosityLevel(1)) }
             _authState.value = TelegramAuthState.Connecting
-            client =
-                Client.create(
-                    { update -> onUpdate(update) },
-                    { throwable -> Timber.tag(TAG).e(throwable, "TDLib update handler exception") },
-                    { throwable -> Timber.tag(TAG).e(throwable, "TDLib exception") },
-                )
-            return true
+            return try {
+                client =
+                    Client.create(
+                        { update -> onUpdate(update) },
+                        { throwable -> Timber.tag(TAG).e(throwable, "TDLib update handler exception") },
+                        { throwable -> Timber.tag(TAG).e(throwable, "TDLib exception") },
+                    )
+                true
+            } catch (t: Throwable) {
+                Timber.tag(TAG).e(t, "Failed to create TDLib Client")
+                _authState.value = TelegramAuthState.Unsupported("ClientCreationFailed: ${t.message}")
+                false
+            }
         }
     }
 
@@ -593,12 +599,14 @@ object TelegramClient {
         val context = appContext ?: return
         val apiId = BuildConfig.TELEGRAM_API_ID
         val apiHash = BuildConfig.TELEGRAM_API_HASH
-        val baseDir = File(context.filesDir, "telegram")
+        val baseDir = File(context.filesDir, "telegram").apply { mkdirs() }
+        val dbDir = File(baseDir, "db").apply { mkdirs() }
+        val filesDir = File(baseDir, "files").apply { mkdirs() }
         val parameters =
             TdApi.SetTdlibParameters(
                 false,
-                File(baseDir, "db").absolutePath,
-                File(baseDir, "files").absolutePath,
+                dbDir.absolutePath,
+                filesDir.absolutePath,
                 ByteArray(0),
                 true,
                 true,
@@ -607,9 +615,9 @@ object TelegramClient {
                 apiId,
                 apiHash,
                 Locale.getDefault().language.ifBlank { "en" },
-                Build.MODEL ?: "Android",
-                Build.VERSION.RELEASE ?: "0",
-                BuildConfig.VERSION_NAME,
+                (Build.MODEL ?: "").ifBlank { "Android" },
+                (Build.VERSION.RELEASE ?: "").ifBlank { "Android" },
+                BuildConfig.VERSION_NAME.ifBlank { "1.0" },
             )
         client?.send(parameters) { result ->
             if (result is TdApi.Error) {

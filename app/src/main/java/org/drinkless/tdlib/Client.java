@@ -27,13 +27,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * Main class for interaction with the TDLib.
  */
 public final class Client {
-    static {
-        try {
-            System.loadLibrary("tdjni");
-        } catch (UnsatisfiedLinkError e) {
-            e.printStackTrace();
-        }
-    }
+    // Native library loading is managed by moe.rukamori.archivetune.telegram.TdLibNativeLibrary
 
     /**
      * Interface for handler for results of queries to TDLib and incoming updates from TDLib.

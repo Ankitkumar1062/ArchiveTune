@@ -27,13 +27,7 @@ import java.lang.annotation.RetentionPolicy;
  * It has no inner classes, functions or public members.
  */
 public class TdApi {
-    static {
-        try {
-            System.loadLibrary("tdjni");
-        } catch (UnsatisfiedLinkError e) {
-            e.printStackTrace();
-        }
-    }
+    // Native library loading is managed by moe.rukamori.archivetune.telegram.TdLibNativeLibrary
 
     private static final String GIT_COMMIT_HASH = "2b51b33c8a905be96c40508e68485f8a719e26a3";
 

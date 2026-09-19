@@ -99,29 +99,36 @@ fun TelegramLoginScreen(navController: NavController) {
     var editingPhone by rememberSaveable { mutableStateOf(false) }
     var errorText by remember { mutableStateOf<String?>(null) }
 
-    var engineDownloading by remember { mutableStateOf(TdLibNativeLibrary.needsDownload(context)) }
+    var engineDownloading by remember { mutableStateOf(false) }
+    var engineDownloadFailed by remember { mutableStateOf(false) }
     var engineDownloadProgress by remember { mutableStateOf<Float?>(null) }
+
+    fun startEngine() {
+        coroutineScope.launch {
+            if (TdLibNativeLibrary.needsDownload(context)) {
+                engineDownloading = true
+                engineDownloadFailed = false
+                val ok = runCatching {
+                    TdLibNativeLibrary.download(context) { p ->
+                        engineDownloadProgress = p.coerceIn(0f, 1f)
+                    }
+                }.getOrDefault(false)
+                engineDownloading = false
+                if (!ok) {
+                    engineDownloadFailed = true
+                    errorText = context.getString(R.string.telegram_engine_download_failed)
+                    return@launch
+                }
+            }
+            if (!TelegramClient.ensureStarted(context)) {
+                errorText = context.getString(R.string.telegram_unavailable)
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         callingCode = defaultCallingCode(context)
-        if (TdLibNativeLibrary.needsDownload(context)) {
-            engineDownloading = true
-            val ok = runCatching {
-                TdLibNativeLibrary.download(context) { p ->
-                    engineDownloadProgress = p.coerceIn(0f, 1f)
-                }
-            }.getOrDefault(false)
-            engineDownloading = false
-            if (!ok) {
-                Toast.makeText(context, R.string.telegram_engine_download_failed, Toast.LENGTH_SHORT).show()
-                navController.navigateUp()
-                return@LaunchedEffect
-            }
-        }
-        if (!TelegramClient.ensureStarted(context)) {
-            Toast.makeText(context, R.string.telegram_unavailable, Toast.LENGTH_SHORT).show()
-            navController.navigateUp()
-        }
+        startEngine()
     }
 
     LaunchedEffect(authState) {
@@ -217,6 +224,10 @@ fun TelegramLoginScreen(navController: NavController) {
             when {
                 engineDownloading -> {
                     EngineDownloadCard(progress = engineDownloadProgress)
+                }
+
+                engineDownloadFailed -> {
+                    EngineDownloadFailedCard(onRetry = { startEngine() })
                 }
 
                 state is TelegramAuthState.Idle || state is TelegramAuthState.Connecting -> {
@@ -584,6 +595,31 @@ private fun EngineDownloadCard(progress: Float?) {
             color = MaterialTheme.colorScheme.primary,
             trackColor = Color.Transparent,
         )
+    }
+}
+
+@Composable
+private fun EngineDownloadFailedCard(onRetry: () -> Unit) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.fillMaxWidth().padding(16.dp),
+    ) {
+        Icon(
+            painter = painterResource(R.drawable.provider_telegram),
+            contentDescription = null,
+            modifier = Modifier.size(48.dp),
+            tint = MaterialTheme.colorScheme.error,
+        )
+        Spacer(Modifier.height(12.dp))
+        Text(
+            text = stringResource(R.string.telegram_engine_download_failed),
+            textAlign = TextAlign.Center,
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Spacer(Modifier.height(16.dp))
+        Button(onClick = onRetry) {
+            Text(stringResource(R.string.retry))
+        }
     }
 }
 
