@@ -1260,6 +1260,12 @@
     <string name="pool_api_key_title">Pool API key</string>
     <string name="pool_api_key_label">API key</string>
     <string name="pool_api_key_help">Optional. Create a free account on the Source Pool site and copy your key from the dashboard — the app then uses YOUR key to fetch pooled accounts, instead of the key baked into this build. Leave empty to keep using the built-in key. Paste an empty field to remove a saved key.</string>
+    <string name="pool_api_key_configured">Personal key configured</string>
+    <string name="pool_api_key_using_build">Using build default key</string>
+    <string name="pool_api_key_save_and_refresh">Save &amp; Refresh</string>
+    <string name="pool_api_key_clear">Clear</string>
+    <string name="pool_api_key_cleared">API key cleared</string>
+    <string name="pool_api_key_saved">API key saved. Refreshing pool…</string>
     <string name="pool_refresh_title">Refresh from pool</string>
     <string name="pool_refresh_description">Pull the latest shared accounts and instances from the community source pool</string>
     <string name="pool_refreshing">Refreshing from pool…</string>
@@ -1682,6 +1688,10 @@
     <string name="telegram_lossless_only_description">Only list FLAC, WAV, AIFF and other lossless files when browsing channels</string>
     <string name="telegram_no_results">No channels found</string>
     <string name="telegram_login_required">Sign in with your Telegram account first</string>
+    <string name="telegram_runtime_extension">Telegram runtime extension</string>
+    <string name="telegram_runtime_extension_desc">To use the Telegram integration you\'ll need to download the runtime extension (TDLib engine, one-time download)</string>
+    <string name="telegram_engine_downloading">Downloading the Telegram engine (one-time setup)… %1$d%%</string>
+    <string name="telegram_engine_download_failed">Could not download the Telegram engine — check your connection and try again</string>
     <string name="telegram_unavailable">Telegram support is unavailable in this build</string>
     <string name="telegram_error">Telegram error: %1$s</string>
     <string name="telegram_error_generic">Couldn\'t open this Telegram channel</string>

@@ -49,9 +49,16 @@ import moe.rukamori.archivetune.tidal.TidalInstanceHealthManager
 import moe.rukamori.archivetune.ui.component.IconButton
 import moe.rukamori.archivetune.ui.component.PreferenceEntry
 import moe.rukamori.archivetune.ui.component.PreferenceGroup
-import moe.rukamori.archivetune.ui.component.TextFieldDialog
-import moe.rukamori.archivetune.ui.utils.backToMain
 import moe.rukamori.archivetune.utils.PoolAccountManager
+import moe.rukamori.archivetune.constants.PoolApiKeyKey
+import moe.rukamori.archivetune.ui.component.DefaultDialog
+import moe.rukamori.archivetune.ui.utils.backToMain
+import moe.rukamori.archivetune.utils.rememberPreference
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
 import androidx.compose.foundation.layout.asPaddingValues
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -129,9 +136,105 @@ private fun PoolRefreshSection(positions: PreferencePositions) {
     val scope = rememberCoroutineScope()
     var refreshing by remember { mutableStateOf(false) }
 
+    val (savedKey, onSavedKeyChange) = rememberPreference(PoolApiKeyKey, "")
+    var showKeyDialog by remember { mutableStateOf(false) }
+    var draftKey by remember(showKeyDialog) { mutableStateOf(savedKey) }
+
+    if (showKeyDialog) {
+        DefaultDialog(
+            onDismiss = { showKeyDialog = false },
+            icon = { Icon(painterResource(R.drawable.token), null) },
+            title = { Text(stringResource(R.string.pool_api_key_title)) },
+            buttons = {
+                if (savedKey.isNotBlank()) {
+                    TextButton(
+                        onClick = {
+                            onSavedKeyChange("")
+                            showKeyDialog = false
+                            Toast.makeText(context, R.string.pool_api_key_cleared, Toast.LENGTH_SHORT).show()
+                            refreshing = true
+                            scope.launch {
+                                withContext(Dispatchers.IO) {
+                                    PoolAccountManager.refresh(context, force = true)
+                                }
+                                refreshing = false
+                            }
+                        },
+                    ) {
+                        Text(stringResource(R.string.pool_api_key_clear))
+                    }
+                }
+                TextButton(onClick = { showKeyDialog = false }) {
+                    Text(stringResource(android.R.string.cancel))
+                }
+                TextButton(
+                    onClick = {
+                        val trimmed = draftKey.trim()
+                        onSavedKeyChange(trimmed)
+                        showKeyDialog = false
+                        Toast.makeText(context, R.string.pool_api_key_saved, Toast.LENGTH_SHORT).show()
+                        refreshing = true
+                        scope.launch {
+                            val ok =
+                                withContext(Dispatchers.IO) {
+                                    PoolAccountManager.refresh(context, force = true)
+                                }
+                            val poolError = PoolAccountManager.lastFeedError
+                            val message =
+                                when {
+                                    poolError != null ->
+                                        context.getString(R.string.pool_refresh_failed) + "\n" + poolError
+                                    ok ->
+                                        context.getString(
+                                            R.string.pool_refresh_done,
+                                            PoolAccountManager.tidalAccounts().size,
+                                            PoolAccountManager.qobuzAccounts().size,
+                                            PoolAccountManager.deezerAccounts().size,
+                                        )
+                                    else -> context.getString(R.string.pool_refresh_failed)
+                                }
+                            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                            refreshing = false
+                        }
+                    },
+                ) {
+                    Text(stringResource(R.string.pool_api_key_save_and_refresh))
+                }
+            },
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = stringResource(R.string.pool_api_key_help),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedTextField(
+                    value = draftKey,
+                    onValueChange = { draftKey = it },
+                    label = { Text(stringResource(R.string.pool_api_key_label)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+    }
+
     PreferenceGroup(
         modifier = positions.modifierFor("youtube_music"),
     ) {
+        item {
+            PreferenceEntry(
+                title = { Text(stringResource(R.string.pool_api_key_title)) },
+                description =
+                    if (savedKey.isNotBlank()) {
+                        stringResource(R.string.pool_api_key_configured)
+                    } else {
+                        stringResource(R.string.pool_api_key_using_build)
+                    },
+                icon = { Icon(painterResource(R.drawable.token), null) },
+                onClick = { showKeyDialog = true },
+            )
+        }
         item {
             PreferenceEntry(
                 title = {

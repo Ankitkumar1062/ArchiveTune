@@ -38,6 +38,10 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavController
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.ui.unit.dp
+import moe.rukamori.archivetune.telegram.TdLibNativeLibrary
 import moe.rukamori.archivetune.LocalPlayerAwareWindowInsets
 import moe.rukamori.archivetune.R
 import moe.rukamori.archivetune.constants.TelegramAccountNameKey
@@ -73,6 +77,10 @@ fun TelegramSettings(
     val isReady = authState is TelegramAuthState.Ready
 
     var showLogoutDialog by remember { mutableStateOf(false) }
+
+    var needsEngineDownload by remember { mutableStateOf(TdLibNativeLibrary.needsDownload(context)) }
+    var engineDownloadProgress by remember { mutableStateOf<Float?>(null) }
+    var engineDownloadError by remember { mutableStateOf<String?>(null) }
 
     // Start TDLib eagerly so the session is restored (or the login step is ready) on entry.
     LaunchedEffect(Unit) {
@@ -153,6 +161,64 @@ fun TelegramSettings(
                 .verticalScroll(scrollState)
                 .padding(bottom = playerAwareBottomPadding + SettingsDimensions.ScreenBottomPadding),
         ) {
+            if (needsEngineDownload) {
+                PreferenceGroup(title = stringResource(R.string.telegram_runtime_extension)) {
+                    item {
+                        PreferenceEntry(
+                            modifier = positions.modifierFor("telegram_runtime_extension"),
+                            title = { Text(stringResource(R.string.telegram_runtime_extension)) },
+                            description =
+                                when {
+                                    engineDownloadProgress != null ->
+                                        stringResource(
+                                            R.string.telegram_engine_downloading,
+                                            ((engineDownloadProgress ?: 0f) * 100).toInt(),
+                                        )
+                                    engineDownloadError != null -> engineDownloadError
+                                    else -> stringResource(R.string.telegram_runtime_extension_desc)
+                                },
+                            icon = { Icon(painterResource(R.drawable.provider_telegram), contentDescription = null) },
+                            trailingContent = {
+                                if (engineDownloadProgress != null) {
+                                    CircularProgressIndicator(
+                                        progress = { engineDownloadProgress ?: 0f },
+                                        modifier = Modifier.size(22.dp),
+                                        strokeWidth = 2.dp,
+                                    )
+                                } else {
+                                    TextButton(
+                                        onClick = {
+                                            engineDownloadError = null
+                                            engineDownloadProgress = 0f
+                                            coroutineScope.launch {
+                                                val ok =
+                                                    runCatching {
+                                                        TdLibNativeLibrary.download(context) { p ->
+                                                            engineDownloadProgress = p.coerceIn(0f, 1f)
+                                                        }
+                                                    }.getOrDefault(false)
+                                                engineDownloadProgress = null
+                                                if (ok) {
+                                                    needsEngineDownload = false
+                                                    TelegramClient.ensureStarted(context)
+                                                } else {
+                                                    engineDownloadError =
+                                                        context.getString(R.string.telegram_engine_download_failed)
+                                                    needsEngineDownload =
+                                                        TdLibNativeLibrary.needsDownload(context)
+                                                }
+                                            }
+                                        },
+                                    ) {
+                                        Text(stringResource(R.string.download))
+                                    }
+                                }
+                            },
+                        )
+                    }
+                }
+            }
+
             PreferenceGroup(title = stringResource(R.string.telegram_account)) {
                 if (isReady) {
                     item {

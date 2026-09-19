@@ -70,6 +70,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import moe.rukamori.archivetune.LocalPlayerAwareWindowInsets
 import moe.rukamori.archivetune.R
+import moe.rukamori.archivetune.telegram.TdLibNativeLibrary
 import moe.rukamori.archivetune.telegram.TelegramApiException
 import moe.rukamori.archivetune.telegram.TelegramAuthState
 import moe.rukamori.archivetune.telegram.TelegramClient
@@ -98,8 +99,25 @@ fun TelegramLoginScreen(navController: NavController) {
     var editingPhone by rememberSaveable { mutableStateOf(false) }
     var errorText by remember { mutableStateOf<String?>(null) }
 
+    var engineDownloading by remember { mutableStateOf(TdLibNativeLibrary.needsDownload(context)) }
+    var engineDownloadProgress by remember { mutableStateOf<Float?>(null) }
+
     LaunchedEffect(Unit) {
         callingCode = defaultCallingCode(context)
+        if (TdLibNativeLibrary.needsDownload(context)) {
+            engineDownloading = true
+            val ok = runCatching {
+                TdLibNativeLibrary.download(context) { p ->
+                    engineDownloadProgress = p.coerceIn(0f, 1f)
+                }
+            }.getOrDefault(false)
+            engineDownloading = false
+            if (!ok) {
+                Toast.makeText(context, R.string.telegram_engine_download_failed, Toast.LENGTH_SHORT).show()
+                navController.navigateUp()
+                return@LaunchedEffect
+            }
+        }
         if (!TelegramClient.ensureStarted(context)) {
             Toast.makeText(context, R.string.telegram_unavailable, Toast.LENGTH_SHORT).show()
             navController.navigateUp()
@@ -197,6 +215,10 @@ fun TelegramLoginScreen(navController: NavController) {
             }
 
             when {
+                engineDownloading -> {
+                    EngineDownloadCard(progress = engineDownloadProgress)
+                }
+
                 state is TelegramAuthState.Idle || state is TelegramAuthState.Connecting -> {
                     ConnectingCard()
                 }
@@ -539,6 +561,29 @@ private fun ConnectingCard() {
         CircularProgressIndicator()
         Spacer(Modifier.height(12.dp))
         Text(stringResource(R.string.telegram_connecting))
+    }
+}
+
+@Composable
+private fun EngineDownloadCard(progress: Float?) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        CircularProgressIndicator()
+        Spacer(Modifier.height(12.dp))
+        Text(
+            text = stringResource(
+                R.string.telegram_engine_downloading,
+                ((progress ?: 0f) * 100).toInt(),
+            ),
+            textAlign = TextAlign.Center,
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Spacer(Modifier.height(8.dp))
+        LinearProgressIndicator(
+            progress = { progress?.takeIf { it >= 0f } ?: 0f },
+            modifier = Modifier.fillMaxWidth(),
+            color = MaterialTheme.colorScheme.primary,
+            trackColor = Color.Transparent,
+        )
     }
 }
 
