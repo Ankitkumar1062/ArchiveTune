@@ -93,6 +93,7 @@ import moe.rukamori.archivetune.spotify.SpotifyTracksQueue
 import moe.rukamori.archivetune.spotify.models.SpotifyAlbum
 import moe.rukamori.archivetune.spotify.models.SpotifyHomeFeedItem
 import moe.rukamori.archivetune.spotify.models.SpotifyArtist
+import moe.rukamori.archivetune.spotify.models.SpotifyImage
 import moe.rukamori.archivetune.spotify.models.SpotifyPlaylist
 import moe.rukamori.archivetune.spotify.models.SpotifyTrack
 import moe.rukamori.archivetune.constants.SpotifyHomeStyle
@@ -668,6 +669,23 @@ fun SpotifyRecentPanel(
                             onClick = { onAlbumClick(item) },
                             isArtist = false,
                             isResolving = resolvingItemKey == "album:${item.id}",
+                        )
+                    }
+                    is SpotifyRecentItem.Artist -> {
+                        SpotifyQuickGridCell(
+                            title = item.name,
+                            imageUrl = item.imageUrl,
+                            onClick = {
+                                onArtistClick(
+                                    SpotifyArtist(
+                                        id = item.id,
+                                        name = item.name,
+                                        images = listOfNotNull(item.imageUrl?.let { SpotifyImage(it, null, null) }),
+                                    ),
+                                )
+                            },
+                            isArtist = true,
+                            isResolving = resolvingItemKey == "artist:${item.id}",
                         )
                     }
                 }

@@ -1,5 +1,6 @@
 package moe.rukamori.archivetune.constants
 
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 
 /*
@@ -36,3 +37,8 @@ fun DeezerAudioQuality.toFormatName(): String =
         DeezerAudioQuality.MP3_320 -> "MP3_320"
         DeezerAudioQuality.MP3_128 -> "MP3_128"
     }
+
+// TikTok player: the karaoke caption strip under the artwork (ported from
+// 4nx3b/ArchiveTune). Off by default — it reserves 168dp of the page for the strip.
+val TikTokMainLyricsEnabledKey = booleanPreferencesKey("tiktokMainLyricsEnabled")
+

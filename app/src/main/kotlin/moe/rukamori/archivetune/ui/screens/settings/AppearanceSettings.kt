@@ -93,6 +93,7 @@ import moe.rukamori.archivetune.constants.GridItemSize
 import moe.rukamori.archivetune.constants.GridItemsSizeKey
 import moe.rukamori.archivetune.constants.HidePlayerThumbnailKey
 import moe.rukamori.archivetune.constants.HideScrollbarKey
+import moe.rukamori.archivetune.constants.SplashOverlayEnabledKey
 import moe.rukamori.archivetune.constants.LibraryFilter
 import moe.rukamori.archivetune.constants.LiquidGlassEnabledKey
 import moe.rukamori.archivetune.constants.HomeScreenStyle
@@ -118,6 +119,7 @@ import moe.rukamori.archivetune.constants.SliderStyle
 import moe.rukamori.archivetune.constants.SliderStyleKey
 import moe.rukamori.archivetune.constants.TabletModeEnabledKey
 import moe.rukamori.archivetune.constants.ThumbnailCornerRadiusKey
+import moe.rukamori.archivetune.constants.TikTokMainLyricsEnabledKey
 import moe.rukamori.archivetune.constants.WallpaperExtractionFailedKey
 import moe.rukamori.archivetune.constants.UiScaleFactorKey
 import moe.rukamori.archivetune.ui.component.DefaultDialog
@@ -265,6 +267,11 @@ fun AppearanceSectionSettings(
             AppleMusicAnimatedArtworkKey,
             defaultValue = true,
         )
+    val (tikTokMainLyrics, onTikTokMainLyricsChange) =
+        rememberPreference(
+            TikTokMainLyricsEnabledKey,
+            defaultValue = false,
+        )
     val (showPlayerVolumeBar, onShowPlayerVolumeBarChange) =
         rememberPreference(
             ShowPlayerVolumeBarKey,
@@ -317,6 +324,11 @@ fun AppearanceSectionSettings(
         rememberPreference(
             DisableAnimationsKey,
             defaultValue = defaultDisableAnimations,
+        )
+    val (splashOverlayEnabled, onSplashOverlayEnabledChange) =
+        rememberPreference(
+            SplashOverlayEnabledKey,
+            defaultValue = true,
         )
     val (forceHighRefreshRate, onForceHighRefreshRateChange) =
         rememberPreference(
@@ -778,6 +790,20 @@ fun AppearanceSectionSettings(
                     )
                 }
 
+                // The opening animation is the one animation that plays before the app is
+                // visible, so it gets its own switch rather than riding on "Disable animations":
+                // a reader can want the launch flourish without the rest of the app's motion.
+                item {
+                    SwitchPreference(
+                        modifier = positions.modifierFor("splash_overlay_enabled"),
+                        title = { Text(stringResource(R.string.splash_overlay_enabled)) },
+                        description = stringResource(R.string.splash_overlay_enabled_desc),
+                        icon = { Icon(painterResource(R.drawable.auto_awesome), null) },
+                        checked = splashOverlayEnabled,
+                        onCheckedChange = onSplashOverlayEnabledChange,
+                    )
+                }
+
                 item {
                     Column(modifier = positions.modifierFor("hide_status_bar")) {
                         SwitchPreference(
@@ -966,6 +992,22 @@ fun AppearanceSectionSettings(
                                 },
                             )
                         }
+                }
+
+                // Only for the TikTok style: the strip reserves a fixed slot under the artwork on
+                // that page and nowhere else.
+                if (playerDesignStyle == PlayerDesignStyle.TIKTOK) {
+                    item {
+                        Column(modifier = positions.modifierFor("tiktok_main_lyrics")) {
+                            SwitchPreference(
+                                title = { Text(stringResource(R.string.tiktok_main_lyrics)) },
+                                description = stringResource(R.string.tiktok_main_lyrics_desc),
+                                icon = { Icon(painterResource(R.drawable.lyrics), null) },
+                                checked = tikTokMainLyrics,
+                                onCheckedChange = onTikTokMainLyricsChange,
+                            )
+                        }
+                    }
                 }
 
                 // Only for the Apple Music style: it is the one style that plays a Canvas loop or

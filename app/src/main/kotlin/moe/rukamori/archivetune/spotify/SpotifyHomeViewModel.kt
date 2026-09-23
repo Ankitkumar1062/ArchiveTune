@@ -34,11 +34,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import moe.rukamori.archivetune.R
-import moe.rukamori.archivetune.innertube.YouTube
-import moe.rukamori.archivetune.innertube.models.AlbumItem
-import moe.rukamori.archivetune.innertube.models.ArtistItem
-import moe.rukamori.archivetune.innertube.models.SongItem
-import moe.rukamori.archivetune.innertube.models.YTItem
+import moe.rukamori.archivetune.models.toMediaMetadata
 import moe.rukamori.archivetune.spotify.models.SpotifyTrack
 import moe.rukamori.archivetune.utils.reportException
 import moe.rukamori.archivetune.spotify.models.SpotifyAlbum
@@ -67,6 +63,12 @@ sealed interface SpotifyRecentItem {
         override val name: String,
         override val imageUrl: String?,
         val artists: List<SpotifyArtist>
+    ) : SpotifyRecentItem
+
+    data class Artist(
+        override val id: String,
+        override val name: String,
+        override val imageUrl: String?
     ) : SpotifyRecentItem
 }
 
@@ -127,34 +129,29 @@ class SpotifyHomeViewModel @Inject constructor(
     fun onAction(action: SpotifyHomeAction) {
         when (action) {
             SpotifyHomeAction.Refresh -> load()
-            is SpotifyHomeAction.TrackClick -> resolveSelection(
-                key = "track:${action.track.id}",
-                unavailableMessageResId = R.string.spotify_track_unavailable,
-            ) {
-                SpotifyPlaybackResolver.resolveToMetadata(action.track)?.let { metadata ->
-                    SpotifyHomeNavigationEvent.PlayTracks(
-                        SpotifyTracksQueue(
-                            title = action.title,
-                            initialTracks = action.tracks,
-                            startIndex = action.tracks.indexOf(action.track).coerceAtLeast(0),
-                            preloadItem = metadata,
+            is SpotifyHomeAction.TrackClick -> {
+                viewModelScope.launch {
+                    _navigationEvents.emit(
+                        SpotifyHomeNavigationEvent.PlayTracks(
+                            SpotifyTracksQueue(
+                                title = action.title,
+                                initialTracks = action.tracks,
+                                startIndex = action.tracks.indexOf(action.track).coerceAtLeast(0),
+                                preloadItem = action.track.toMediaMetadata(),
+                            ),
                         ),
                     )
                 }
             }
-            is SpotifyHomeAction.AlbumClick -> resolveSelection("album:${action.id}") {
-                val query = listOfNotNull(action.name, action.artist)
-                    .filter(String::isNotBlank)
-                    .joinToString(" ")
-                resolveSpotifyReleaseAlbumId(
-                    query = query,
-                    searchAlbum = { searchCatalogItem<AlbumItem>(it, YouTube.SearchFilter.FILTER_ALBUM) },
-                    searchSong = { searchCatalogItem<SongItem>(it, YouTube.SearchFilter.FILTER_SONG) },
-                )?.let { SpotifyHomeNavigationEvent.OpenAlbum(it) }
+            is SpotifyHomeAction.AlbumClick -> {
+                viewModelScope.launch {
+                    _navigationEvents.emit(SpotifyHomeNavigationEvent.OpenAlbum(action.id))
+                }
             }
-            is SpotifyHomeAction.ArtistClick -> resolveSelection("artist:${action.id}") {
-                searchCatalogItem<ArtistItem>(action.name, YouTube.SearchFilter.FILTER_ARTIST)
-                    ?.let { SpotifyHomeNavigationEvent.OpenArtist(it.id) }
+            is SpotifyHomeAction.ArtistClick -> {
+                viewModelScope.launch {
+                    _navigationEvents.emit(SpotifyHomeNavigationEvent.OpenArtist(action.id))
+                }
             }
         }
     }
@@ -189,18 +186,6 @@ class SpotifyHomeViewModel @Inject constructor(
                 if (currentCoroutineContext().isActive) _resolvingItemKey.value = null
             }
         }
-    }
-
-    private suspend inline fun <reified T : YTItem> searchCatalogItem(
-        query: String,
-        filter: YouTube.SearchFilter,
-    ): T? {
-        val anonymous = YouTube.search(query, filter, useAccountContext = false)
-        currentCoroutineContext().ensureActive()
-        anonymous.getOrNull()?.items?.filterIsInstance<T>()?.firstOrNull()?.let { return it }
-        val fallback = YouTube.search(query, filter)
-        currentCoroutineContext().ensureActive()
-        return fallback.getOrThrow().items.filterIsInstance<T>().firstOrNull()
     }
 
     private fun load() {
@@ -270,11 +255,16 @@ class SpotifyHomeViewModel @Inject constructor(
 
                 homeResult.onSuccess { feed ->
                     feed.sections.forEach { raw ->
-                        // Recognised by the section URI alone, never the title: Spotify returns
-                        // section titles in the account's language, so a title match only ever
-                        // worked in the languages that were hard-coded. The URI is the same string
-                        // whatever the user reads.
-                        if (raw.sectionUri.contains("recent", ignoreCase = true)) {
+                        val isRecentSection =
+                            raw.sectionUri.contains("recent", ignoreCase = true) ||
+                                raw.sectionUri.contains("shortcut", ignoreCase = true) ||
+                                raw.sectionUri.contains("jump_back", ignoreCase = true) ||
+                                raw.sectionUri.contains("heavy_rotation", ignoreCase = true) ||
+                                raw.typename.contains("shortcut", ignoreCase = true) ||
+                                raw.title?.contains("jump back in", ignoreCase = true) == true ||
+                                raw.title?.contains("recently played", ignoreCase = true) == true
+
+                        if (isRecentSection && recentItems.isEmpty()) {
                             recentItems = raw.items.mapNotNull { item ->
                                 when (item) {
                                     is SpotifyHomeFeedItem.Album -> SpotifyRecentItem.Album(
@@ -288,7 +278,11 @@ class SpotifyHomeViewModel @Inject constructor(
                                         name = item.name,
                                         imageUrl = item.imageUrl
                                     )
-                                    else -> null
+                                    is SpotifyHomeFeedItem.Artist -> SpotifyRecentItem.Artist(
+                                        id = item.id,
+                                        name = item.name,
+                                        imageUrl = item.imageUrl
+                                    )
                                 }
                             }
                         } else {
@@ -336,22 +330,4 @@ class SpotifyHomeViewModel @Inject constructor(
         if (feedSection.items.isEmpty()) return null
         return SpotifyHomeSection.Cards(title = title, items = feedSection.items)
     }
-}
-
-/**
- * The YouTube Music page a tapped Spotify release opens.
- *
- * YouTube Music's albums index holds no page for many one-track releases — asked for one, the album
- * filter answers with no results at all, which is what the album-only lookup turned into a "no
- * result found" dead end. The release itself is still indexed as a song there, and that song carries
- * the album page it came from, so the song index resolves exactly the releases the album index
- * cannot.
- */
-internal suspend fun resolveSpotifyReleaseAlbumId(
-    query: String,
-    searchAlbum: suspend (String) -> AlbumItem?,
-    searchSong: suspend (String) -> SongItem?,
-): String? {
-    searchAlbum(query)?.browseId?.takeIf(String::isNotBlank)?.let { return it }
-    return searchSong(query)?.album?.id?.takeIf(String::isNotBlank)
 }

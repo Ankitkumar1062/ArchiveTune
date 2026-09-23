@@ -42,6 +42,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.EaseOut
 import androidx.compose.animation.core.EaseOutCubic
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
@@ -151,6 +152,7 @@ import moe.rukamori.archivetune.ui.screens.HomeTopFadeBlur
 import moe.rukamori.archivetune.ui.screens.LocalHomeHazeState
 import dev.chrisbanes.haze.HazeState
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.translate
@@ -162,6 +164,9 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.changedToUp
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
@@ -327,9 +332,14 @@ import moe.rukamori.archivetune.ui.component.NetworkStatusBanner
 import moe.rukamori.archivetune.ui.component.StarDialog
 import moe.rukamori.archivetune.ui.component.TopSearch
 import moe.rukamori.archivetune.ui.component.SearchSourcePicker
+import moe.rukamori.archivetune.constants.SplashOverlayEnabledKey
 import moe.rukamori.archivetune.ui.component.TvNavigationRail
 import moe.rukamori.archivetune.ui.component.rememberBottomSheetState
 import moe.rukamori.archivetune.ui.component.shimmer.ShimmerTheme
+import moe.rukamori.archivetune.ui.component.splash.SplashConfig
+import moe.rukamori.archivetune.ui.component.splash.SplashOverlay
+import moe.rukamori.archivetune.ui.component.splash.SplashSlots
+import moe.rukamori.archivetune.ui.component.splash.SplashVectorLoader
 import moe.rukamori.archivetune.ui.menu.YouTubeSongMenu
 import moe.rukamori.archivetune.ui.player.BottomSheetPlayer
 import moe.rukamori.archivetune.ui.player.ProvideVideoFullscreenState
@@ -743,6 +753,19 @@ class MainActivity : ComponentActivity() {
                 }
         }
 
+        // The opening animation draws the app icon as a particle formation, so publish its
+        // outline up front: SplashSlots holds a plain static that is read on the first frame,
+        // and the overlay rebuilds its slots the moment [SplashSlots.vectorVersion] moves if
+        // this lands a frame or two late. Parsing the vector is cheap but not free, hence off
+        // the main thread.
+        lifecycleScope.launch(Dispatchers.Default) {
+            val path = SplashVectorLoader.loadPath(this@MainActivity, R.drawable.about_splash)
+            withContext(Dispatchers.Main) {
+                SplashSlots.customVectorPath = path
+                SplashSlots.vectorVersion++
+            }
+        }
+
         setContent {
             val updateChannel by rememberEnumPreference(UpdateChannelKey, defaultValue = defaultUpdateChannel)
 
@@ -1116,10 +1139,41 @@ class MainActivity : ComponentActivity() {
                     return@ArchiveTuneTheme
                 }
 
+                // Cold-launch opening animation. While it is due, the app content stays
+                // transparent and rises into place once the burst fires; with the setting off, or
+                // with animations disabled, every part of this collapses to "content is already
+                // visible" and the overlay is never composed at all. Latched once per process —
+                // an entry animation belongs to this launch, so flipping the switch mid-session
+                // must not start one.
+                val splashAnimationEnabled by rememberPreference(SplashOverlayEnabledKey, defaultValue = true)
+                val coldSplash = remember { splashAnimationEnabled && !disableAnimations }
+                var contentVisible by remember { mutableStateOf(!coldSplash) }
+                // Set by the first tap on the opening animation. The overlay owns the exit (it
+                // fades itself out), this only tells it that the reader has asked for the screen.
+                var splashSkipped by remember { mutableStateOf(false) }
+                LaunchedEffect(splashAnimationEnabled, disableAnimations) {
+                    // The preference store seeds the first frame from its hot copy, but a value
+                    // that only settles on a later read must never strand the UI invisible behind
+                    // an overlay that has already decided not to play.
+                    if (!splashAnimationEnabled || disableAnimations) contentVisible = true
+                }
+                val contentAlpha by animateFloatAsState(
+                    targetValue = if (contentVisible) 1f else 0f,
+                    animationSpec =
+                        tween(
+                            durationMillis = if (disableAnimations) 0 else SplashConfig.Reveal.DURATION_MS,
+                            easing = EaseOut,
+                        ),
+                    label = "splashContentAlpha",
+                )
+
                 // App-open animation: the first time the main UI appears it fades in while
                 // gently scaling up from 96%, so launching the app feels like a smooth reveal
                 // rather than an abrupt cut. Runs once per process and honors "disable animations".
-                val appOpenProgress = remember { Animatable(if (disableAnimations) 1f else 0f) }
+                // The splash overlay owns the entry while it is due, so this stands aside then:
+                // its fade would otherwise be hidden behind the overlay and scale the particle
+                // field with it.
+                val appOpenProgress = remember { Animatable(if (disableAnimations || coldSplash) 1f else 0f) }
                 LaunchedEffect(Unit) {
                     if (!disableAnimations && appOpenProgress.value < 1f) {
                         appOpenProgress.animateTo(
@@ -2146,7 +2200,59 @@ class MainActivity : ComponentActivity() {
                         moe.rukamori.archivetune.ui.player.LocalIsInPipMode provides isInPictureInPictureModeState,
                         moe.rukamori.archivetune.ui.player.LocalPlayerLyricsFullScreen provides isPlayerLyricsFullScreen,
                     ) {
-                        Row {
+                        // The opening animation sits under the content and over the background,
+                        // so the home screen rises through the particles as the burst lands
+                        // rather than wiping them away. Composed only when it is this launch's
+                        // entry; the overlay gates itself on the preference and on
+                        // LocalAnimationsDisabled as well.
+                        if (coldSplash) {
+                            SplashOverlay(
+                                isDark = useDarkTheme,
+                                skip = splashSkipped,
+                                onBurstStart = {
+                                    contentVisible = true
+                                },
+                                // Also the recovery path: if the overlay gives up — its ceiling,
+                                // or a tap that raced the engine — the content has to come back
+                                // even though no burst ever fired.
+                                onDismiss = {
+                                    contentVisible = true
+                                },
+                            )
+                        }
+                        Row(
+                            modifier =
+                                Modifier
+                                    // The reveal lives on the content, not on the root: the
+                                    // overlay is a sibling of this row, and an alpha on the
+                                    // shared parent would fade the particles out with the UI.
+                                    // ModulateAlpha keeps the row's own translucent surfaces
+                                    // from compositing into a solid block while it rises.
+                                    .graphicsLayer {
+                                        alpha = contentAlpha
+                                        translationY = (1f - contentAlpha) * SplashConfig.Reveal.RISE_DP.dp.toPx()
+                                        compositingStrategy = CompositingStrategy.ModulateAlpha
+                                    }
+                                    .pointerInput(contentVisible) {
+                                        // While the app content is invisible it must not be
+                                        // reachable, and it must not hold the reader either. The
+                                        // Initial pass runs outside-in, so consuming there denies
+                                        // every child gesture outright instead of racing the tap
+                                        // detectors inside the screen; a tap then ends the opening
+                                        // early, which is the way out if a frame never arrives.
+                                        if (!contentVisible) {
+                                            awaitPointerEventScope {
+                                                while (true) {
+                                                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                                                    event.changes.forEach { it.consume() }
+                                                    if (event.changes.any { it.changedToUp() }) {
+                                                        splashSkipped = true
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    },
+                        ) {
                             AnimatedVisibility(
                                 visible =
                                     useRail &&

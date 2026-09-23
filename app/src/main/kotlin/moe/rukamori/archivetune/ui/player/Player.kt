@@ -822,7 +822,7 @@ fun BottomSheetPlayer(
     val TextBackgroundColor =
         if (playerDesignStyle == PlayerDesignStyle.V9) {
             dynamicTextColor
-        } else if (playerDesignStyle == PlayerDesignStyle.V7) {
+        } else if (playerDesignStyle == PlayerDesignStyle.V7 || playerDesignStyle == PlayerDesignStyle.V8) {
             Color.White
         } else {
             when (playerBackground) {
@@ -840,7 +840,7 @@ fun BottomSheetPlayer(
     val icBackgroundColor =
         if (playerDesignStyle == PlayerDesignStyle.V9) {
             dynamicBgColor
-        } else if (playerDesignStyle == PlayerDesignStyle.V7) {
+        } else if (playerDesignStyle == PlayerDesignStyle.V7 || playerDesignStyle == PlayerDesignStyle.V8) {
             Color.Black
         } else {
             when (playerBackground) {
@@ -868,7 +868,7 @@ fun BottomSheetPlayer(
                 )
             }
         }.let { (tb, ib) ->
-            if (playerDesignStyle == PlayerDesignStyle.V7) {
+            if (playerDesignStyle == PlayerDesignStyle.V7 || playerDesignStyle == PlayerDesignStyle.V8) {
                 Pair(Color.White, Color.Black)
             } else if (playerDesignStyle == PlayerDesignStyle.V9) {
                 Pair(dynamicAccentColor, dynamicIconButtonColor)
@@ -1376,7 +1376,7 @@ fun BottomSheetPlayer(
                         0f
                     }
                 dynamicBgColor.copy(alpha = 1f - fadeProgress)
-            } else if (playerDesignStyle == PlayerDesignStyle.V7) {
+            } else if (playerDesignStyle == PlayerDesignStyle.V7 || playerDesignStyle == PlayerDesignStyle.V8) {
                 val progress =
                     ((state.value - state.collapsedBound) / (state.expandedBound - state.collapsedBound))
                         .coerceIn(0f, 1f)
@@ -1605,7 +1605,7 @@ fun BottomSheetPlayer(
                 context = context,
                 onSliderValueChange = onSliderValueChange,
                 onSliderValueChangeFinished = onSliderValueChangeFinished,
-                currentFormat = if (playerDesignStyle == PlayerDesignStyle.V7) currentFormat else null,
+                currentFormat = if (playerDesignStyle == PlayerDesignStyle.V7 || playerDesignStyle == PlayerDesignStyle.V8) currentFormat else null,
             )
         }
 
@@ -1647,6 +1647,7 @@ fun BottomSheetPlayer(
             !aodModeEnabled &&
             playerDesignStyle != PlayerDesignStyle.V5 &&
             playerDesignStyle != PlayerDesignStyle.V7 &&
+            playerDesignStyle != PlayerDesignStyle.V8 &&
             playerDesignStyle != PlayerDesignStyle.V9 &&
             playerDesignStyle != PlayerDesignStyle.APPLE_MUSIC &&
             playerDesignStyle != PlayerDesignStyle.BITCHORD &&
@@ -1916,6 +1917,54 @@ fun BottomSheetPlayer(
                             }
 
                             Spacer(Modifier.height(16.dp))
+                        }
+                    }
+                } else if (playerDesignStyle == PlayerDesignStyle.V8) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
+                        V8PlayerBackdrop(
+                            thumbnailUrl = mediaMetadata?.thumbnailUrl,
+                        )
+
+                        enrichedMetadata?.let { metadata ->
+                            V8PlayerContent(
+                                mediaMetadata = metadata,
+                                queueTitle = queueTitle,
+                                playbackState = playbackState,
+                                isPlaying = isPlaying,
+                                isLoading = isLoading,
+                                canSkipPrevious = canSkipPrevious,
+                                canSkipNext = canSkipNext,
+                                currentSongLiked = currentSongLiked,
+                                sliderPosition = sliderPosition,
+                                position = position,
+                                duration = duration,
+                                volume = deviceMusicVolumeController.volumeFraction,
+                                showVolumeBar = showPlayerVolumeBar,
+                                playerConnection = playerConnection,
+                                navController = navController,
+                                state = state,
+                                menuState = menuState,
+                                bottomSheetPageState = bottomSheetPageState,
+                                currentFormat = currentFormat,
+                                canvasPrimaryUrl = artworkCanvas?.animated,
+                                canvasFallbackUrl = artworkCanvas?.videoUrl,
+                                onSliderValueChange = onSliderValueChange,
+                                onSliderValueChangeFinished = onSliderValueChangeFinished,
+                                onVolumeChange = onPlayerVolumeChange,
+                                landscape = true,
+                                modifier =
+                                    Modifier
+                                        .fillMaxSize()
+                                        .padding(bottom = queueSheetState.collapsedBound)
+                                        .windowInsetsPadding(
+                                            WindowInsets.systemBars.only(
+                                                WindowInsetsSides.Top + WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom
+                                            )
+                                        )
+                                        .nestedScroll(state.preUpPostDownNestedScrollConnection),
+                            )
                         }
                     }
 } else if (playerDesignStyle == PlayerDesignStyle.V9) {
@@ -2451,6 +2500,54 @@ fun BottomSheetPlayer(
                             }
 
                             Spacer(Modifier.height(24.dp))
+                        }
+                    }
+                } else if (playerDesignStyle == PlayerDesignStyle.V8) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
+                        V8PlayerBackdrop(
+                            thumbnailUrl = mediaMetadata?.thumbnailUrl,
+                        )
+
+                        enrichedMetadata?.let { metadata ->
+                            V8PlayerContent(
+                                mediaMetadata = metadata,
+                                queueTitle = queueTitle,
+                                playbackState = playbackState,
+                                isPlaying = isPlaying,
+                                isLoading = isLoading,
+                                canSkipPrevious = canSkipPrevious,
+                                canSkipNext = canSkipNext,
+                                currentSongLiked = currentSongLiked,
+                                sliderPosition = sliderPosition,
+                                position = position,
+                                duration = duration,
+                                volume = deviceMusicVolumeController.volumeFraction,
+                                showVolumeBar = showPlayerVolumeBar,
+                                playerConnection = playerConnection,
+                                navController = navController,
+                                state = state,
+                                menuState = menuState,
+                                bottomSheetPageState = bottomSheetPageState,
+                                currentFormat = currentFormat,
+                                canvasPrimaryUrl = artworkCanvas?.animated,
+                                canvasFallbackUrl = artworkCanvas?.videoUrl,
+                                onSliderValueChange = onSliderValueChange,
+                                onSliderValueChangeFinished = onSliderValueChangeFinished,
+                                onVolumeChange = onPlayerVolumeChange,
+                                landscape = false,
+                                modifier =
+                                    Modifier
+                                        .fillMaxSize()
+                                        .padding(bottom = queueSheetState.collapsedBound)
+                                        .windowInsetsPadding(
+                                            WindowInsets.systemBars.only(
+                                                WindowInsetsSides.Top + WindowInsetsSides.Horizontal
+                                            )
+                                        )
+                                        .nestedScroll(state.preUpPostDownNestedScrollConnection),
+                            )
                         }
                     }
 } else if (playerDesignStyle == PlayerDesignStyle.V9) {
@@ -3199,6 +3296,44 @@ private fun BackdropBlurApi30(
                     onError?.invoke(model)
                 }
             },
+        )
+    }
+}
+
+@Composable
+private fun V8PlayerBackdrop(
+    thumbnailUrl: String?,
+    modifier: Modifier = Modifier,
+) {
+    val backdropModel = remember(thumbnailUrl) {
+        thumbnailUrl?.resize(V8BackdropArtworkSizePx, V8BackdropArtworkSizePx)
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color.Black),
+    ) {
+        if (backdropModel != null) {
+            AsyncImage(
+                model = backdropModel,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .blur(44.dp)
+                    .graphicsLayer {
+                        scaleX = 1.16f
+                        scaleY = 1.16f
+                        alpha = 0.66f
+                    },
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.52f)),
         )
     }
 }

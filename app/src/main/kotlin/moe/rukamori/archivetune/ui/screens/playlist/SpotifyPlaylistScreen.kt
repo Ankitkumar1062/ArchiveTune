@@ -386,21 +386,15 @@ fun SpotifyPlaylistScreen(
         if (resolvingTrackId != null) return
 
         coroutineScope.launch {
-            resolvingTrackId = preloadTrack.id
-            try {
-                SpotifyPlaybackResolver.resolveToMetadata(preloadTrack)
-                playerConnection?.playQueue(
-                    SpotifyPlaylistQueue(
-                        playlistId = currentPlaylist.id,
-                        title = currentPlaylist.name,
-                        initialTracks = queueTracks,
-                        startIndex = boundedStartIndex,
-                        preloadItem = preloadTrack.toMediaMetadata(),
-                    ),
-                )
-            } finally {
-                resolvingTrackId = null
-            }
+            playerConnection?.playQueue(
+                SpotifyPlaylistQueue(
+                    playlistId = currentPlaylist.id,
+                    title = currentPlaylist.name,
+                    initialTracks = queueTracks,
+                    startIndex = boundedStartIndex,
+                    preloadItem = preloadTrack.toMediaMetadata(),
+                ),
+            )
         }
     }
 

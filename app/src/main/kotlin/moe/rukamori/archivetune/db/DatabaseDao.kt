@@ -297,6 +297,10 @@ interface DatabaseDao {
     fun playlistSongs(playlistId: String): Flow<List<PlaylistSong>>
 
     @Transaction
+    @Query("SELECT * FROM playlist_song_map WHERE playlistId = :playlistId ORDER BY position")
+    suspend fun getPlaylistSongs(playlistId: String): List<PlaylistSong>
+
+    @Transaction
     @Query(
         "SELECT song.* FROM library_song_artist_map JOIN song ON library_song_artist_map.songId = song.id WHERE artistId = COALESCE((SELECT targetId FROM local_music_alias WHERE sourceId = :artistId AND kind = 'artist'), :artistId) AND (inLibrary IS NOT NULL OR song.isLocal = 1) ORDER BY inLibrary",
     )

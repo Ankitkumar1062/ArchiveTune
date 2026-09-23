@@ -8,9 +8,13 @@
 package moe.rukamori.archivetune.ui.player
 
 import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -30,6 +34,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import moe.rukamori.archivetune.models.MediaMetadata
+import moe.rukamori.archivetune.ui.component.ListDialog
 
 /**
  * Renders a comma-separated artist line where **each artist name is individually tappable**.
@@ -80,6 +85,34 @@ fun ClickableArtists(
         viewportWidth.value > 0 &&
             (layoutResult?.size?.width ?: 0) > viewportWidth.value
 
+    var showArtistDialog by remember { mutableStateOf(false) }
+
+    if (showArtistDialog) {
+        val distinctArtists = remember(artists) {
+            artists.filter { !it.id.isNullOrBlank() }.distinctBy { it.id }
+        }
+        ListDialog(onDismiss = { showArtistDialog = false }) {
+            items(
+                items = distinctArtists,
+                key = { requireNotNull(it.id) },
+                contentType = { "artist" },
+            ) { artist ->
+                ListItem(
+                    headlineContent = {
+                        Text(text = artist.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            showArtistDialog = false
+                            artist.id?.let(onArtistClick)
+                        },
+                )
+            }
+        }
+    }
+
     Box(
         modifier =
             (if (shouldFade) modifier.viewportEdgeFade(fadeWidth) else modifier)
@@ -99,12 +132,19 @@ fun ClickableArtists(
                     .pointerInput(annotatedString) {
                     detectTapGestures(
                         onTap = { offset ->
-                            val layout = layoutResult ?: return@detectTapGestures
-                            val position = layout.getOffsetForPosition(offset)
-                            annotatedString
-                                .getStringAnnotations(position, position)
-                                .firstOrNull()
-                                ?.let { onArtistClick(it.item) }
+                            val distinctArtists = artists.filter { !it.id.isNullOrBlank() }.distinctBy { it.id }
+                            if (distinctArtists.size > 1) {
+                                showArtistDialog = true
+                            } else if (distinctArtists.size == 1) {
+                                distinctArtists.first().id?.let(onArtistClick)
+                            } else {
+                                val layout = layoutResult ?: return@detectTapGestures
+                                val position = layout.getOffsetForPosition(offset)
+                                annotatedString
+                                    .getStringAnnotations(position, position)
+                                    .firstOrNull()
+                                    ?.let { onArtistClick(it.item) }
+                            }
                         },
                         onLongPress = onLongClick?.let { handler -> { handler() } },
                     )
