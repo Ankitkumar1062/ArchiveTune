@@ -3,6 +3,7 @@
  * © Rukamori — github.com/rukamori
  * GPL-3.0 License | Contributors: see git history
  * Do not remove or alter this notice. - Per GPL-3.0 License Section 4 & Section 5
+ * Portions © vossgraves — github.com/vossgraves
  */
 
 package moe.rukamori.archivetune.playback
@@ -38,44 +39,12 @@ import java.io.File
 /**
  * Pool-aware lossless stream resolver, used by the **download path**
  * ([DownloadUtil.resolveSourceStream] / [DownloadUtil.prewarmSongForDownload]).
- *
- * This is a stand-alone re-implementation of the resolver logic in
- * [moe.rukamori.archivetune.playback.MusicService.resolveQobuzStream] and
- * [moe.rukamori.archivetune.playback.MusicService.resolveTidalStream],
- * so downloads reach the **same community Source Pool accounts**
- * (Qobuz/Tidal subscriber tokens) that playback uses, instead of
- * calling [QobuzAudioProvider.resolve] / [TidalAudioProvider.resolve]
- * directly with only the user's own credentials.
- *
- * Without this, downloads of uncached songs silently fell through the
- * AUTO chain (Qobuz → Tidal → Deezer → YouTube Music) because the user
- * had no personal Qobuz/Tidal credentials configured, and ended up at
- * the YouTube Music fallback — which serves Opus audio inside a WebM
- * container (lossy, not jaudiotagger-readable, no embedded metadata).
- *
- * The fix: before each resolve, push the **pool-merged** token list /
- * instance list into the providers, exactly like MusicService does for
- * playback. Then [QobuzAudioProvider.resolve] / [TidalAudioProvider.resolve]
- * will pick the pool's premium accounts first and resolve a real FLAC
- * stream URL against the official Qobuz/Tidal APIs.
- *
- * All resolvers run on the calling thread (the caller is expected to be
- * on `Dispatchers.IO` already — see [DownloadUtil.downloadExecutor]).
  */
 object LosslessStreamResolver {
 
     /**
-     * Resolves a Qobuz stream URL for [mediaId] using the user's own
-     * Qobuz tokens + community Source Pool accounts.
-     *
-     * Mirrors [MusicService.resolveQobuzStream] — merges user tokens +
-     * pool tokens, merges user instances + discovered instances, pushes
-     * them into [QobuzAudioProvider], then calls [QobuzAudioProvider.resolve].
-     *
-     * Returns null when:
-     *  - No tokens and no instances are configured (user has nothing +
-     *    pool is disabled/empty).
-     *  - The provider can't find a matching track / can't get a stream URL.
+     * Resolves a Qobuz stream URL for [mediaId] using the user's own Qobuz tokens + community
+     * Source Pool accounts.
      */
     fun resolveQobuz(
         context: Context,
@@ -85,9 +54,8 @@ object LosslessStreamResolver {
         album: String?,
         durationMs: Long?,
         formatId: Int,
-        isrc: String? = null,
+        directTrackId: String? = null,
     ): DirectStream? {
-        val resolvedIsrc = isrc ?: moe.rukamori.archivetune.audiosource.IsrcResolver.resolveBlocking(mediaId, title, artists, durationMs)?.isrc
         val userInstances = parseMultiline(context, QobuzInstancesKey)
         val discoveredInstances = runCatching { QobuzAudioProvider.discoverInstances() }
             .getOrDefault(emptyList())
@@ -126,7 +94,7 @@ object LosslessStreamResolver {
                         artists = artists,
                         album = album,
                         durationMs = durationMs,
-                        isrc = resolvedIsrc,
+                        directTrackId = directTrackId,
                     ),
                     formatId = formatId,
                 )
@@ -160,9 +128,7 @@ object LosslessStreamResolver {
         durationMs: Long?,
         audioQuality: TidalAudioQuality,
         cacheDir: File,
-        isrc: String? = null,
     ): DirectStream? {
-        val resolvedIsrc = isrc ?: moe.rukamori.archivetune.audiosource.IsrcResolver.resolveBlocking(mediaId, title, artists, durationMs)?.isrc
         val apiQuality = when (audioQuality) {
             TidalAudioQuality.HI_RES_LOSSLESS -> "HI_RES_LOSSLESS"
             TidalAudioQuality.FLAC -> "LOSSLESS"
@@ -170,8 +136,8 @@ object LosslessStreamResolver {
         }
         val accountFirst = readBoolean(context, TidalAccountFirstKey, true)
         Timber.tag("LosslessResolver").d(
-            "Tidal resolve start | quality=%s accountFirst=%s poolAccounts=%d isrc=%s",
-            audioQuality.name, accountFirst, PoolAccountManager.tidalAccounts().size, resolvedIsrc,
+            "Tidal resolve start | quality=%s accountFirst=%s poolAccounts=%d",
+            audioQuality.name, accountFirst, PoolAccountManager.tidalAccounts().size,
         )
 
         if (accountFirst) {
@@ -200,11 +166,18 @@ object LosslessStreamResolver {
                 if (stream != null) return stream
             }
 
-            // 2) Shared premium Tidal accounts from the community Source Pool.
-            //    These are real subscriber tokens, so they resolve full-quality
-            //    FLAC directly via the official API — no proxy instance needed.
+            // 2) Shared premium Tidal accounts from the community Source Pool. These are real
+            // subscriber tokens, so they resolve full-quality FLAC directly via the official API —
+            // no proxy instance needed.
             val poolAccounts = PoolAccountManager.tidalAccounts()
             if (poolAccounts.isNotEmpty()) {
+                // Race all pool accounts in parallel: the first hit wins and the rest are
+                // cancelled. With N pool accounts this reduces the worst-case wall time from
+                // N × resolve_time to ~1 × resolve_time (typical speedup: 10× for a 10-account
+                // pool where the user's first 9 accounts don't have the track).
+                //
+                // resolveTidal is NOT a suspend function, so we wrap the
+                // coroutineScope in runBlocking to bridge into the suspend world.
                 val stream = runCatching {
                     runBlocking(Dispatchers.IO) {
                         coroutineScope {
@@ -239,6 +212,7 @@ object LosslessStreamResolver {
                                 val result = job.await()
                                 if (result != null) {
                                     winner = result
+                                    // Cancel any still-pending jobs — we have a winner.
                                     jobs.forEach { other -> if (!other.isCompleted) other.cancel() }
                                     break
                                 }
@@ -259,6 +233,9 @@ object LosslessStreamResolver {
         }
 
         // 3) Fallback: public HiFi/QQDL instances (user-configured + pool-discovered).
+        //    These proxy servers do NOT require any account — they re-stream Tidal
+        //    lossless audio publicly. Quality is lower than the account path but
+        //    still FLAC when the instance supports it.
         val configuredInstances = parseMultiline(context, TidalInstancesKey)
         val discoveredInstances = TidalInstanceHealthManager.healthyUrls(context)
         val mergedInstances = LinkedHashSet<String>().apply {
@@ -275,7 +252,7 @@ object LosslessStreamResolver {
                         title = title,
                         artists = artists,
                         album = album,
-                        isrc = resolvedIsrc,
+                        isrc = null,
                         durationMs = durationMs,
                     ),
                     cacheDir = cacheDir,
@@ -298,7 +275,6 @@ object LosslessStreamResolver {
                 matchedArtist = resolved.matchedArtist,
                 matchedAlbum = resolved.matchedAlbum,
                 matchedDurationMs = resolved.matchedDurationMs,
-                matchedIsrc = resolved.matchedIsrc,
             )
         }
     }
@@ -306,25 +282,6 @@ object LosslessStreamResolver {
     /**
      * Resolves a **Qobuz backup** stream for [mediaId] — the community-hosted `mlc-ytify.kouzu.in`
      * mirror, keyed by YouTube video id.
-     *
-     * Needs no Source Pool account and no credentials at all, which makes it the one lossless
-     * source that works on a fresh install. That is also why it belongs in the download priority
-     * list: before it was added there, a user with no pool accounts had every lossless entry in the
-     * chain return null and every download fall through to the lossy YouTube fallback, even for
-     * tracks the mirror had in FLAC.
-     *
-     * Delegates to [QobuzBackupProvider.resolveStream], the same resolver the playback path uses,
-     * so mirror selection and FLAC detection cannot drift between playing a song and downloading
-     * it. The mirror serves plain HTTPS with no decryption step, so the resolved URL is directly
-     * usable by the downloader's HTTP data source.
-     *
-     * Deliberately NOT gated on the `QobuzBackupEnabledKey` playback toggle: the download priority
-     * list is the control for downloads, exactly as it is for Qobuz, Tidal and Deezer — none of
-     * which consult their playback switches here either. A user who drags this source to the top of
-     * the download list means it.
-     *
-     * @param mediaId the song's YouTube video id. Anything that is not an 11-character video id is
-     *   rejected by the provider, which is the normal outcome for a local or imported track.
      */
     fun resolveQobuzBackup(mediaId: String): DirectStream? =
         runCatching {
@@ -350,22 +307,7 @@ object LosslessStreamResolver {
             Timber.tag("LosslessResolver").w(error, "Qobuz backup resolve failed for %s", mediaId)
         }.getOrNull()
 
-    /**
-     * Resolves a **Deezer** stream for [mediaId].
-     *
-     * Mirrors `MusicService.resolveDeezerStream`, including the credential guard: the provider merges
-     * the manually signed-in ARL with the pool's shared accounts, so this must go through
-     * [DeezerAudioProvider.hasAccounts] rather than reading [PoolAccountManager] directly.
-     *
-     * The returned [DirectStream.uri] is a `deezer://` URI, not an HTTPS URL — the CDN bytes are
-     * Blowfish-encrypted and only become audio after `DeezerDecryptingDataSource` has run over them.
-     * `DownloadUtil` routes that scheme to a decrypting upstream, so what lands in the download cache
-     * is a plain FLAC/MP3 file that jaudiotagger can tag. This used to be a hard-coded `null` in the
-     * download chain, with a comment claiming the public Deezer API only exposes 30-second previews —
-     * true of `api.deezer.com`, but stale ever since full Premium streaming was ported: playback has
-     * resolved real Deezer streams through this exact provider since then, while downloads silently
-     * fell through to the YouTube fallback.
-     */
+    /** Resolves a **Deezer** stream for [mediaId]. */
     fun resolveDeezer(
         mediaId: String,
         title: String,
@@ -373,9 +315,7 @@ object LosslessStreamResolver {
         album: String?,
         durationMs: Long?,
         format: String,
-        isrc: String? = null,
     ): DirectStream? {
-        val resolvedIsrc = isrc ?: moe.rukamori.archivetune.audiosource.IsrcResolver.resolveBlocking(mediaId, title, artists, durationMs)?.isrc
         if (!DeezerAudioProvider.hasAccounts()) {
             Timber.tag("LosslessResolver").d("Deezer skip: no manual or pooled accounts available")
             return null
@@ -391,7 +331,6 @@ object LosslessStreamResolver {
                                 artists = artists,
                                 album = album,
                                 durationMs = durationMs,
-                                isrc = resolvedIsrc,
                             ),
                         format = format,
                     )?.let { resolved ->
@@ -406,8 +345,6 @@ object LosslessStreamResolver {
                             matchedArtist = resolved.matchedArtist,
                             matchedAlbum = resolved.matchedAlbum,
                             matchedDurationMs = resolved.matchedDurationMs,
-                            matchedIsExplicit = resolved.matchedIsExplicit,
-                            matchedIsrc = resolved.matchedIsrc,
                             sampleRate = resolved.sampleRate,
                             bitDepth = resolved.bitDepth,
                         )
@@ -418,20 +355,7 @@ object LosslessStreamResolver {
         }.getOrNull()
     }
 
-    /**
-     * Resolves a **JioSaavn** stream for [mediaId].
-     *
-     * JioSaavn is unauthenticated — no account, no pool, no decryption — and returns a plain HTTPS
-     * AAC URL, so the download path can use it exactly as playback does. It was previously a
-     * hard-coded `null` in the download chain with a comment saying a "stable, contentLength-bearing
-     * resolver" was still needed; that requirement turned out to be unnecessary. The downloader
-     * derives the length from the response itself (see `PRDownloaderDataSource`), which is how the
-     * YouTube fallback already works — every YouTube stream URL arrives without a declared length
-     * too.
-     *
-     * Mirrors `MusicService.resolveJioSaavnStream`, including the candidate scoring, so a track
-     * downloads as the same recording it plays as.
-     */
+    /** Resolves a **JioSaavn** stream for [mediaId]. */
     fun resolveJioSaavn(
         mediaId: String,
         title: String,
@@ -439,7 +363,6 @@ object LosslessStreamResolver {
         album: String?,
         durationMs: Long?,
         qualityApiValue: String,
-        isExplicit: Boolean = false,
     ): DirectStream? {
         val artistHint = artists.firstOrNull()?.takeIf { it.isNotBlank() }.orEmpty()
         val albumHint = album?.takeIf { it.isNotBlank() }.orEmpty()
@@ -461,7 +384,7 @@ object LosslessStreamResolver {
                         // download as a truncated file.
                         .filter { !it.isProOnly && it.downloadUrl.isNotEmpty() }
                         .minByOrNull { song ->
-                            var penalty = saavnMatchPenalty(
+                            saavnMatchPenalty(
                                 candidateTitle = song.name,
                                 candidateArtist = song.artists.primary.firstOrNull()?.name,
                                 candidateDurationSec = song.duration?.toLong(),
@@ -469,10 +392,6 @@ object LosslessStreamResolver {
                                 wantedArtist = artistHint,
                                 wantedDurationSec = wantedDurationSec,
                             )
-                            if (moe.rukamori.archivetune.audiosource.TrackMatching.hasExplicitMismatch(isExplicit, song.explicitContent)) {
-                                penalty += 20
-                            }
-                            penalty
                         } ?: return@runBlocking null
                 val streamUrl =
                     SaavnService.selectBestUrl(candidate.downloadUrl, qualityApiValue)
@@ -488,7 +407,6 @@ object LosslessStreamResolver {
                     matchedArtist = candidate.artists.primary.firstOrNull()?.name,
                     matchedAlbum = candidate.album?.name,
                     matchedDurationMs = candidate.duration?.toLong()?.times(1000L),
-                    matchedIsExplicit = candidate.explicitContent,
                 )
             }
         }.onFailure { error ->
@@ -544,7 +462,7 @@ object LosslessStreamResolver {
     }
 
     /** Strips punctuation and whitespace so titles compare on their words alone. */
-    private val SAAVN_NORMALIZE_REGEX = Regex("[^\\p{L}\\p{N}]")
+    private val SAAVN_NORMALIZE_REGEX = Regex("[^a-z0-9]")
 
     /**
      * Returns the cache key prefix for [source], matching

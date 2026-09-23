@@ -1,5 +1,12 @@
 /*
  * ArchiveTune (2026)
+ * © vossgraves — github.com/vossgraves
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
+
+/*
+ * ArchiveTune (2026)
  * © Rukamori — github.com/rukamori
  * GPL-3.0 License | Contributors: see git history
  * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
@@ -18,6 +25,8 @@ enum class StreamPurpose {
 enum class StreamSource {
     YT_DLP,
     NATIVE_INNERTUBE,
+    NEWPIPE,
+    INNERTUBE_X,
 }
 
 data class AudioStreamRequest(
@@ -50,3 +59,7 @@ data class ResolvedAudioStream(
     val perceptualLoudnessDb: Double? = null,
     val playbackTrackingUrl: String? = null,
 )
+
+/** The bare codec list of an RFC 6381 mime type such as `audio/webm; codecs="opus"`. */
+internal fun String.codecsFromMimeType(): String =
+    substringAfter("codecs=", "").removeSurrounding("\"").substringBefore("\"")

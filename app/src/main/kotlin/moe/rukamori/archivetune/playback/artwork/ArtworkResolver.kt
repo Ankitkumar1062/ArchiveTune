@@ -3,6 +3,7 @@
  * © Rukamori — github.com/rukamori
  * GPL-3.0 License | Contributors: see git history
  * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ * Portions © vossgraves — github.com/vossgraves
  */
 
 package moe.rukamori.archivetune.playback.artwork
@@ -20,24 +21,7 @@ import moe.rukamori.archivetune.constants.DefaultArtworkProviderOrder
 import moe.rukamori.archivetune.constants.PreferredArtworkProvider
 import timber.log.Timber
 
-/**
- * The single authoritative artwork-resolution pipeline.
- *
- * Deterministic provider priority (never "last request wins"):
- *   1. [ArtworkProvider.LOCAL_EMBEDDED] for local files / local content URIs.
- *   2. [ArtworkProvider.ORIGINAL_METADATA] when the metadata already carries an artwork URL.
- *   3. [ArtworkProvider.TIDAL] as a fallback only when: the user enabled Tidal artwork,
- *      Tidal is available, no original artwork exists, and the match confidence clears
- *      [MIN_TIDAL_CONFIDENCE].
- *   4. Otherwise [ArtworkProvider.ORIGINAL_METADATA] with a null URL (UI keeps its placeholder).
- *
- * Guarantees:
- *  - Single-flight: concurrent resolves for the same [ArtworkCacheKey] share one fetch.
- *  - A provider disabled mid-flight cannot publish its late result.
- *  - [beginTrack]/[isCurrent] let callers reject results for tracks that are no longer current.
- *  - Successes are cached by artwork identity; failures only briefly (never permanently).
- *  - [CancellationException] is always rethrown.
- */
+/** The single authoritative artwork-resolution pipeline. */
 class ArtworkResolver(
     private val tidalFetcher: TidalArtworkFetcher,
     private val settings: StateFlow<ArtworkSettings>,
@@ -64,6 +48,26 @@ class ArtworkResolver(
     private val failureCache = HashMap<ArtworkCacheKey, Long>()
     private val cacheLock = Any()
     private val keyMutexes = ConcurrentHashMap<ArtworkCacheKey, Mutex>()
+
+    /**
+     * Records a negative result for [key]. Expired entries were previously only dropped when the
+     * same key was asked for again, so a long session that resolved thousands of tracks held every
+     * one of them for the life of the process; prune on write instead.
+     */
+    private fun rememberFailure(
+        key: ArtworkCacheKey,
+        ttlMs: Long,
+    ) {
+        synchronized(cacheLock) {
+            if (failureCache.size >= MAX_FAILURE_ENTRIES) {
+                val now = clock()
+                failureCache.entries.removeAll { expiry -> expiry.value <= now }
+                // Still full of live entries — drop them all rather than grow without bound.
+                if (failureCache.size >= MAX_FAILURE_ENTRIES) failureCache.clear()
+            }
+            failureCache[key] = clock() + ttlMs
+        }
+    }
 
     /**
      * Marks [mediaId] as the current track and returns the new generation token.
@@ -208,9 +212,7 @@ class ArtworkResolver(
                         throw error
                     } catch (error: Throwable) {
                         Timber.tag(TAG).w(error, "artwork tidal fetch failed mediaId=%s", request.mediaId)
-                        synchronized(cacheLock) {
-                            failureCache[key] = clock() + FAILURE_CACHE_MS
-                        }
+                        rememberFailure(key, FAILURE_CACHE_MS)
                         null
                     }
 
@@ -232,9 +234,7 @@ class ArtworkResolver(
                             match.matchMethod,
                             match.confidence,
                         )
-                        synchronized(cacheLock) {
-                            failureCache[key] = clock() + NO_MATCH_CACHE_MS
-                        }
+                        rememberFailure(key, NO_MATCH_CACHE_MS)
                     }
                     return@withLock noArtwork(
                         request,
@@ -297,6 +297,12 @@ class ArtworkResolver(
         const val MIN_TIDAL_CONFIDENCE = 0.45f
         const val TIDAL_ARTWORK_SIZE = 1080
         const val MAX_CACHE_ENTRIES = 128
+
+        /**
+         * Bound for the negative cache. Generous next to [MAX_CACHE_ENTRIES] because a failure
+         * entry holds a key and an expiry where a success entry holds a whole resolution.
+         */
+        const val MAX_FAILURE_ENTRIES = 512
 
         /** Transient network/provider failures: retried after a short window. */
         const val FAILURE_CACHE_MS = 60_000L

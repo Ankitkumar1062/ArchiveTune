@@ -3,6 +3,7 @@
  * © Rukamori — github.com/rukamori
  * GPL-3.0 License | Contributors: see git history
  * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ * Portions © vossgraves — github.com/vossgraves
  */
 
 package moe.rukamori.archivetune.spotify
@@ -10,6 +11,7 @@ package moe.rukamori.archivetune.spotify
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -28,7 +30,6 @@ import moe.rukamori.archivetune.spotify.models.SpotifyArtist
 import moe.rukamori.archivetune.spotify.models.SpotifyPlayHistory
 import moe.rukamori.archivetune.spotify.models.SpotifyPlaylist
 import moe.rukamori.archivetune.spotify.models.SpotifyTrack
-import javax.inject.Inject
 
 @HiltViewModel
 class SpotifyLibraryViewModel
@@ -36,7 +37,7 @@ class SpotifyLibraryViewModel
     constructor(
         private val repository: SpotifyLibraryRepository,
     ) : ViewModel() {
-        val playlists: StateFlow<List<SpotifyPlaylist>> = repository.playlists
+        val playlists: StateFlow<List<SpotifyPlaylist>?> = repository.playlists
         val isRefreshing: StateFlow<Boolean> = repository.isRefreshing
         val errorMessage: StateFlow<String?> = repository.errorMessage
 
@@ -73,7 +74,6 @@ class SpotifyLibraryViewModel
                     _artists.value = SpotifyLibrarySectionState()
                     _albums.value = SpotifyLibrarySectionState()
                     _recentlyPlayed.value = SpotifyLibrarySectionState()
-                    repository.clearRecentlyPlayedCache()
                     _accountRevision.value += 1
                 }
             }
@@ -103,8 +103,28 @@ class SpotifyLibraryViewModel
 
         fun loadAlbums(force: Boolean = false) = load(force, _albums) { repository.libraryAlbums() }
 
-        fun loadRecentlyPlayed(force: Boolean = false) =
-            load(force, _recentlyPlayed) { repository.recentlyPlayed(force) }
+        /**
+         * Loads the Spotify play history for the History (and Stats) source.
+         *
+         * Seeds the section from disk so history renders offline, then lets the repository's expiry
+         * decide whether a read is owed — the section loader's own "items exist, do not fetch again"
+         * guard would otherwise keep a week-old history on screen for the life of the process. The
+         * read's single-flight and rate-limit gate belong to [SpotifyLibraryRepository.recentlyPlayed],
+         * which is what makes a stale refresh safe to ask for.
+         */
+        fun loadRecentlyPlayed(force: Boolean = false) {
+            sectionScope.launch {
+                if (_recentlyPlayed.value.items == null) {
+                    repository.restoreCachedRecentlyPlayed()?.let { cached ->
+                        _recentlyPlayed.value = SpotifyLibrarySectionState(items = cached)
+                    }
+                }
+                val stale = _recentlyPlayed.value.items != null && !repository.recentlyPlayedIsFresh()
+                loadSpotifySection(target = _recentlyPlayed, force = force || stale) {
+                    repository.recentlyPlayed(force = force)
+                }
+            }
+        }
 
         private fun <T> load(
             force: Boolean,
@@ -121,7 +141,46 @@ data class SpotifyLibrarySectionState<T>(
     val items: List<T>? = null,
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
+    /** When the last attempt failed, as elapsed-realtime millis. Drives [SpotifyRetryCooldownMs]. */
+    val failedAtMillis: Long? = null,
 )
+
+/**
+ * How long a failed section waits before a screen visit may retry it.
+ *
+ * A failure leaves `items` null, so without this every recomposition that calls a load function
+ * fetches again. Against a 429 that is the worst possible response: the retries are what keep the
+ * limit in force. Spotify's own limit is a rolling 30-second window, so a minute clears it while
+ * still feeling responsive. Pulling to refresh passes `force` and ignores this.
+ */
+private const val SpotifyRetryCooldownMs = 60_000L
+
+/**
+ * Whether a Spotify error message means the rate limit was hit.
+ *
+ * The client has three shapes for this: the REST client throws the literal "Rate limited"
+ * (`spotifycore` Spotify.kt), the auth layer surfaces "Request failed with HTTP 429", and a raw
+ * response body can carry "Too Many Requests". Matching only the status code left the retry
+ * cooldown and the friendly stats message dead for the common case, so every reader now goes
+ * through here.
+ */
+internal fun isSpotifyRateLimitMessage(message: String?): Boolean =
+    message != null &&
+        (
+            message.contains("429") ||
+                message.contains("Too Many Requests", ignoreCase = true) ||
+                message.contains("Rate limit", ignoreCase = true)
+        )
+
+/**
+ * Monotonic milliseconds for the retry cooldown.
+ *
+ * Deliberately not `android.os.SystemClock`: nothing here needs the Android clock, and reaching for
+ * it made the whole function untestable off-device — the stub android.jar throws on every unmocked
+ * call, so `SpotifyLibraryViewModelTest` failed with a "not mocked" RuntimeException instead of
+ * asserting anything about the cooldown it exists to pin.
+ */
+private fun monotonicMillis(): Long = System.nanoTime() / 1_000_000
 
 @androidx.annotation.MainThread
 internal suspend fun <T> loadSpotifySection(
@@ -132,7 +191,12 @@ internal suspend fun <T> loadSpotifySection(
     currentCoroutineContext().ensureActive()
     val previous = target.value
     if (previous.isLoading || (!force && previous.items != null)) return
-    val loading = previous.copy(isLoading = true, errorMessage = null)
+    if (!force) {
+        val failedAt = previous.failedAtMillis
+        val cooldown = if (isSpotifyRateLimitMessage(previous.errorMessage)) SpotifyRetryCooldownMs * 5 else SpotifyRetryCooldownMs
+        if (failedAt != null && monotonicMillis() - failedAt < cooldown) return
+    }
+    val loading = previous.copy(isLoading = true, errorMessage = null, failedAtMillis = null)
     target.value = loading
     try {
         val items = fetch()
@@ -142,11 +206,11 @@ internal suspend fun <T> loadSpotifySection(
         throw error
     } catch (error: Exception) {
         currentCoroutineContext().ensureActive()
-        val preservedItems = previous.items
-        target.value = previous.copy(
-            items = preservedItems,
-            errorMessage = if (preservedItems.isNullOrEmpty()) (error.message ?: error.javaClass.simpleName) else null,
-        )
+        target.value =
+            previous.copy(
+                errorMessage = error.message ?: error.javaClass.simpleName,
+                failedAtMillis = monotonicMillis(),
+            )
     } finally {
         // An account change may already have reset the state or started its replacement request.
         if (target.value === loading) target.value = previous

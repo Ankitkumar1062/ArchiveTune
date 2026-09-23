@@ -1854,6 +1854,12 @@
     <string name="podcast">Podcast</string>
     <string name="episode">Episode</string>
     <string name="episodes">Episodes</string>
+    <plurals name="n_episode">
+        <item quantity="one">%d episode</item>
+        <item quantity="other">%d episodes</item>
+    </plurals>
+    <string name="search_episodes">Search episodes</string>
+    <string name="podcast_has_no_episodes">This podcast has no available episodes.</string>
     <string name="save_podcast">Save podcast</string>
     <string name="unsave_podcast">Unsave podcast</string>
     <string name="podcast_saved">Podcast saved</string>

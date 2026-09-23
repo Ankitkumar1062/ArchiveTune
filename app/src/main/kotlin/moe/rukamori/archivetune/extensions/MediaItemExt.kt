@@ -66,6 +66,10 @@ fun Song.toMediaItem() =
                     },
                 )
                 .setAlbumTitle(song.albumName)
+                .setAlbumArtist(song.albumArtist)
+                .setTrackNumber(song.trackNumber)
+                .setDiscNumber(song.discNumber)
+                .setReleaseYear(song.year)
                 .setIsPlayable(true)
                 .setMediaType(MEDIA_TYPE_MUSIC)
                 .setExtras(Bundle().apply { putBoolean(ExtraIsMusicVideo, song.isMusicVideo) })
@@ -118,6 +122,10 @@ fun MediaMetadata.toMediaItem() =
                         thumbnailUrl.toNotificationArtworkUri()
                     },
                 ).setAlbumTitle(album?.title)
+                .setAlbumArtist(albumArtist)
+                .setTrackNumber(trackNumber)
+                .setDiscNumber(discNumber)
+                .setReleaseYear(year)
                 .setIsPlayable(true)
                 .setMediaType(MEDIA_TYPE_MUSIC)
                 .setExtras(Bundle().apply { putBoolean(ExtraIsMusicVideo, isMusicVideo) })

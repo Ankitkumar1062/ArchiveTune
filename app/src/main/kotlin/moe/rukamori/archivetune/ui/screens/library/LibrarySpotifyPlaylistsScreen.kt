@@ -39,7 +39,8 @@ fun LibrarySpotifyPlaylistsScreen(
     navController: NavController,
     viewModel: SpotifyLibraryViewModel = hiltViewModel(),
 ) {
-    val playlists by viewModel.playlists.collectAsStateWithLifecycle()
+    val playlistsState by viewModel.playlists.collectAsStateWithLifecycle()
+    val playlists = playlistsState.orEmpty()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     val accountRevision by viewModel.accountRevision.collectAsStateWithLifecycle()
 
@@ -77,7 +78,7 @@ fun LibrarySpotifyPlaylistsScreen(
                 LibrarySourcePills(modifier = Modifier.padding(bottom = 4.dp), horizontalPadding = 0.dp)
             }
 
-            if (playlists.isEmpty()) {
+            if (playlistsState != null && playlists.isEmpty() && !isRefreshing) {
                 item(key = "spotify_empty", contentType = "spotify_empty") {
                     Text(
                         text = stringResource(R.string.spotify_no_sources),

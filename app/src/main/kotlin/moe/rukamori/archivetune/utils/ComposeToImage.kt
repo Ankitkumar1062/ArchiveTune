@@ -3,6 +3,7 @@
  * © Rukamori — github.com/rukamori
  * GPL-3.0 License | Contributors: see git history
  * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ * Portions © vossgraves — github.com/vossgraves
  */
 
 package moe.rukamori.archivetune.utils
@@ -30,7 +31,7 @@ import androidx.core.graphics.drawable.toBitmap
 import androidx.core.graphics.withClip
 import androidx.core.graphics.withTranslation
 import androidx.core.view.drawToBitmap
-import coil3.ImageLoader
+import coil3.SingletonImageLoader
 import coil3.request.ImageRequest
 import coil3.request.allowHardware
 import coil3.toBitmap
@@ -277,7 +278,10 @@ object ComposeToImage {
             var coverArtBitmap: Bitmap? = null
             if (coverArtUrl != null) {
                 try {
-                    val imageLoader = ImageLoader(context)
+                    // The process-wide loader, not a fresh ImageLoader(context): a new instance
+                    // carries its own empty memory cache and no disk cache, so every share of the
+                    // same song re-downloaded the cover art.
+                    val imageLoader = SingletonImageLoader.get(context)
                     val request =
                         ImageRequest
                             .Builder(context)
@@ -286,7 +290,11 @@ object ComposeToImage {
                             .allowHardware(false)
                             .build()
                     val result = imageLoader.execute(request)
-                    coverArtBitmap = result.image?.toBitmap()
+                    // The canvas below is software, and Coil's memory cache may still hand back a
+                    // hardware bitmap decoded for another screen — convert it before anything
+                    // draws it, or the draw throws "Software rendering doesn't support hardware
+                    // bitmaps" (API 26+).
+                    coverArtBitmap = result.image?.toBitmap()?.let(::ensureSoftwareBitmap)
                 } catch (e: Exception) {
                     reportException(e)
                 }
@@ -794,31 +802,8 @@ object ComposeToImage {
     }
 
     /**
-     * Renders a "vinyl"-style share image inspired by the MD Vinyl reference
-     * screenshot the user uploaded. Layout (top-to-bottom, left-to-right):
-     *
-     *   - Dark teal/navy background filling the canvas.
-     *   - Centered horizontal Row (vertically centered around the upper 60%
-     *     of the canvas) containing:
-     *       * Square album cover on the LEFT, with a thin white border.
-     *       * Vinyl record (black disc + subtle groove rings + cyan center
-     *         label) peeking out from BEHIND the cover on the RIGHT. The
-     *         cover overlaps the left ~40% of the disc.
-     *       * Song title + artist drawn on the center label (multi-line,
-     *         centered, ellipsized if too long).
-     *   - Song title in large white bold text below the cover/vinyl row.
-     *   - Artist name in smaller white text below the title.
-     *   - "ARCHIVETUNE" wordmark at the very bottom.
-     *
-     * The image is always rendered as a square (canvasSize × canvasSize),
-     * regardless of [width]/[height] — the vinyl aesthetic only works at 1:1.
-     * Callers passing non-square dimensions get a square back, padded to the
-     * larger of width/height, so the share intent always receives a valid
-     * image.
-     *
-     * If the album art can't be loaded, the cover is rendered as a flat dark
-     * grey square with a music-note glyph fallback (so the layout still reads
-     * as "vinyl + cover" rather than collapsing to just a disc).
+     * Renders a "vinyl"-style share image inspired by the MD Vinyl reference screenshot the user
+     * uploaded.
      */
     @RequiresApi(Build.VERSION_CODES.M)
     suspend fun createVinylImage(
@@ -853,13 +838,13 @@ object ComposeToImage {
             var coverArtBitmap: Bitmap? = null
             if (coverArtUrl != null) {
                 runCatching {
-                    val imageLoader = ImageLoader(context)
+                    val imageLoader = SingletonImageLoader.get(context)
                     val request = ImageRequest.Builder(context)
                         .data(coverArtUrl)
                         .size(canvasSize / 2)
                         .allowHardware(false)
                         .build()
-                    coverArtBitmap = imageLoader.execute(request).image?.toBitmap()
+                    coverArtBitmap = imageLoader.execute(request).image?.toBitmap()?.let(::ensureSoftwareBitmap)
                 }
             }
 
@@ -1085,17 +1070,8 @@ object ComposeToImage {
 
 /**
  * Fetches the image at [thumbnailUrl] via Coil and saves it to
- * `Pictures/ArchiveTune/<fileName>.png` via MediaStore (Android 10+) or
- * the app's cache dir + FileProvider (pre-Q). Returns the saved [Uri] on
- * success, or null if the URL was null/blank, the network fetch failed,
- * or the decoded bitmap was null.
- *
- * Used by the "Download cover" overflow-menu action in song menus —
- * gives users a one-tap way to save the album art for any song to their
- * gallery without needing to grant runtime permissions.
- *
- * Must be called on a background dispatcher (it does network I/O + disk
- * writes); callers typically wrap it in `withContext(Dispatchers.IO)`.
+ * `Pictures/ArchiveTune/<fileName>.png` via MediaStore (Android 10+) or the app's cache dir +
+ * FileProvider (pre-Q).
  */
 suspend fun saveCoverArtworkFromUrl(
     context: Context,
@@ -1105,7 +1081,7 @@ suspend fun saveCoverArtworkFromUrl(
     if (thumbnailUrl.isNullOrBlank()) return null
     return withContext(Dispatchers.IO) {
         runCatching {
-            val loader = coil3.SingletonImageLoader.get(context)
+            val loader = SingletonImageLoader.get(context)
             val request =
                 ImageRequest
                     .Builder(context)

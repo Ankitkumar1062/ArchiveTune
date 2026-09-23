@@ -41,6 +41,7 @@ import moe.rukamori.archivetune.db.entities.LibraryTopMixSongMap
 import moe.rukamori.archivetune.db.entities.ListeningBySlot
 import moe.rukamori.archivetune.db.entities.ListeningTotals
 import moe.rukamori.archivetune.db.entities.LyricsEntity
+import moe.rukamori.archivetune.db.entities.LocalMusicAlias
 import moe.rukamori.archivetune.db.entities.PlayCountEntity
 import moe.rukamori.archivetune.db.entities.Playlist
 import moe.rukamori.archivetune.db.entities.PlaylistEntity
@@ -288,7 +289,7 @@ interface DatabaseDao {
     fun likedSongsCount(): Flow<Int>
 
     @Transaction
-    @Query("SELECT song.* FROM song JOIN song_album_map ON song.id = song_album_map.songId WHERE song_album_map.albumId = :albumId")
+    @Query("SELECT song.* FROM song JOIN song_album_map ON song.id = song_album_map.songId WHERE song_album_map.albumId = COALESCE((SELECT targetId FROM local_music_alias WHERE sourceId = :albumId AND kind = 'album'), :albumId) ORDER BY COALESCE(song.discNumber, 1), COALESCE(song.trackNumber, song_album_map.`index` + 1), song.isLocal DESC, song.id")
     fun albumSongs(albumId: String): Flow<List<Song>>
 
     @Transaction
@@ -297,19 +298,19 @@ interface DatabaseDao {
 
     @Transaction
     @Query(
-        "SELECT song.* FROM song_artist_map JOIN song ON song_artist_map.songId = song.id WHERE artistId = :artistId AND inLibrary IS NOT NULL ORDER BY inLibrary",
+        "SELECT song.* FROM library_song_artist_map JOIN song ON library_song_artist_map.songId = song.id WHERE artistId = COALESCE((SELECT targetId FROM local_music_alias WHERE sourceId = :artistId AND kind = 'artist'), :artistId) AND (inLibrary IS NOT NULL OR song.isLocal = 1) ORDER BY inLibrary",
     )
     fun artistSongsByCreateDateAsc(artistId: String): Flow<List<Song>>
 
     @Transaction
     @Query(
-        "SELECT song.* FROM song_artist_map JOIN song ON song_artist_map.songId = song.id WHERE artistId = :artistId AND inLibrary IS NOT NULL ORDER BY title",
+        "SELECT song.* FROM library_song_artist_map JOIN song ON library_song_artist_map.songId = song.id WHERE artistId = COALESCE((SELECT targetId FROM local_music_alias WHERE sourceId = :artistId AND kind = 'artist'), :artistId) AND (inLibrary IS NOT NULL OR song.isLocal = 1) ORDER BY title",
     )
     fun artistSongsByNameAsc(artistId: String): Flow<List<Song>>
 
     @Transaction
     @Query(
-        "SELECT song.* FROM song_artist_map JOIN song ON song_artist_map.songId = song.id WHERE artistId = :artistId AND inLibrary IS NOT NULL ORDER BY totalPlayTime",
+        "SELECT song.* FROM library_song_artist_map JOIN song ON library_song_artist_map.songId = song.id WHERE artistId = COALESCE((SELECT targetId FROM local_music_alias WHERE sourceId = :artistId AND kind = 'artist'), :artistId) AND (inLibrary IS NOT NULL OR song.isLocal = 1) ORDER BY totalPlayTime",
     )
     fun artistSongsByPlayTimeAsc(artistId: String): Flow<List<Song>>
 
@@ -337,7 +338,7 @@ interface DatabaseDao {
 
     @Transaction
     @Query(
-        "SELECT song.* FROM song_artist_map JOIN song ON song_artist_map.songId = song.id WHERE artistId = :artistId AND inLibrary IS NOT NULL LIMIT :previewSize",
+        "SELECT song.* FROM library_song_artist_map JOIN song ON library_song_artist_map.songId = song.id WHERE artistId = COALESCE((SELECT targetId FROM local_music_alias WHERE sourceId = :artistId AND kind = 'artist'), :artistId) AND (inLibrary IS NOT NULL OR song.isLocal = 1) LIMIT :previewSize",
     )
     fun artistSongsPreview(
         artistId: String,
@@ -1376,7 +1377,7 @@ interface DatabaseDao {
     ): Flow<List<Artist>>
 
     @Query(
-        "SELECT COUNT(1) FROM artist WHERE name LIKE '%' || :query || '%' AND EXISTS(SELECT 1 FROM song_artist_map JOIN song ON song_artist_map.songId = song.id WHERE artistId = artist.id AND song.inLibrary IS NOT NULL)",
+        "SELECT COUNT(1) FROM artist WHERE name LIKE '%' || :query || '%' AND EXISTS(SELECT 1 FROM library_song_artist_map JOIN song ON library_song_artist_map.songId = song.id WHERE artistId = artist.id AND (song.inLibrary IS NOT NULL OR song.isLocal = 1))",
     )
     suspend fun searchArtistsCount(query: String): Int
 
@@ -1391,7 +1392,7 @@ interface DatabaseDao {
     ): Flow<List<Album>>
 
     @Query(
-        "SELECT COUNT(1) FROM album WHERE title LIKE '%' || :query || '%' AND EXISTS(SELECT 1 FROM song WHERE song.albumId = album.id AND song.inLibrary IS NOT NULL)",
+        "SELECT COUNT(1) FROM album WHERE title LIKE '%' || :query || '%' AND EXISTS(SELECT 1 FROM song WHERE song.albumId = album.id AND (song.inLibrary IS NOT NULL OR song.isLocal = 1))",
     )
     suspend fun searchAlbumsCount(query: String): Int
 
@@ -1626,6 +1627,111 @@ interface DatabaseDao {
     @Query("DELETE FROM playlist_song_map WHERE playlistId = :playlistId")
     fun clearPlaylist(playlistId: String)
 
+    @Upsert
+    fun upsert(alias: LocalMusicAlias)
+
+    @Query("UPDATE local_music_alias SET targetId = :targetId WHERE targetId = :sourceId AND kind = :kind")
+    fun redirectLocalMusicAliases(sourceId: String, targetId: String, kind: String)
+
+    @Query("DELETE FROM local_music_alias WHERE sourceId = :sourceId AND kind = :kind")
+    fun deleteLocalMusicAlias(sourceId: String, kind: String)
+
+    @Query("SELECT * FROM album_artist_map")
+    fun catalogAlbumArtistMaps(): List<AlbumArtistMap>
+
+    @Query("UPDATE album SET songCount = (SELECT COUNT(*) FROM song_album_map WHERE albumId = album.id), duration = COALESCE((SELECT SUM(song.duration) FROM song JOIN song_album_map ON song.id = song_album_map.songId WHERE song_album_map.albumId = album.id), 0) WHERE isLocal = 1")
+    fun refreshLocalAlbumCounts()
+
+    @Query("SELECT thumbnailUrl FROM song WHERE thumbnailUrl IS NOT NULL UNION SELECT thumbnailUrl FROM album WHERE thumbnailUrl IS NOT NULL UNION SELECT thumbnailUrl FROM artist WHERE thumbnailUrl IS NOT NULL")
+    fun localArtworkUrls(): List<String>
+
+    @Query("SELECT * FROM artist")
+    fun catalogArtistEntities(): List<ArtistEntity>
+
+    @Query("SELECT * FROM album")
+    fun catalogAlbumEntities(): List<AlbumEntity>
+
+    @Query("SELECT artist.* FROM artist JOIN album_artist_map ON artist.id = album_artist_map.artistId WHERE albumId = :albumId ORDER BY album_artist_map.`order`")
+    fun albumArtistEntities(albumId: String): List<ArtistEntity>
+
+    @Query("SELECT * FROM album WHERE id = :albumId")
+    fun albumEntity(albumId: String): AlbumEntity?
+
+    @Query("INSERT OR IGNORE INTO song_artist_map (songId, artistId, position) SELECT songId, :targetId, position FROM song_artist_map WHERE artistId = :sourceId")
+    fun copyArtistSongLinks(sourceId: String, targetId: String)
+
+    @Query("INSERT OR IGNORE INTO album_artist_map (albumId, artistId, `order`) SELECT albumId, :targetId, `order` FROM album_artist_map WHERE artistId = :sourceId")
+    fun copyArtistAlbumLinks(sourceId: String, targetId: String)
+
+    @Query("INSERT OR IGNORE INTO song_album_map (songId, albumId, `index`) SELECT songId, :targetId, `index` FROM song_album_map WHERE albumId = :sourceId")
+    fun copyAlbumSongLinks(sourceId: String, targetId: String)
+
+    @Query("UPDATE song SET albumId = :targetId WHERE albumId = :sourceId AND isLocal = 1")
+    fun moveLocalSongsToAlbum(sourceId: String, targetId: String)
+
+    @Query("DELETE FROM song_album_map WHERE albumId = :albumId AND songId IN (SELECT id FROM song WHERE isLocal = 0)")
+    fun clearRemoteAlbumSongs(albumId: String)
+
+    @Transaction
+    fun mergeLocalArtist(sourceId: String, targetId: String) {
+        if (sourceId == targetId) return
+        val source = getArtistById(sourceId)?.takeIf { it.isLocal } ?: return
+        val target = getArtistById(targetId) ?: return
+        update(target.copy(
+            thumbnailUrl = target.thumbnailUrl ?: source.thumbnailUrl,
+            bookmarkedAt = target.bookmarkedAt ?: source.bookmarkedAt,
+            blockedAt = target.blockedAt ?: source.blockedAt,
+        ))
+        copyArtistSongLinks(sourceId, targetId)
+        copyArtistAlbumLinks(sourceId, targetId)
+        redirectLocalMusicAliases(sourceId, targetId, "artist")
+        upsert(LocalMusicAlias(sourceId, targetId, "artist"))
+        delete(source)
+    }
+
+    @Transaction
+    fun mergeLocalAlbum(sourceId: String, targetId: String) {
+        if (sourceId == targetId) return
+        val source = albumEntity(sourceId)?.takeIf { it.isLocal } ?: return
+        val target = albumEntity(targetId) ?: return
+        update(target.copy(
+            thumbnailUrl = target.thumbnailUrl ?: source.thumbnailUrl,
+            year = target.year ?: source.year,
+            bookmarkedAt = target.bookmarkedAt ?: source.bookmarkedAt,
+            likedDate = target.likedDate ?: source.likedDate,
+            inLibrary = target.inLibrary ?: source.inLibrary,
+        ))
+        copyAlbumSongLinks(sourceId, targetId)
+        moveLocalSongsToAlbum(sourceId, targetId)
+        redirectLocalMusicAliases(sourceId, targetId, "album")
+        upsert(LocalMusicAlias(sourceId, targetId, "album"))
+        delete(source)
+    }
+
+    @Transaction
+    fun reconcileLocalArtist(artistId: String) {
+        val target = getArtistById(artistId)?.takeIf { !it.isLocal && it.isYouTubeArtist } ?: return
+        val key = LocalMusicIdentity.normalize(target.name)
+        val candidates = catalogArtistEntities().filter { LocalMusicIdentity.normalize(it.name) == key }
+        if (candidates.count { !it.isLocal && it.isYouTubeArtist } != 1) return
+        candidates.filter { it.isLocal }.forEach { mergeLocalArtist(it.id, target.id) }
+    }
+
+    @Transaction
+    fun reconcileLocalAlbum(albumId: String) {
+        val target = albumEntity(albumId)?.takeIf { !it.isLocal } ?: return
+        val targetArtists = albumArtistEntities(albumId).map { LocalMusicIdentity.normalize(it.name) }.toSet()
+        if (targetArtists.isEmpty()) return
+        val key = LocalMusicIdentity.normalize(target.title)
+        val candidates = catalogAlbumEntities().filter { candidate ->
+            LocalMusicIdentity.normalize(candidate.title) == key &&
+                (candidate.year == null || target.year == null || candidate.year == target.year) &&
+                albumArtistEntities(candidate.id).map { LocalMusicIdentity.normalize(it.name) }.toSet() == targetArtists
+        }
+        if (candidates.count { !it.isLocal } != 1) return
+        candidates.filter { it.isLocal }.forEach { mergeLocalAlbum(it.id, target.id) }
+    }
+
     @Transaction
     @Query("SELECT * FROM artist WHERE name = :name")
     fun artistByName(name: String): ArtistEntity?
@@ -1786,6 +1892,7 @@ interface DatabaseDao {
                     order = index,
                 )
             }?.forEach(::insert)
+        reconcileLocalAlbum(albumPage.album.browseId)
     }
 
     @Transaction
@@ -1829,10 +1936,21 @@ interface DatabaseDao {
     fun update(song: SongEntity)
 
     @Update
-    fun update(artist: ArtistEntity)
+    fun updateArtistEntity(artist: ArtistEntity)
+
+    @Transaction
+    fun update(artist: ArtistEntity) {
+        updateArtistEntity(artist)
+        if (!artist.isLocal && artist.isYouTubeArtist) reconcileLocalArtist(artist.id)
+    }
 
     @Update
-    fun update(album: AlbumEntity)
+    fun updateAlbumEntity(album: AlbumEntity)
+
+    @Transaction
+    fun update(album: AlbumEntity) {
+        updateAlbumEntity(album)
+    }
 
     @Update
     fun update(playlist: PlaylistEntity)
@@ -1880,7 +1998,7 @@ interface DatabaseDao {
         if (artists?.size != albumPage.album.artists?.size) {
             artists?.forEach(::delete)
         }
-        clearAlbumSongs(album.id)
+        clearRemoteAlbumSongs(album.id)
         albumPage.songs
             .map(SongItem::toMediaMetadata)
             .onEach(::insert)
@@ -1917,6 +2035,7 @@ interface DatabaseDao {
                     )
                 }.forEach(::insert)
         }
+        reconcileLocalAlbum(albumPage.album.browseId)
     }
 
     @Update

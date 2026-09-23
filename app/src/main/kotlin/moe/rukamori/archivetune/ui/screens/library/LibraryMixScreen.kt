@@ -211,7 +211,7 @@ fun LibraryMixScreen(
     val visibleSpotifyPlaylists =
         remember(showSpotifyPlaylists, spotifyPlaylists) {
             if (showSpotifyPlaylists) {
-                spotifyPlaylists
+                spotifyPlaylists.orEmpty()
             } else {
                 emptyList()
             }

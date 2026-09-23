@@ -912,44 +912,69 @@ object Spotify {
 
     // ── Playlist detail (GQL: fetchPlaylist) ────────────────────────────
 
+    data class SpotifyPlaylistDetail(
+        val playlist: SpotifyPlaylist,
+        val tracks: SpotifyPaging<SpotifyPlaylistTrack>,
+    )
+
+    private fun fetchPlaylistVariables(
+        playlistId: String,
+        limit: Int,
+        offset: Int,
+        watchFeedEntrypoint: Boolean,
+    ): JsonObject =
+        buildJsonObject {
+            put("uri", "spotify:playlist:$playlistId")
+            put("offset", offset)
+            put("limit", limit)
+            put("enableWatchFeedEntrypoint", watchFeedEntrypoint)
+        }
+
     suspend fun playlist(playlistId: String): Result<SpotifyPlaylist> =
         runCatching {
-            val vars =
-                buildJsonObject {
-                    put("uri", "spotify:playlist:$playlistId")
-                    put("offset", 0)
-                    put("limit", 25)
-                    put("enableWatchFeedEntrypoint", true)
-                }
-
             val response =
                 graphqlPost(
                     operationName = "fetchPlaylist",
-                    variables = vars,
+                    variables = fetchPlaylistVariables(playlistId, limit = 25, offset = 0, watchFeedEntrypoint = true),
                 )
 
             val playlist =
                 response.obj("data")?.obj("playlistV2")
                     ?: throw SpotifyException(500, "Invalid fetchPlaylist response")
 
-            val ownerData = playlist.obj("ownerV2")?.obj("data")
-            val ownerUri = ownerData?.str("uri") ?: ""
+            parsePlaylistV2(playlistId, playlist)
+        }
 
-            val images = parseGqlPlaylistImages(playlist.obj("images"))
+    /**
+     * The playlist's header fields and its first page of tracks from a single response.
+     *
+     * The variables are the track reader's, so the page arrives exactly as [playlistTracks]
+     * delivers it, and the header fields ride along because the persisted query — not its
+     * arguments — selects them. A response missing either part fails here under the message the
+     * reader that owns that part uses, so nothing reports a shape problem as an empty playlist.
+     */
+    suspend fun playlistDetail(
+        playlistId: String,
+        limit: Int = 100,
+        offset: Int = 0,
+    ): Result<SpotifyPlaylistDetail> =
+        runCatching {
+            val response =
+                graphqlPost(
+                    operationName = "fetchPlaylist",
+                    variables = fetchPlaylistVariables(playlistId, limit, offset, watchFeedEntrypoint = false),
+                )
 
-            SpotifyPlaylist(
-                id = playlistId,
-                name = playlist.str("name") ?: "",
-                description = SpotifyHtmlSanitizer.clean(playlist.str("description")),
-                images = images,
-                owner =
-                    SpotifyPlaylistOwner(
-                        id = ownerUri.substringAfterLast(":"),
-                        displayName = ownerData?.str("name"),
-                        uri = ownerUri.ifEmpty { null },
-                    ),
-                tracks = SpotifyPlaylistTracksRef(total = parsePlaylistTrackCount(playlist)),
-                collaborative = (playlist.obj("members")?.arr("items")?.size ?: 0) > 1,
+            val playlist =
+                response.obj("data")?.obj("playlistV2")
+                    ?: throw SpotifyException(500, "Invalid fetchPlaylist response")
+            val content =
+                playlist.obj("content")
+                    ?: throw SpotifyException(500, "No content in fetchPlaylist response")
+
+            SpotifyPlaylistDetail(
+                playlist = parsePlaylistV2(playlistId, playlist),
+                tracks = parsePlaylistTracksPage(content, limit, offset),
             )
         }
 
@@ -959,44 +984,69 @@ object Spotify {
         offset: Int = 0,
     ): Result<SpotifyPaging<SpotifyPlaylistTrack>> =
         runCatching {
-            val vars =
-                buildJsonObject {
-                    put("uri", "spotify:playlist:$playlistId")
-                    put("offset", offset)
-                    put("limit", limit)
-                    put("enableWatchFeedEntrypoint", false)
-                }
-
             val response =
                 graphqlPost(
                     operationName = "fetchPlaylist",
-                    variables = vars,
+                    variables = fetchPlaylistVariables(playlistId, limit, offset, watchFeedEntrypoint = false),
                 )
 
             val content =
                 response.obj("data")?.obj("playlistV2")?.obj("content")
                     ?: throw SpotifyException(500, "No content in fetchPlaylist response")
 
-            val tracks =
-                content.arr("items")?.mapNotNull { elem ->
-                    val itemWrapper = elem.jsonObject.obj("itemV2") ?: return@mapNotNull null
-                    val itemData = itemWrapper.obj("data") ?: return@mapNotNull null
-                    val wrapperUri = itemWrapper.str("_uri") ?: itemWrapper.str("uri")
-                    val uid = elem.jsonObject.str("uid") ?: itemWrapper.str("uid")
-                    SpotifyPlaylistTrack(
-                        track = parseGqlTrack(itemData, uriOverride = wrapperUri),
-                        uid = uid,
-                    )
-                } ?: emptyList()
-
-            SpotifyPaging(
-                items = tracks,
-                total = content.int("totalCount") ?: 0,
-                limit = limit,
-                offset = offset,
-                rawItemCount = content.arr("items")?.size ?: 0,
-            )
+            parsePlaylistTracksPage(content, limit, offset)
         }
+
+    private fun parsePlaylistV2(
+        playlistId: String,
+        playlist: JsonObject,
+    ): SpotifyPlaylist {
+        val ownerData = playlist.obj("ownerV2")?.obj("data")
+        val ownerUri = ownerData?.str("uri") ?: ""
+
+        val images = parseGqlPlaylistImages(playlist.obj("images"))
+
+        return SpotifyPlaylist(
+            id = playlistId,
+            name = playlist.str("name") ?: "",
+            description = SpotifyHtmlSanitizer.clean(playlist.str("description")),
+            images = images,
+            owner =
+                SpotifyPlaylistOwner(
+                    id = ownerUri.substringAfterLast(":"),
+                    displayName = ownerData?.str("name"),
+                    uri = ownerUri.ifEmpty { null },
+                ),
+            tracks = SpotifyPlaylistTracksRef(total = parsePlaylistTrackCount(playlist)),
+            collaborative = (playlist.obj("members")?.arr("items")?.size ?: 0) > 1,
+        )
+    }
+
+    private fun parsePlaylistTracksPage(
+        content: JsonObject,
+        limit: Int,
+        offset: Int,
+    ): SpotifyPaging<SpotifyPlaylistTrack> {
+        val tracks =
+            content.arr("items")?.mapNotNull { elem ->
+                val itemWrapper = elem.jsonObject.obj("itemV2") ?: return@mapNotNull null
+                val itemData = itemWrapper.obj("data") ?: return@mapNotNull null
+                val wrapperUri = itemWrapper.str("_uri") ?: itemWrapper.str("uri")
+                val uid = elem.jsonObject.str("uid") ?: itemWrapper.str("uid")
+                SpotifyPlaylistTrack(
+                    track = parseGqlTrack(itemData, uriOverride = wrapperUri),
+                    uid = uid,
+                )
+            } ?: emptyList()
+
+        return SpotifyPaging(
+            items = tracks,
+            total = content.int("totalCount") ?: 0,
+            limit = limit,
+            offset = offset,
+            rawItemCount = content.arr("items")?.size ?: 0,
+        )
+    }
 
     // ── Playlist Mutations (GQL) ──────────────────────────────────────
 
@@ -1229,10 +1279,14 @@ object Spotify {
      * `failFastOn429` for the same reason [topTracks] uses it: this is a nice-to-have panel, and
      * a rate-limited retry storm is worse than an empty one.
      */
-    suspend fun recentlyPlayed(limit: Int = 50): Result<SpotifyPaging<SpotifyPlayHistory>> =
+    suspend fun recentlyPlayed(
+        limit: Int = 50,
+        afterMillis: Long? = null,
+    ): Result<SpotifyPaging<SpotifyPlayHistory>> =
         runCatching {
             authenticatedGet("me/player/recently-played", failFastOn429 = false) {
                 parameter("limit", limit.coerceIn(1, 50))
+                afterMillis?.let { parameter("after", it) }
             }
         }
 

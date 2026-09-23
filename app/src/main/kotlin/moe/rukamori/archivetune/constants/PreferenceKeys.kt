@@ -424,6 +424,47 @@ object DownloadSourceConfig {
 
     /** Serialize an order back to the CSV form for storage. */
     fun serialize(order: List<DownloadSource>): String = order.joinToString(",") { it.name }
+
+    /**
+     * Resolves the ordered download chain, cut at [DownloadSource.YOUTUBE_MUSIC] the exact same
+     * way [AudioSourceType.YOUTUBE] ends the playback chain (MusicService cuts it with `takeWhile`):
+     * a lossless source only stands in for YouTube when the user placed it above YouTube, and
+     * sources below YouTube are never reached. A caller that exhausts this list falls through to
+     * the YouTube resolver, which is exactly playback's fallback.
+     */
+    fun fetchChain(rawOrder: String?): List<DownloadSource> =
+        parseOrder(rawOrder).takeWhile { it != DownloadSource.YOUTUBE_MUSIC }
+
+    /**
+     * Maps a playback source to the download source serving the same catalogue. Returns null for
+     * the playback-only sources this path has no resolver for (Apple, Amazon, QQ) so a pin to one
+     * of them falls back to the order rather than pinning the download to a source it can never
+     * resolve.
+     */
+    fun fromAudioSource(source: AudioSourceType): DownloadSource? =
+        when (source) {
+            AudioSourceType.QOBUZ -> DownloadSource.QOBUZ
+            AudioSourceType.QOBUZ_BACKUP -> DownloadSource.QOBUZ_BACKUP
+            AudioSourceType.TIDAL -> DownloadSource.TIDAL
+            AudioSourceType.DEEZER -> DownloadSource.DEEZER
+            AudioSourceType.JIOSAAVN -> DownloadSource.JIOSAAVN
+            AudioSourceType.YOUTUBE -> DownloadSource.YOUTUBE_MUSIC
+            AudioSourceType.APPLE, AudioSourceType.AMAZON -> null
+        }
+
+    /**
+     * The download chain for one song. A per-song [pinnedSource] — the user's "Play from" choice,
+     * which is also the source playback used — *is* the chain: pinning YouTube yields an empty list
+     * so the caller uses the YouTube resolver, and pinning a source this path cannot resolve falls
+     * back to the order. Without a pin the chain is [fetchChain].
+     */
+    fun resolutionChain(
+        rawOrder: String?,
+        pinnedSource: AudioSourceType?,
+    ): List<DownloadSource> {
+        val pinned = pinnedSource?.let(::fromAudioSource) ?: return fetchChain(rawOrder)
+        return if (pinned == DownloadSource.YOUTUBE_MUSIC) emptyList() else listOf(pinned)
+    }
 }
 
 val AiContentFilterEnabledKey = booleanPreferencesKey("aiContentFilterEnabled")
@@ -1911,3 +1952,6 @@ enum class VideoAspectRatio {
 }
 
 val VideoAspectRatioKey = stringPreferencesKey("videoAspectRatio")
+
+val SpotifyRecentlyPlayedCacheKey = stringPreferencesKey("spotify_recently_played_cache")
+val SpotifyRecentlyPlayedCacheFetchedAtKey = longPreferencesKey("spotify_recently_played_cache_fetched_at")

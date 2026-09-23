@@ -8,7 +8,10 @@
 package moe.rukamori.archivetune.podcast
 
 import com.google.common.collect.ImmutableList
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
 import moe.rukamori.archivetune.models.MediaMetadata
 import moe.rukamori.archivetune.models.toMediaMetadata
 import javax.inject.Inject
@@ -154,4 +157,28 @@ class ToggleEpisodeLibraryUseCase
             metadata: MediaMetadata,
             addToLibrary: Boolean,
         ): Result<Unit> = repository.setEpisodeInLibrary(metadata, addToLibrary)
+    }
+
+class SearchPodcastEpisodesUseCase
+    @Inject
+    constructor() {
+        private val whitespace = Regex("\\s+")
+
+        suspend operator fun invoke(
+            episodes: ImmutableList<PodcastEpisodeUiModel>,
+            query: String,
+        ): ImmutableList<PodcastEpisodeUiModel> =
+            withContext(Dispatchers.Default) {
+                val terms = query.trim().splitToSequence(whitespace).filter(String::isNotBlank).toList()
+                if (terms.isEmpty()) return@withContext episodes
+                ImmutableList.copyOf(
+                    episodes.filter { episode ->
+                        ensureActive()
+                        terms.all { term ->
+                            episode.title.contains(term, ignoreCase = true) ||
+                                episode.description?.contains(term, ignoreCase = true) == true
+                        }
+                    },
+                )
+            }
     }

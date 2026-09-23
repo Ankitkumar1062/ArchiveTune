@@ -41,6 +41,11 @@ data class PodcastUiState(
     val isSavePending: Boolean,
     val isLoadingMore: Boolean,
     val canLoadMore: Boolean,
+    val isSearchActive: Boolean = false,
+    val searchQuery: String = "",
+    val isFiltering: Boolean = false,
+    val visibleEpisodes: ImmutableList<PodcastEpisodeUiModel> = episodes,
+    @StringRes val paginationErrorResId: Int? = null,
 )
 
 @Immutable
@@ -74,6 +79,12 @@ sealed interface PodcastAction {
     data object Retry : PodcastAction
 
     data object LoadMore : PodcastAction
+
+    data object OpenSearch : PodcastAction
+
+    data object CloseSearch : PodcastAction
+
+    data class SearchQueryChanged(val query: String) : PodcastAction
 
     data object PlayAll : PodcastAction
 
