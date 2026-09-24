@@ -40,6 +40,7 @@ subprojects {
 subprojects {
     configurations.configureEach {
         exclude(group = "org.json", module = "json")
+        exclude(group = "com.google.protobuf", module = "protobuf-java")
         resolutionStrategy {
             cacheChangingModulesFor(0, "seconds")
             force("com.github.TeamNewPipe:nanojson:c7a6c1c08d16b6d5ecded34758e6415e07be2166")
