@@ -260,6 +260,8 @@ fun YouTubeBrowseScreen(
                                                                         onDismiss = menuState::dismiss,
                                                                     )
                                                                 }
+
+                                                                else -> {}
                                                             }
                                                         }
                                                     },

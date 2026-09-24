@@ -28,6 +28,7 @@ import android.net.Uri
 import moe.rukamori.archivetune.constants.AudioQuality
 import moe.rukamori.archivetune.echo.utils.Fix403
 import moe.rukamori.archivetune.echo.utils.cipher.CipherDeobfuscator
+import moe.rukamori.archivetune.extensions.isDefaultAudioTrack
 import moe.rukamori.archivetune.echo.utils.potoken.PoTokenGenerator
 import moe.rukamori.archivetune.echo.utils.potoken.PoTokenResult
 import moe.rukamori.archivetune.innertube.YouTube

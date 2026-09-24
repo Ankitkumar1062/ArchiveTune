@@ -115,3 +115,7 @@ fun Player.findNextMediaItemById(mediaId: String): MediaItem? {
     }
     return null
 }
+
+val moe.rukamori.archivetune.innertube.models.response.PlayerResponse.StreamingData.Format.isDefaultAudioTrack: Boolean
+    get() = isOriginal
+

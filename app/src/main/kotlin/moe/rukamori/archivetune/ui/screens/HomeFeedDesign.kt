@@ -621,6 +621,7 @@ fun HomeFeedYTItemCard(
             is AlbumItem -> item.artists?.joinToString { it.name } ?: item.year?.toString().orEmpty()
             is ArtistItem -> item.subscriberCountText.orEmpty()
             is PlaylistItem -> item.songCountText.orEmpty()
+            else -> ""
         }
     HomeFeedShelfCard(
         thumbnailUrl = item.thumbnail,
@@ -635,6 +636,7 @@ fun HomeFeedYTItemCard(
                 is AlbumItem -> navController.navigate("album/${item.id}")
                 is ArtistItem -> navController.navigate("artist/${item.id}")
                 is PlaylistItem -> navController.navigate("online_playlist/${item.id}")
+                else -> {}
             }
         },
         onLongClick = {
@@ -667,6 +669,8 @@ fun HomeFeedYTItemCard(
                             coroutineScope = scope,
                             onDismiss = menuState::dismiss,
                         )
+
+                    else -> {}
                 }
             }
         },

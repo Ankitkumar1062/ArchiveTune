@@ -17,6 +17,7 @@ import kotlinx.coroutines.sync.withLock
 import moe.rukamori.archivetune.constants.AllowAgeRestrictedKey
 import moe.rukamori.archivetune.constants.AudioQuality
 import moe.rukamori.archivetune.constants.PlayerStreamClient
+import moe.rukamori.archivetune.extensions.isDefaultAudioTrack
 import moe.rukamori.archivetune.innertube.NewPipeUtils
 import moe.rukamori.archivetune.innertube.PlaybackAuthState
 import moe.rukamori.archivetune.innertube.YouTube
@@ -54,6 +55,18 @@ object YTPlayerUtils {
     private const val PLAYBACK_DATA_RESOLUTION_MUTEX_COUNT = 32
     const val STREAM_URL_EXPIRY_SAFETY_MS = 60_000L
     private val RETRYABLE_STREAM_RESPONSE_CODES = setOf(403, 404, 410, 416)
+
+    init {
+        moe.rukamori.archivetune.simpstream.SimpStreamLog.sink =
+            moe.rukamori.archivetune.simpstream.SimpStreamLog.Sink { level, tag, message, error ->
+                when (level) {
+                    moe.rukamori.archivetune.simpstream.SimpStreamLog.DEBUG -> Timber.tag(tag).d(message)
+                    moe.rukamori.archivetune.simpstream.SimpStreamLog.INFO -> Timber.tag(tag).i(message)
+                    moe.rukamori.archivetune.simpstream.SimpStreamLog.WARN -> Timber.tag(tag).w(error, message)
+                    else -> Timber.tag(tag).e(error, message)
+                }
+            }
+    }
 
     /**
      * Failsafe probe: proves a freshly resolved stream URL is actually fetchable before handing it

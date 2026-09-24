@@ -93,6 +93,10 @@ dependencyResolutionManagement {
                 // every sub-module artifact fails to download.
                 includeGroup("com.github.MetrolistGroup")
                 includeGroup("com.github.MetrolistGroup.MetrolistExtractor")
+                includeGroup("com.github.maxrave-dev")
+                includeGroup("com.github.maxrave-dev.PipePipeExtractor")
+                includeGroup("com.github.maxrave-dev.BravePipeExtractor")
+                includeGroup("com.github.evermind-zz")
             }
         }
     }
@@ -108,8 +112,6 @@ include(":app")
 include(":core")
 include(":lyrics:kugou")
 include(":lyrics:lrclib")
-include(":lyrics:simpmusic")
-include(":lyrics:paxsenix")
 include(":lyrics:betterlyrics")
 include(":lyrics:unison")
 include(":lyrics:youlyplus")

@@ -33,12 +33,6 @@ import moe.rukamori.archivetune.constants.EnableKugouKey
 import moe.rukamori.archivetune.constants.EnableLrcLibKey
 import moe.rukamori.archivetune.constants.EnableMegalobizLyricsKey
 import moe.rukamori.archivetune.constants.EnableMusixmatchExperimentalKey
-import moe.rukamori.archivetune.constants.EnablePaxsenixAppleMusicLyricsKey
-import moe.rukamori.archivetune.constants.EnablePaxsenixMusixmatchLyricsKey
-import moe.rukamori.archivetune.constants.EnablePaxsenixNeteaseLyricsKey
-import moe.rukamori.archivetune.constants.EnablePaxsenixSpotifyLyricsKey
-import moe.rukamori.archivetune.constants.EnablePaxsenixYouTubeLyricsKey
-import moe.rukamori.archivetune.constants.EnableSimpMusicLyricsKey
 import moe.rukamori.archivetune.constants.EnableTidalLyricsKey
 import moe.rukamori.archivetune.constants.EnableUnisonLyricsKey
 import moe.rukamori.archivetune.constants.EnableYouLyPlusLyricsKey
@@ -71,14 +65,8 @@ class LyricsHelper
                 LrcLibLyricsProvider,
                 KuGouLyricsProvider,
                 MegalobizLyricsProvider,
-                SimpMusicLyricsProvider,
                 UnisonLyricsProvider,
-                PaxsenixAppleMusicLyricsProvider,
                 AppleMusicAccountLyricsProvider,
-                PaxsenixNeteaseLyricsProvider,
-                PaxsenixSpotifyLyricsProvider,
-                PaxsenixMusixmatchLyricsProvider,
-                PaxsenixYouTubeLyricsProvider,
                 TidalLyricsProvider,
                 DeezerLyricsProvider,
                 YouTubeSubtitleLyricsProvider,
@@ -94,13 +82,7 @@ class LyricsHelper
                 LrcLibLyricsProvider to EnableLrcLibKey,
                 KuGouLyricsProvider to EnableKugouKey,
                 MegalobizLyricsProvider to EnableMegalobizLyricsKey,
-                SimpMusicLyricsProvider to EnableSimpMusicLyricsKey,
                 UnisonLyricsProvider to EnableUnisonLyricsKey,
-                PaxsenixAppleMusicLyricsProvider to EnablePaxsenixAppleMusicLyricsKey,
-                PaxsenixNeteaseLyricsProvider to EnablePaxsenixNeteaseLyricsKey,
-                PaxsenixSpotifyLyricsProvider to EnablePaxsenixSpotifyLyricsKey,
-                PaxsenixMusixmatchLyricsProvider to EnablePaxsenixMusixmatchLyricsKey,
-                PaxsenixYouTubeLyricsProvider to EnablePaxsenixYouTubeLyricsKey,
                 TidalLyricsProvider to EnableTidalLyricsKey,
                 DeezerLyricsProvider to EnableDeezerLyricsKey,
                 MusixmatchExperimentalLyricsProvider to EnableMusixmatchExperimentalKey,
@@ -419,13 +401,7 @@ class LyricsHelper
                     PreferredLyricsProvider.BETTER_LYRICS to BetterLyricsProvider,
                     PreferredLyricsProvider.BETTER_LYRICS_PORTATO to BetterLyricsPortatoProvider,
                     PreferredLyricsProvider.YOULY_PLUS to YouLyPlusLyricsProvider,
-                    PreferredLyricsProvider.SIMPMUSIC to SimpMusicLyricsProvider,
-                    PreferredLyricsProvider.PAXSENIX_APPLE_MUSIC to PaxsenixAppleMusicLyricsProvider,
                     PreferredLyricsProvider.APPLE_MUSIC to AppleMusicAccountLyricsProvider,
-                    PreferredLyricsProvider.PAXSENIX_NETEASE to PaxsenixNeteaseLyricsProvider,
-                    PreferredLyricsProvider.PAXSENIX_SPOTIFY to PaxsenixSpotifyLyricsProvider,
-                    PreferredLyricsProvider.PAXSENIX_MUSIXMATCH to PaxsenixMusixmatchLyricsProvider,
-                    PreferredLyricsProvider.PAXSENIX_YOUTUBE to PaxsenixYouTubeLyricsProvider,
                     PreferredLyricsProvider.TIDAL to TidalLyricsProvider,
                     PreferredLyricsProvider.DEEZER to DeezerLyricsProvider,
                     PreferredLyricsProvider.UNISON to UnisonLyricsProvider,
@@ -445,8 +421,7 @@ class LyricsHelper
         ): Boolean {
             val isNonYouTubeId = mediaId.isTelegramMediaId() || mediaId.isLocalMediaId()
             if (!isNonYouTubeId) return true
-            return provider !is SimpMusicLyricsProvider &&
-                provider !is YouTubeLyricsProvider &&
+            return provider !is YouTubeLyricsProvider &&
                 provider !is YouTubeSubtitleLyricsProvider
         }
 

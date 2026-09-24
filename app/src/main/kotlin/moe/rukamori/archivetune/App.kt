@@ -46,7 +46,6 @@ import moe.rukamori.archivetune.lastfm.LastFM
 import moe.rukamori.archivetune.lyrics.JapaneseLanguagePackManager
 import moe.rukamori.archivetune.canvas.AppleMusicProvider
 import moe.rukamori.archivetune.canvas.StartCanvasPolicyUseCase
-import moe.rukamori.archivetune.paxsenix.PaxsenixLyrics
 import moe.rukamori.archivetune.scrobbling.LastFmServiceConfig
 import moe.rukamori.archivetune.spotify.Spotify
 import moe.rukamori.archivetune.spotify.SpotifyLibraryRepository
@@ -165,19 +164,6 @@ class App :
         }
         CanvasArtworkPlaybackCache.init(this)
         startCanvasPolicy.start(applicationScope)
-        PaxsenixLyrics.setUserAgent("ArchiveTune", BuildConfig.VERSION_NAME)
-        // Route PaxsenixLyrics diagnostic logs through GlobalLog so they show up
-        // in the in-app logcat viewer with the proper tag, instead of going to
-        // System.err (which Android redirects to logcat one line at a time as
-        // `W/System.err`, with synchronized I/O that causes contention during
-        // parallel lyrics prefetch).
-        PaxsenixLyrics.logger = { message ->
-            moe.rukamori.archivetune.utils.GlobalLog.append(
-                android.util.Log.INFO,
-                "PaxsenixLyrics",
-                message,
-            )
-        }
 
         // Route AppleMusicProvider (canvas) diagnostic logs through GlobalLog
         // too — same rationale as PaxsenixLyrics.logger above. Previously the
@@ -239,12 +225,6 @@ class App :
         // track mapping as injected callbacks. Both yield null when the user has
         // no Spotify session, in which case the provider falls back to the
         // kouzu.in resolver on its own.
-        // Pre-warm the Paxsenix AMP token on startup
-        applicationScope.launch(Dispatchers.IO) {
-            runCatching {
-                PaxsenixLyrics.refreshAmpToken()
-            }
-        }
 
         // Only resumes an existing session — see TelegramClient.startIfSessionExists. Starting the
         // client unconditionally mapped TDLib's 21.7 MB native library and started its threads for
@@ -453,21 +433,6 @@ class App :
                 }
         }
 
-        // Observe the user-configured Paxsenix API key + endpoint and apply
-        // them to PaxsenixLyrics. When the user changes the key in Settings
-        // → Lyrics → Providers → Paxsenix API key, this collector fires and
-        // PaxsenixLyrics.setApiKey()/setEndpoint() take effect immediately
-        // (the Ktor client reads these vars at request time via
-        // defaultRequest {}).
-        applicationScope.launch(Dispatchers.IO) {
-            dataStore.data
-                .map { (it[PaxsenixApiKeyKey] ?: "") to (it[PaxsenixEndpointKey] ?: "") }
-                .distinctUntilChanged()
-                .collect { (key, endpoint) ->
-                    PaxsenixLyrics.setApiKey(key)
-                    PaxsenixLyrics.setEndpoint(normalizePaxsenixEndpoint(endpoint))
-                }
-        }
 
         applicationScope.launch(Dispatchers.IO) {
             dataStore.data
@@ -672,65 +637,6 @@ internal data class ImageDiskCacheConfig(
     val maxSizeBytes: Long,
 )
 
-/**
- * Per-provider sub-paths served by the Paxsenix ("Lyrically") API, longest first
- * so `apple-music/cache/cleanup` is stripped before `apple-music/cache`.
- *
- * [PaxsenixLyrics] appends the sub-path for whichever provider is being queried,
- * so the configured endpoint has to be the *service root*.
- */
-private val PAXSENIX_PROVIDER_PATHS =
-    listOf(
-        "apple-music/cache/cleanup",
-        "apple-music/lyrics",
-        "apple-music/cache",
-        "musixmatch/lyrics",
-        "spotify/lyrics",
-        "spotify/search",
-        "spotify/home",
-        "netease/lyrics",
-        "netease/search",
-        "youtube/lyrics",
-        "youtube/search",
-        "deezer/lyrics",
-        "genius/lyrics",
-        "kugou/lyrics",
-        "kugou/search",
-        "qq/lyrics",
-        "qq/search",
-        "api/stats",
-        "playground",
-        "docs",
-    )
-
-/**
- * Normalises a user-supplied Paxsenix endpoint down to the service root.
- *
- * The API documents a *separate* URL per lyrics provider
- * (`…/apple-music/lyrics`, `…/spotify/lyrics`, and so on), so users reasonably
- * paste one of those into the endpoint field. [PaxsenixLyrics] then appends its
- * own provider sub-path, producing `…/apple-music/lyrics/spotify/lyrics` and a
- * 404 for every request. Stripping any known provider path (plus query string
- * and fragment) means pasting any documented URL resolves to the same working
- * root, and a blank value still falls through to the built-in default.
- */
-private fun normalizePaxsenixEndpoint(raw: String): String {
-    val trimmed = raw.trim()
-    if (trimmed.isBlank()) return ""
-
-    var url = trimmed.substringBefore('?').substringBefore('#').trimEnd('/')
-    for (path in PAXSENIX_PROVIDER_PATHS) {
-        if (url.endsWith("/$path", ignoreCase = true)) {
-            url = url.removeRange(url.length - path.length - 1, url.length)
-            break
-        }
-        if (url.endsWith(path, ignoreCase = true)) {
-            url = url.removeRange(url.length - path.length, url.length)
-            break
-        }
-    }
-    return url.trimEnd('/').ifBlank { "" }
-}
 
 /**
  * Maps a now-playing song to its `spotify:track:<id>` URI so [SpotifyCanvasProvider]

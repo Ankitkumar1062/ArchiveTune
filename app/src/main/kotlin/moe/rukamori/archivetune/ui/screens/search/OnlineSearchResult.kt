@@ -210,6 +210,8 @@ fun OnlineSearchResult(
                             onDismiss = menuState::dismiss,
                         )
                     }
+
+                    else -> {}
                 }
             }
         }
@@ -262,6 +264,8 @@ fun OnlineSearchResult(
                                 is PlaylistItem -> {
                                     navController.navigate("online_playlist/${item.id}")
                                 }
+
+                                else -> {}
                             }
                         },
                         onLongClick = longClick,

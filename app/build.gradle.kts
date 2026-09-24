@@ -495,8 +495,6 @@ dependencies {
     implementation(project(":core"))
     implementation(project(":lyrics:kugou"))
     implementation(project(":lyrics:lrclib"))
-    implementation(project(":lyrics:simpmusic"))
-    implementation(project(":lyrics:paxsenix"))
     implementation(project(":lyrics:betterlyrics"))
     implementation(project(":lyrics:unison"))
     implementation(project(":lyrics:youlyplus"))

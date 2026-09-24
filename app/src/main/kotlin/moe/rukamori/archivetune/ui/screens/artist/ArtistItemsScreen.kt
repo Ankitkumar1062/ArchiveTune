@@ -179,6 +179,8 @@ fun ArtistItemsScreen(
                                                 onDismiss = menuState::dismiss,
                                             )
                                         }
+
+                                        else -> {}
                                     }
                                 }
                             },
@@ -224,6 +226,8 @@ fun ArtistItemsScreen(
                                     is PlaylistItem -> {
                                         navController.navigate("online_playlist/${item.id}")
                                     }
+
+                                    else -> {}
                                 }
                             },
                 )
@@ -286,6 +290,8 @@ fun ArtistItemsScreen(
                                         is PlaylistItem -> {
                                             navController.navigate("online_playlist/${item.id}")
                                         }
+
+                                        else -> {}
                                     }
                                 },
                                 onLongClick = {
@@ -322,6 +328,8 @@ fun ArtistItemsScreen(
                                                     onDismiss = menuState::dismiss,
                                                 )
                                             }
+
+                                            else -> {}
                                         }
                                     }
                                 },

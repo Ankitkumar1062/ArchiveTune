@@ -104,6 +104,8 @@ class FilterAiContentUseCase
                         .filterNotNull()
                         .mapNotNull(::normalizeChannelKey)
                 }
+
+                else -> emptySequence()
             }
 
         private fun Artist.keys(): Sequence<String> =

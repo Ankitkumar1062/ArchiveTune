@@ -1401,6 +1401,8 @@ fun YouTubeListItem(
                     is PlaylistItem -> {
                         joinByBullet(item.author?.name, item.songCountText)
                     }
+
+                    else -> null
                 },
             badges = badges,
             thumbnailContent = {
@@ -1495,6 +1497,7 @@ fun YouTubeGridItem(
                     is AlbumItem -> joinByBullet(item.artists?.joinToString { it.name }, item.year?.toString())
                     is ArtistItem -> null
                     is PlaylistItem -> joinByBullet(item.author?.name, item.songCountText)
+                    else -> null
                 }
             if (subtitle != null) {
                 Text(
