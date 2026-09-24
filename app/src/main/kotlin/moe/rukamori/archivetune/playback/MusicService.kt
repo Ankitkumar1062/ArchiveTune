@@ -9728,10 +9728,9 @@ class MusicService :
             currentMediaMetadata.value?.takeIf { it.id == mediaId }
                 ?: queuedMetadataByMediaId[mediaId]
                 ?: player.findNextMediaItemById(mediaId)?.metadata
-        if (queuedMetadata?.isMusicVideo == true) return true
-        return runCatching {
-            runBlocking(Dispatchers.IO) { database.song(mediaId).first() }
-        }.getOrNull()?.song?.isMusicVideo == true
+        // A direct blocking read on purpose: the Flow variant spins up a Room observer only to take
+        // its first emission, and every caller of this gate is already off the main thread.
+        return runCatching { database.getSongByIdBlocking(mediaId) }.getOrNull()?.song?.isMusicVideo == true
     }
 
     /**

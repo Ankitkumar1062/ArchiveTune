@@ -1222,6 +1222,8 @@ class HomeViewModel
                                             if (context.dataStore.get(YtmSyncKey, true)) {
                                                 syncUtils.performFullSync()
                                             }
+                                        } catch (e: CancellationException) {
+                                            throw e
                                         } catch (e: Exception) {
                                             Timber.e(e, "Error during login-triggered sync")
                                             reportException(e)
