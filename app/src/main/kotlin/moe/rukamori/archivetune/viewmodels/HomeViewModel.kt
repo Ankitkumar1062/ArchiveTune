@@ -846,7 +846,7 @@ class HomeViewModel
             // single failure left the top bar signed out until the next successful fetch.
             context.dataStore.data.first().let { prefs ->
                 prefs[AccountNameKey]?.takeIf { it.isNotBlank() }?.let { _accountName.value = it }
-                prefs[AccountImageUrlKey]?.takeIf { it.isNotBlank() }?.let { _accountImageUrl.value = it }
+                _accountImageUrl.value = prefs[AccountImageUrlKey]?.takeIf { it.isNotBlank() }
             }
             _accountChannelsState.value = AccountChannelsState.Loading
 

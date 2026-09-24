@@ -33,42 +33,46 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.Serializable
 import moe.rukamori.archivetune.R
-import moe.rukamori.archivetune.models.toMediaMetadata
-import moe.rukamori.archivetune.spotify.models.SpotifyTrack
-import moe.rukamori.archivetune.utils.reportException
-import moe.rukamori.archivetune.spotify.models.SpotifyAlbum
+import moe.rukamori.archivetune.innertube.YouTube
+import moe.rukamori.archivetune.innertube.models.AlbumItem
+import moe.rukamori.archivetune.innertube.models.ArtistItem
+import moe.rukamori.archivetune.innertube.models.SongItem
+import moe.rukamori.archivetune.innertube.models.YTItem
 import moe.rukamori.archivetune.spotify.models.SpotifyArtist
 import moe.rukamori.archivetune.spotify.models.SpotifyHomeFeedItem
 import moe.rukamori.archivetune.spotify.models.SpotifyHomeFeedSection
-import moe.rukamori.archivetune.spotify.models.SpotifyImage
-import moe.rukamori.archivetune.spotify.models.SpotifyPlaylist
-import moe.rukamori.archivetune.spotify.models.SpotifyPlaylistOwner
-import moe.rukamori.archivetune.spotify.models.SpotifyPlaylistTracksRef
+import moe.rukamori.archivetune.spotify.models.SpotifyTrack
+import moe.rukamori.archivetune.utils.reportException
 import javax.inject.Inject
 
+@Serializable
 sealed interface SpotifyRecentItem {
     val id: String
     val name: String
     val imageUrl: String?
 
+    @Serializable
     data class Playlist(
         override val id: String,
         override val name: String,
-        override val imageUrl: String?
+        override val imageUrl: String?,
     ) : SpotifyRecentItem
 
+    @Serializable
     data class Album(
         override val id: String,
         override val name: String,
         override val imageUrl: String?,
-        val artists: List<SpotifyArtist>
+        val artists: List<SpotifyArtist>,
     ) : SpotifyRecentItem
 
+    @Serializable
     data class Artist(
         override val id: String,
         override val name: String,
-        override val imageUrl: String?
+        override val imageUrl: String?,
     ) : SpotifyRecentItem
 }
 
@@ -77,7 +81,7 @@ sealed interface SpotifyHomeScreenState {
     data class Success(
         val sections: List<SpotifyHomeSection>,
         val recentItems: List<SpotifyRecentItem> = emptyList(),
-        val frequentArtists: List<SpotifyArtist> = emptyList()
+        val frequentArtists: List<SpotifyArtist> = emptyList(),
     ) : SpotifyHomeScreenState
     data object Empty : SpotifyHomeScreenState
     data class Error(val messageResId: Int, val notAuthenticated: Boolean = false) : SpotifyHomeScreenState
@@ -107,12 +111,16 @@ sealed interface SpotifyHomeAction {
 @HiltViewModel
 class SpotifyHomeViewModel @Inject constructor(
     private val repository: SpotifyLibraryRepository,
+    private val profileCache: SpotifyProfileCache,
 ) : ViewModel() {
 
     private val _screenState = MutableStateFlow<SpotifyHomeScreenState>(SpotifyHomeScreenState.Loading)
     val screenState: StateFlow<SpotifyHomeScreenState> = _screenState.asStateFlow()
 
-    private val _navigationEvents = MutableSharedFlow<SpotifyHomeNavigationEvent>()
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
+    private val _navigationEvents = MutableSharedFlow<SpotifyHomeNavigationEvent>(extraBufferCapacity = 1)
     val navigationEvents: SharedFlow<SpotifyHomeNavigationEvent> = _navigationEvents.asSharedFlow()
 
     private val _resolvingItemKey = MutableStateFlow<String?>(null)
@@ -121,37 +129,57 @@ class SpotifyHomeViewModel @Inject constructor(
     private var loadJob: Job? = null
 
     init {
+        // accountChanges replays the current spDc on collect: the first emission
+        // is "same account as launch", not a change. Wiping the snapshot there
+        // deletes the very cache instant-home needs, so skip emission one and
+        // only wipe on genuine changes; the initial load() paints from cache.
+        var firstEmission = true
         viewModelScope.launch {
-            repository.accountChanges.collect { load() }
+            repository.accountChanges.collect {
+                if (firstEmission) {
+                    firstEmission = false
+                    load()
+                } else {
+                    // A changed account must never see the previous account's home:
+                    // wipe the snapshot, then load fresh.
+                    profileCache.clearCache()
+                    load()
+                }
+            }
         }
     }
 
     fun onAction(action: SpotifyHomeAction) {
         when (action) {
-            SpotifyHomeAction.Refresh -> load()
-            is SpotifyHomeAction.TrackClick -> {
-                viewModelScope.launch {
-                    _navigationEvents.emit(
-                        SpotifyHomeNavigationEvent.PlayTracks(
-                            SpotifyTracksQueue(
-                                title = action.title,
-                                initialTracks = action.tracks,
-                                startIndex = action.tracks.indexOf(action.track).coerceAtLeast(0),
-                                preloadItem = action.track.toMediaMetadata(),
-                            ),
+            SpotifyHomeAction.Refresh -> load(force = true)
+            is SpotifyHomeAction.TrackClick -> resolveSelection(
+                key = "track:${action.track.id}",
+                unavailableMessageResId = R.string.spotify_track_unavailable,
+            ) {
+                SpotifyPlaybackResolver.resolveToMetadata(action.track)?.let { metadata ->
+                    SpotifyHomeNavigationEvent.PlayTracks(
+                        SpotifyTracksQueue(
+                            title = action.title,
+                            initialTracks = action.tracks,
+                            startIndex = action.tracks.indexOf(action.track).coerceAtLeast(0),
+                            preloadItem = metadata,
                         ),
                     )
                 }
             }
-            is SpotifyHomeAction.AlbumClick -> {
-                viewModelScope.launch {
-                    _navigationEvents.emit(SpotifyHomeNavigationEvent.OpenAlbum(action.id))
-                }
+            is SpotifyHomeAction.AlbumClick -> resolveSelection("album:${action.id}") {
+                val query = listOfNotNull(action.name, action.artist)
+                    .filter(String::isNotBlank)
+                    .joinToString(" ")
+                resolveSpotifyReleaseAlbumId(
+                    query = query,
+                    searchAlbum = { searchCatalogItem<AlbumItem>(it, YouTube.SearchFilter.FILTER_ALBUM) },
+                    searchSong = { searchCatalogItem<SongItem>(it, YouTube.SearchFilter.FILTER_SONG) },
+                )?.let { SpotifyHomeNavigationEvent.OpenAlbum(it) }
             }
-            is SpotifyHomeAction.ArtistClick -> {
-                viewModelScope.launch {
-                    _navigationEvents.emit(SpotifyHomeNavigationEvent.OpenArtist(action.id))
-                }
+            is SpotifyHomeAction.ArtistClick -> resolveSelection("artist:${action.id}") {
+                searchCatalogItem<ArtistItem>(action.name, YouTube.SearchFilter.FILTER_ARTIST)
+                    ?.let { SpotifyHomeNavigationEvent.OpenArtist(it.id) }
             }
         }
     }
@@ -183,21 +211,67 @@ class SpotifyHomeViewModel @Inject constructor(
                 reportException(error)
                 _navigationEvents.emit(SpotifyHomeNavigationEvent.ShowMessage(unavailableMessageResId))
             } finally {
-                if (currentCoroutineContext().isActive) _resolvingItemKey.value = null
+                // Unconditional: the buffered navigation flow can't strand the
+                // emit, so a cancelled tap must not leave the tile spinning.
+                _resolvingItemKey.value = null
             }
         }
     }
 
-    private fun load() {
+    private suspend inline fun <reified T : YTItem> searchCatalogItem(
+        query: String,
+        filter: YouTube.SearchFilter,
+    ): T? {
+        val anonymous = YouTube.search(query, filter, useAccountContext = false)
+        currentCoroutineContext().ensureActive()
+        anonymous.getOrNull()?.items?.filterIsInstance<T>()?.firstOrNull()?.let { return it }
+        val fallback = YouTube.search(query, filter)
+        currentCoroutineContext().ensureActive()
+        return fallback.getOrThrow().items.filterIsInstance<T>().firstOrNull()
+    }
+
+    private fun load(force: Boolean = false) {
         loadJob?.cancel()
         cancelSelection()
-        _screenState.value = SpotifyHomeScreenState.Loading
-        loadJob = viewModelScope.launch(Dispatchers.IO) {
+        // Sync the spinner to this load's intent first: a cancelled forced load
+        // never reaches its reset, so without this a stale true would stick.
+        _isRefreshing.value = force
+        if (!force) {
+            _screenState.value = SpotifyHomeScreenState.Loading
+        }
+        var thisJob: Job? = null
+        thisJob = viewModelScope.launch(Dispatchers.IO) {
+            loadJob = thisJob
+            // Instant home: paint the last good snapshot first so a cold start or
+            // an account switch never flashes a bare spinner, then replace it
+            // when the network answers below. Bounded to three small lists, so
+            // restore is one DataStore read and no image work.
+            val cached = profileCache.restoreFromDataStore()
+            if (cached.recentItems.isNotEmpty() ||
+                cached.topTracks.isNotEmpty() ||
+                cached.frequentArtists.isNotEmpty()
+            ) {
+                _screenState.update {
+                    SpotifyHomeScreenState.Success(
+                        sections = cached.topTracks.takeIf { it.isNotEmpty() }?.let { tracks ->
+                            listOf(
+                                SpotifyHomeSection.Tracks(
+                                    title = "spotify_top_tracks",
+                                    tracks = tracks,
+                                ),
+                            )
+                        }.orEmpty(),
+                        recentItems = cached.recentItems,
+                        frequentArtists = cached.frequentArtists,
+                    )
+                }
+            }
 
             try {
                 val session = repository.restoreSession()
                 if (!session.isAuthenticated) {
                     _screenState.update { SpotifyHomeScreenState.Error(R.string.spotify_not_connected, notAuthenticated = true) }
+                    if (loadJob === thisJob) _isRefreshing.value = false
                     return@launch
                 }
 
@@ -215,8 +289,10 @@ class SpotifyHomeViewModel @Inject constructor(
                 val topArtistsResult = topArtistsDeferred.await()
                 currentCoroutineContext().ensureActive()
 
+                var topTracksList = emptyList<SpotifyTrack>()
                 topTracksResult.onSuccess { topTracks ->
                     if (topTracks.items.isNotEmpty()) {
+                        topTracksList = topTracks.items
                         sections.add(
                             SpotifyHomeSection.Tracks(
                                 title = "spotify_top_tracks",
@@ -224,6 +300,16 @@ class SpotifyHomeViewModel @Inject constructor(
                             )
                         )
                     }
+                }
+                // Network top-tracks missing but a snapshot exists: keep the shelf
+                // populated rather than dropping it for one failed call.
+                if (topTracksList.isEmpty() && cached.topTracks.isNotEmpty()) {
+                    sections.add(
+                        SpotifyHomeSection.Tracks(
+                            title = "spotify_top_tracks",
+                            tracks = cached.topTracks,
+                        )
+                    )
                 }
 
                 newReleasesResult.onSuccess { newReleases ->
@@ -249,6 +335,9 @@ class SpotifyHomeViewModel @Inject constructor(
 
                 topArtistsResult.onSuccess { topArtists ->
                     frequentArtists = topArtists.items
+                }
+                if (frequentArtists.isEmpty()) {
+                    frequentArtists = cached.frequentArtists
                 }
 
                 var recentItems = emptyList<SpotifyRecentItem>()
@@ -305,9 +394,20 @@ class SpotifyHomeViewModel @Inject constructor(
                             frequentArtists = frequentArtists,
                         )
                     }
+                    // Snapshot the network win so the next cold start paints
+                    // instantly; cheap single DataStore edit off the UI thread.
+                    profileCache.persistToDataStore(
+                        recentItems = recentItems,
+                        topTracks = topTracksList,
+                        frequentArtists = frequentArtists,
+                    )
                 }
+                if (loadJob === thisJob) _isRefreshing.value = false
 
             } catch (error: CancellationException) {
+                // A superseding load already set the flag for itself; only clear
+                // when this cancelled job is still the current one.
+                if (loadJob === thisJob) _isRefreshing.value = false
                 throw error
             } catch (e: Exception) {
                 currentCoroutineContext().ensureActive()
@@ -316,6 +416,7 @@ class SpotifyHomeViewModel @Inject constructor(
                 } else {
                     _screenState.update { SpotifyHomeScreenState.Error(R.string.error_unknown) }
                 }
+                if (loadJob === thisJob) _isRefreshing.value = false
             }
         }
     }
@@ -330,4 +431,22 @@ class SpotifyHomeViewModel @Inject constructor(
         if (feedSection.items.isEmpty()) return null
         return SpotifyHomeSection.Cards(title = title, items = feedSection.items)
     }
+}
+
+/**
+ * The YouTube Music page a tapped Spotify release opens.
+ *
+ * YouTube Music's albums index holds no page for many one-track releases — asked for one, the album
+ * filter answers with no results at all, which is what the album-only lookup turned into a "no
+ * result found" dead end. The release itself is still indexed as a song there, and that song carries
+ * the album page it came from, so the song index resolves exactly the releases the album index
+ * cannot.
+ */
+internal suspend fun resolveSpotifyReleaseAlbumId(
+    query: String,
+    searchAlbum: suspend (String) -> AlbumItem?,
+    searchSong: suspend (String) -> SongItem?,
+): String? {
+    searchAlbum(query)?.browseId?.takeIf(String::isNotBlank)?.let { return it }
+    return searchSong(query)?.album?.id?.takeIf(String::isNotBlank)
 }
