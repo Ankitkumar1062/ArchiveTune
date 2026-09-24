@@ -11,6 +11,7 @@ package moe.rukamori.archivetune.ui.player
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -24,7 +25,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -33,6 +37,7 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
+import androidx.media3.common.VideoSize
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
@@ -112,6 +117,7 @@ fun CanvasArtworkPlayer(
     var isVideoReady by remember(initial) { mutableStateOf(false) }
     var hasPlaybackFailed by remember(initial) { mutableStateOf(false) }
     var retryCount by remember(initial) { mutableIntStateOf(0) }
+    var videoDisplayAspectRatio by remember(initial) { mutableStateOf<Float?>(null) }
     val coroutineScope = rememberCoroutineScope()
 
     // Gate on sheet visibility: an invisible canvas is paused AND its surface
@@ -353,6 +359,18 @@ fun CanvasArtworkPlayer(
                     }
                 }
 
+                override fun onVideoSizeChanged(videoSize: VideoSize) {
+                    val width = videoSize.width
+                    val height = videoSize.height
+                    videoDisplayAspectRatio =
+                        if (width > 0 && height > 0) {
+                            val par = videoSize.pixelWidthHeightRatio
+                            (width.toFloat() * (if (par > 0f) par else 1f)) / height.toFloat()
+                        } else {
+                            null
+                        }
+                }
+
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     if (!shouldPlay || hasPlaybackFailed || exoPlayer.playerError != null) return
                     exoPlayer.setCanvasPlayback(isPlaying = true)
@@ -384,6 +402,7 @@ fun CanvasArtworkPlayer(
         val normalized = currentUrl.trim()
         isVideoReady = false
         hasPlaybackFailed = false
+        videoDisplayAspectRatio = null
         reportAvailability?.invoke(false)
         val lowercaseUrl = normalized.lowercase(Locale.ROOT)
         val mimeType =
@@ -427,14 +446,36 @@ fun CanvasArtworkPlayer(
     // `contentVisible` flips back to true, a new TextureView is created and the
     // ExoPlayer re-attaches to it, showing the current frame immediately.
     if (contentVisible) {
-        ContentFrame(
-            player = exoPlayer,
-            surfaceType = SURFACE_TYPE_TEXTURE_VIEW,
-            contentScale = resizeMode.toContentScale(),
-            keepContentOnReset = false,
-            shutter = {},
-            modifier = modifier.alpha(alpha),
-        )
+        val aspect = videoDisplayAspectRatio
+        if (resizeMode == AspectRatioFrameLayout.RESIZE_MODE_ZOOM && aspect != null && aspect > 0f) {
+            // Self-enforced cover: the frame is laid out at the video's aspect, scaled to COVER
+            // the container (overflowing one axis), and the wrapper Box clips the overflow. This
+            // renders aspect-correct even when the ContentFrame's internal video-size state is
+            // missing, and degenerates to the same geometry when it is not.
+            Box(modifier = modifier.clipToBounds()) {
+                ContentFrame(
+                    player = exoPlayer,
+                    surfaceType = SURFACE_TYPE_TEXTURE_VIEW,
+                    contentScale = resizeMode.toContentScale(),
+                    keepContentOnReset = false,
+                    shutter = {},
+                    modifier =
+                        Modifier
+                            .matchParentSize()
+                            .alpha(alpha)
+                            .canvasCoverLayout(aspect),
+                )
+            }
+        } else {
+            ContentFrame(
+                player = exoPlayer,
+                surfaceType = SURFACE_TYPE_TEXTURE_VIEW,
+                contentScale = resizeMode.toContentScale(),
+                keepContentOnReset = false,
+                shutter = {},
+                modifier = modifier.alpha(alpha),
+            )
+        }
     }
 }
 
@@ -465,3 +506,46 @@ private fun ExoPlayer.setCanvasPlayback(isPlaying: Boolean) {
 private const val CanvasPlaybackLogTag = "CanvasPlayback"
 private const val CanvasPlaybackUserAgent =
     "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Mobile Safari/537.36"
+
+/**
+ * Lays the content out at the cover geometry of the incoming constraints for a video with the
+ * given display aspect: the content keeps its aspect ratio and fully covers the container,
+ * overflowing (and getting clipped by the caller) whichever axis does not match.
+ */
+private fun Modifier.canvasCoverLayout(videoAspect: Float): Modifier =
+    layout { measurable, constraints ->
+        val containerWidth = constraints.maxWidth
+        val containerHeight = constraints.maxHeight
+        if (containerWidth <= 0 || containerHeight <= 0) {
+            val placeable = measurable.measure(constraints)
+            layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+        } else {
+            val containerAspect = containerWidth.toFloat() / containerHeight.toFloat()
+            val targetWidth: Int
+            val targetHeight: Int
+            if (videoAspect >= containerAspect) {
+                // Video relatively wider: match the height, overflow the width.
+                targetHeight = containerHeight
+                targetWidth =
+                    (containerHeight.toFloat() * videoAspect + 0.5f).toInt().coerceAtLeast(containerWidth)
+            } else {
+                // Video relatively taller: match the width, overflow the height.
+                targetWidth = containerWidth
+                targetHeight =
+                    (containerWidth.toFloat() / videoAspect + 0.5f).toInt().coerceAtLeast(containerHeight)
+            }
+            val placeable =
+                measurable.measure(
+                    Constraints.fixed(
+                        targetWidth.coerceAtLeast(1),
+                        targetHeight.coerceAtLeast(1),
+                    )
+                )
+            layout(containerWidth, containerHeight) {
+                placeable.place(
+                    -((targetWidth - containerWidth) / 2),
+                    -((targetHeight - containerHeight) / 2),
+                )
+            }
+        }
+    }
