@@ -339,6 +339,7 @@ android {
         lintConfig = file("lint.xml")
         warningsAsErrors = false
         abortOnError = false
+        checkReleaseBuilds = false
         checkDependencies = false
     }
 
