@@ -20,7 +20,10 @@ import timber.log.Timber
 import java.text.Normalizer
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ExecutorCompletionService
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
 
 /**
@@ -43,6 +46,12 @@ import kotlin.math.abs
 object QobuzAudioProvider {
     private const val USER_AGENT = "ArchiveTune-Android"
     private const val SEARCH_LIMIT = 10
+
+    private val backendRaceExecutor by lazy {
+        Executors.newFixedThreadPool(4) { runnable ->
+            Thread(runnable, "qobuz-backend-race").apply { isDaemon = true }
+        }
+    }
     private const val MIN_MATCH_SCORE = 60
     private const val SEARCH_CACHE_MS = 10 * 60 * 1000L
     private const val STREAM_CACHE_MS = 30 * 60 * 1000L
@@ -112,6 +121,13 @@ object QobuzAudioProvider {
             .connectTimeout(8, TimeUnit.SECONDS)
             .readTimeout(12, TimeUnit.SECONDS)
             .callTimeout(20, TimeUnit.SECONDS)
+            .dispatcher(
+                okhttp3.Dispatcher()
+                    .apply {
+                        maxRequests = 64
+                        maxRequestsPerHost = 32
+                    },
+            ).connectionPool(okhttp3.ConnectionPool(32, 10, TimeUnit.MINUTES))
             .build()
 
     private val healthClient =
@@ -394,32 +410,43 @@ object QobuzAudioProvider {
         }
 
         val available = backends.filterNot { isInstanceCoolingDown(it.id, now) }.ifEmpty { backends }
-        for (backend in available) {
-            // When directTrackId is set (user clicked a specific Qobuz search
-            // result), skip the title/artist search entirely and download the
-            // exact track. This prevents the resolver from matching a different
-            // Qobuz track (different master, deluxe edition, etc.).
-            val match = if (query.directTrackId != null) {
-                Match(
-                    id = query.directTrackId,
-                    title = query.title,
-                    artist = query.artists.joinToString(", "),
-                    album = query.album,
-                    durationMs = query.durationMs,
-                )
-            } else {
-                runCatching { resolveTrackId(backend, query) }
-                    .onFailure { markInstanceFailed(backend.id, hardFailure = it is java.io.IOException) }
-                    .getOrNull() ?: continue
-            }
+
+        data class BackendOutcome(
+            val backend: Backend,
+            val stream: DirectStream?,
+            val trackId: String?,
+            val failedHard: Boolean,
+            val failedSoft: Boolean,
+            val previewOnly: Boolean,
+        )
+
+        fun attempt(backend: Backend): BackendOutcome {
+            val searchFailureWasHard = AtomicBoolean(false)
+            val match: Match =
+                if (query.directTrackId != null) {
+                    Match(
+                        id = query.directTrackId,
+                        title = query.title,
+                        artist = query.artists.joinToString(", "),
+                        album = query.album,
+                        durationMs = query.durationMs,
+                    )
+                } else {
+                    runCatching { resolveTrackId(backend, query) }
+                        .onFailure {
+                            val hard = it is java.io.IOException
+                            searchFailureWasHard.set(hard)
+                            markInstanceFailed(backend.id, hardFailure = hard)
+                        }.getOrNull()
+                        ?: return BackendOutcome(backend, null, null, searchFailureWasHard.get(), true, false)
+                }
             val trackId = match.id
             val download =
                 runCatching { backend.download(trackId, formatId) }
                     .onFailure { markInstanceFailed(backend.id, hardFailure = it is java.io.IOException) }
                     .getOrNull()
             if (download == null) {
-                markInstanceFailed(backend.id, hardFailure = false)
-                continue
+                return BackendOutcome(backend, null, trackId, false, true, false)
             }
             if (download.isPreview) {
                 // Unsubscribed/expired backing account: skip this backend for a while, try the next.
@@ -430,11 +457,8 @@ object QobuzAudioProvider {
                 if (backend.isToken && backend.isPoolPremium && backend.poolId != null) {
                     moe.rukamori.archivetune.utils.PoolAccountManager.report("qobuz", "account", backend.poolId, "not_premium")
                 }
-                markInstanceFailed(backend.id, hardFailure = false)
-                continue
+                return BackendOutcome(backend, null, trackId, false, false, true)
             }
-            markInstanceHealthy(backend.id)
-            lastResolvedTrackId = trackId
             val stream =
                 DirectStream(
                     uri = download.url,
@@ -449,6 +473,35 @@ object QobuzAudioProvider {
                     matchedDurationMs = match.durationMs,
                     matchedIsrc = match.isrc,
                 )
+            return BackendOutcome(backend, stream, trackId, false, false, false)
+        }
+
+        val outcomes: List<BackendOutcome> =
+            if (available.size <= 1) {
+                available.map(::attempt)
+            } else {
+                val completion =
+                    ExecutorCompletionService<BackendOutcome>(backendRaceExecutor)
+                available.forEach { backend -> completion.submit { attempt(backend) } }
+                val collected = mutableListOf<BackendOutcome>()
+                repeat(available.size) {
+                    runCatching { completion.take().get() }.getOrNull()?.let(collected::add)
+                }
+                val orderIndex = backends.withIndex().associate { (index, backend) -> backend.id to index }
+                collected.sortedBy { orderIndex[it.backend.id] ?: Int.MAX_VALUE }
+            }
+
+        for (outcome in outcomes) {
+            val backend = outcome.backend
+            when {
+                outcome.failedHard || outcome.failedSoft || outcome.previewOnly -> {
+                    if (!outcome.failedHard) markInstanceFailed(backend.id, hardFailure = false)
+                    continue
+                }
+            }
+            val stream = outcome.stream ?: continue
+            markInstanceHealthy(backend.id)
+            lastResolvedTrackId = outcome.trackId
             streamCache[cacheKey] = CachedStream(stream, now + STREAM_CACHE_MS)
             Timber.tag("Qobuz").i("resolved \"%s\" via %s [%s]", query.title, backend.label, stream.label)
             return stream

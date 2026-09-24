@@ -565,7 +565,16 @@ fun BottomSheetPlayer(
     }
 
     var position by rememberSaveable(mediaMetadata?.id) {
-        mutableLongStateOf(playerConnection.player.currentPosition)
+        val player = playerConnection.player
+        val seededPosition =
+            if (player.playbackState == STATE_READY &&
+                player.currentMediaItem?.mediaId == mediaMetadata?.id
+            ) {
+                player.currentPosition.coerceAtLeast(0L)
+            } else {
+                0L
+            }
+        mutableLongStateOf(seededPosition)
     }
     // Wrap `position` in a stable provider so AppleMusicPlayerContent does NOT
     // recompose on every 100ms poll tick. The provider lambda is remembered
@@ -1054,8 +1063,10 @@ fun BottomSheetPlayer(
                 val metaDuration = it.duration.toLong() * 1000
                 duration = if (metaDuration > 0) metaDuration else 0L
             }
-            val currentPlayerPosition = playerConnection.player.currentPosition
-            if (sliderPosition == null && currentPlayerPosition > 0L) {
+            val player = playerConnection.player
+            val playerMatchesMetadata = player.currentMediaItem?.mediaId == mediaMetadata?.id
+            val currentPlayerPosition = player.currentPosition
+            if (sliderPosition == null && playerMatchesMetadata && currentPlayerPosition > 0L) {
                 position = currentPlayerPosition
             }
         }

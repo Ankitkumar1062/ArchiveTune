@@ -51,6 +51,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.Placeable
 import androidx.compose.ui.layout.layoutId
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
@@ -515,22 +516,26 @@ private fun MediaDetailBalancedActionLayout(
         val shuffleActionIndex = measurables.indexOfFirst { it.layoutId == MediaDetailActionLayoutId.Shuffle }
         val playActionIndex = measurables.indexOfFirst { it.layoutId == MediaDetailActionLayoutId.Play }
         val toggleAddActionIndex = measurables.indexOfFirst { it.layoutId == MediaDetailActionLayoutId.ToggleAdd }
-        val placeables =
-            measurables.map { measurable ->
-                measurable.measure(constraints.copy(minWidth = 0, minHeight = 0))
+        // Satellite actions (everything except the play pill) are measured once;
+        // the play measurable is deliberately skipped here so it can be measured
+        // exactly once below with the width that remains beside them.
+        val satellitePlaceables: List<Placeable?> =
+            measurables.mapIndexed { index, measurable ->
+                if (index == playActionIndex) {
+                    null
+                } else {
+                    measurable.measure(constraints.copy(minWidth = 0, minHeight = 0))
+                }
             }
-        val shuffleAction = placeables.getOrNull(shuffleActionIndex)
-        val playAction = placeables.getOrNull(playActionIndex)
-        val toggleAddAction = placeables.getOrNull(toggleAddActionIndex)
+        val shuffleAction = satellitePlaceables.getOrNull(shuffleActionIndex)
+        val toggleAddAction = satellitePlaceables.getOrNull(toggleAddActionIndex)
         val otherActions =
-            placeables.filterIndexed { index, _ ->
-                index != shuffleActionIndex &&
-                    index != playActionIndex &&
-                    index != toggleAddActionIndex
-            }
-        val centeredContentWidth =
-            placeables.sumOf { it.width } +
-                actionSpacing * (placeables.size - 1).coerceAtLeast(0)
+            satellitePlaceables
+                .filterIndexed { index, _ ->
+                    index != shuffleActionIndex &&
+                        index != playActionIndex &&
+                        index != toggleAddActionIndex
+                }.filterNotNull()
         val leftOtherActionCount = otherActions.size / 2
         val leftActions =
             buildList {
@@ -552,12 +557,51 @@ private fun MediaDetailBalancedActionLayout(
         val rightActionsWidth =
             rightActions.sumOf { it.width } +
                 actionSpacing * (rightActions.size - 1).coerceAtLeast(0)
+        val sideSpacing = if (leftActions.isEmpty() && rightActions.isEmpty()) 0 else actionSpacing
+
+        // Long translations (Spanish "Reproducir", German "Wiedergabe", …)
+        // can make the cluster wider than the viewport. The pill is measured
+        // EXACTLY ONCE, pre-capped at the width that remains next to the
+        // satellite actions, so the whole cluster fits and the margins stay
+        // equal on both sides in every language. (The old code measured the
+        // pill unconstrained first and then re-measured it on overflow — a
+        // second measure() on the same Measurable, which crashes with
+        // IllegalStateException the moment the artist page opens in those
+        // languages.)
+        val maxPlayWidth =
+            constraints.maxWidth - (leftActionsWidth + rightActionsWidth + 2 * sideSpacing)
+        val playAction: Placeable? =
+            measurables.getOrNull(playActionIndex)?.let { measurable ->
+                if (constraints.hasBoundedWidth && maxPlayWidth > 0) {
+                    measurable.measure(
+                        constraints.copy(minWidth = 0, maxWidth = maxPlayWidth, minHeight = 0),
+                    )
+                } else {
+                    // Satellites alone overflow the row (or the width is
+                    // unbounded): keep the pill's natural size, matching the old
+                    // overflow fallback.
+                    measurable.measure(constraints.copy(minWidth = 0, minHeight = 0))
+                }
+            }
+        val placeables: List<Placeable> =
+            satellitePlaceables.mapIndexed { index, placeable ->
+                if (index == playActionIndex) playAction else placeable
+            }.filterNotNull()
+
+        val centeredContentWidth =
+            placeables.sumOf { it.width } +
+                actionSpacing * (placeables.size - 1).coerceAtLeast(0)
         val balancedContentWidth =
             if (playAction == null) {
                 centeredContentWidth
             } else {
-                val sideSpacing = if (leftActions.isEmpty() && rightActions.isEmpty()) 0 else actionSpacing
                 playAction.width + 2 * (maxOf(leftActionsWidth, rightActionsWidth) + sideSpacing)
+            }
+        val clusterWidth =
+            if (playAction == null) {
+                centeredContentWidth
+            } else {
+                playAction.width + leftActionsWidth + rightActionsWidth + 2 * sideSpacing
             }
         val layoutWidth =
             if (constraints.hasBoundedWidth) {
@@ -586,7 +630,13 @@ private fun MediaDetailBalancedActionLayout(
                 return@layout
             }
 
-            val playActionX = (layoutWidth - playAction.width) / 2
+            val playActionX =
+                if (clusterWidth > layoutWidth) {
+                    val clusterStart = (layoutWidth - clusterWidth) / 2
+                    clusterStart + leftActionsWidth + sideSpacing
+                } else {
+                    (layoutWidth - playAction.width) / 2
+                }
             var leftActionX = playActionX - actionSpacing - leftActionsWidth
             var rightActionX = playActionX + playAction.width + actionSpacing
 

@@ -16,6 +16,7 @@ import moe.rukamori.archivetune.betterlyrics.QRCParser
 import moe.rukamori.archivetune.betterlyrics.TTMLParser
 import moe.rukamori.archivetune.db.entities.LyricsEntity
 import java.lang.Character.UnicodeScript
+import kotlin.math.roundToLong
 
 @Immutable
 data class LyricsRomanizationPreferences(
@@ -50,7 +51,8 @@ object LyricsUtils {
     val LINE_REGEX = Regex("""((\[\d{1,3}:\d{2}(?:[.:]\d{2,3})?\]\s*)+)(.*)""")
     val TIME_REGEX = Regex("""\[(\d{1,3}):(\d{2})(?:[.:](\d{2,3}))?\]""")
     private val WHITESPACE_REGEX = "\\s+".toRegex()
-    private val ENHANCED_LRC_WORD_TIME_REGEX = Regex("""<(\d{1,3}):(\d{2})(?:[.:](\d{2,3}))?>""")
+    private val ENHANCED_LRC_WORD_TIME_REGEX = Regex("""<\d{1,3}:\d{2}(?:[.:]\d{2,3})?>""")
+    private val ENHANCED_LRC_WORD_TOKEN_REGEX = Regex("""(<\d{1,3}:\d{2}(?:[.:]\d{2,3})?>)([^<]*)""")
     private val INLINE_MILLISECONDS_TIME_REGEX = Regex("""<\d{1,8}(?:,\d{1,8})?>""")
     private val YRC_LINE_REGEX = Regex("""\[(\d{1,8}),\d{1,8}\](.*)""")
     private val YRC_WORD_TIME_REGEX = Regex("""\(\d{1,8},\d{1,8}(?:,\d{1,8})?\)""")
@@ -69,6 +71,12 @@ object LyricsUtils {
     private val TTML_END_ATTRIBUTE_REGEX = Regex("""\b(?:end|dur)\s*=""", RegexOption.IGNORE_CASE)
     private val INVISIBLE_CHARS_REGEX = Regex("""[\u200B\u200C\u200D\u2060\u00AD]""")
     private const val NBSP = '\u00A0'
+    /** End given to the last word of a line whose end no further stamp pins down. */
+    private const val ENHANCED_LRC_LAST_WORD_DEFAULT_DURATION_MS = 600L
+    /** Floor so a word is never lit for a single frame. */
+    private const val MIN_WORD_DURATION_MS = 40L
+    /** Assumed length of the final line, which has no following stamp to clamp against. */
+    private const val ENHANCED_LRC_TRAILING_LINE_DURATION_MS = 4_000L
     private const val GENERIC_ROMANIZATION_TRANSFORM = "Any-Latin; Latin-ASCII"
     private val OTHER_ROMANIZATION_EXCLUDED_SCRIPTS =
         setOf(
@@ -86,11 +94,6 @@ object LyricsUtils {
             Transliterator.getInstance(GENERIC_ROMANIZATION_TRANSFORM)
         }
 
-    private data class EnhancedLrcWord(
-        val text: String,
-        val startMs: Long,
-        val endMs: Long?,
-    )
 
     private val KANA_ROMAJI_MAP: Map<String, String> =
         mapOf(
@@ -691,7 +694,11 @@ object LyricsUtils {
             }
         }
 
-        return normalized.lineSequence().any(::hasEnhancedLrcWordTimings)
+        return normalized.lineSequence().any { line ->
+            LINE_REGEX.containsMatchIn(line) &&
+                (ENHANCED_LRC_WORD_TIME_REGEX.containsMatchIn(line) ||
+                    INLINE_MILLISECONDS_TIME_REGEX.containsMatchIn(line))
+        }
     }
 
     fun parseTtml(
@@ -757,18 +764,13 @@ object LyricsUtils {
         val lines = normalizedLyrics.lines()
         val result = mutableListOf<LyricsEntry>()
 
-        for ((index, line) in lines.withIndex()) {
-            val lineStartMs = firstLineTimestampMs(line)
-            val nextLineStartMs = findNextLineStartMs(lines, index, lineStartMs)
-            val entries =
-                parseEnhancedLrcLine(line, nextLineStartMs)
-                    ?: parseLineSyncedLrcLine(line)
-                    ?: parseMillisecondsSyncedLine(line)
+        for (line in lines) {
+            val entries = parseLineSyncedLrcLine(line) ?: parseMillisecondsSyncedLine(line)
             if (entries != null) {
                 result.addAll(entries)
             }
         }
-        return mergeLineSyncedTranslations(result).sorted()
+        return clampEnhancedLrcLastWordEnds(mergeLineSyncedTranslations(result).sorted())
     }
 
     private fun extractQrcTranslations(lyrics: String): Map<Long, String> {
@@ -932,111 +934,142 @@ object LyricsUtils {
         }
         val matchResult = LINE_REGEX.matchEntire(line.trim()) ?: return null
         val times = matchResult.groupValues[1]
-        val text = cleanInlineWordTimingText(matchResult.groupValues[3])
+        val rawText = matchResult.groupValues[3]
+        val text = cleanInlineWordTimingText(rawText)
+        val inlineWords = extractEnhancedLrcWordTimestamps(rawText)
         val timeMatchResults = TIME_REGEX.findAll(times)
 
         return timeMatchResults
             .mapNotNull { timeMatchResult ->
                 val time = timeMatchResult.toLrcTimestampMs() ?: return@mapNotNull null
-                LyricsEntry(time, text)
+                if (inlineWords != null) {
+                    // A repeated stamp ("[00:12.00][00:14.00]<00:12.00>word …") reuses the same
+                    // words: any word stamped before this row's own start is pulled forward so the
+                    // karaoke never highlights a word before its line begins.
+                    val lineStartSec = time / 1000.0
+                    val words =
+                        inlineWords.map { word ->
+                            if (word.startTime >= lineStartSec - 0.001) {
+                                word
+                            } else {
+                                word.copy(
+                                    startTime = lineStartSec,
+                                    endTime = maxOf(word.endTime, lineStartSec + MIN_WORD_DURATION_MS / 1000.0),
+                                )
+                            }
+                        }
+                    LyricsEntry(time, text, words = words)
+                } else {
+                    LyricsEntry(time, text)
+                }
             }.toList()
     }
 
-    private fun parseEnhancedLrcLine(
-        line: String,
-        nextLineStartMs: Long?,
-    ): List<LyricsEntry>? {
-        val matchResult = LINE_REGEX.matchEntire(line.trim()) ?: return null
-        val rawContent = matchResult.groupValues[3]
-        val timingMatches = ENHANCED_LRC_WORD_TIME_REGEX.findAll(rawContent).toList()
-        if (timingMatches.isEmpty()) return null
-
-        val rawWords = mutableListOf<EnhancedLrcWord>()
-        timingMatches.forEachIndexed { index, timingMatch ->
-            val textStart = timingMatch.range.last + 1
-            val textEnd = timingMatches.getOrNull(index + 1)?.range?.first ?: rawContent.length
-            var text = rawContent.substring(textStart, textEnd)
-            if (index == 0 && timingMatch.range.first > 0) {
-                text = rawContent.substring(0, timingMatch.range.first) + text
-            }
-            if (text.isEmpty()) return@forEachIndexed
-
-            val startMs = timingMatch.toLrcTimestampMs() ?: return@forEachIndexed
-            val endMs = timingMatches.getOrNull(index + 1)?.toLrcTimestampMs()
-            if (text.isBlank() && rawWords.isNotEmpty()) {
-                val previous = rawWords.last()
-                rawWords[rawWords.lastIndex] = previous.copy(text = previous.text + text)
-            } else {
-                rawWords += EnhancedLrcWord(text = text, startMs = startMs, endMs = endMs)
-            }
-        }
-        if (rawWords.isEmpty()) return null
-
-        val lineStartTimes =
-            TIME_REGEX
-                .findAll(matchResult.groupValues[1])
-                .mapNotNull { match -> match.toLrcTimestampMs() }
-                .toList()
-        if (lineStartTimes.isEmpty()) return null
-
-        val baseLineStartMs = lineStartTimes.first()
-        val visibleText = cleanInlineWordTimingText(rawContent)
-        if (visibleText.isEmpty()) return null
-
-        return lineStartTimes.mapIndexed { index, lineStartMs ->
-            val offsetMs = lineStartMs - baseLineStartMs
-            val followingLineStartMs = lineStartTimes.getOrNull(index + 1) ?: nextLineStartMs
-            val words =
-                rawWords.map { rawWord ->
-                    val wordStartMs = (rawWord.startMs + offsetMs).coerceAtLeast(0L)
-                    val wordEndMs =
-                        (rawWord.endMs?.plus(offsetMs)
-                            ?: followingLineStartMs
-                            ?: wordStartMs + DEFAULT_ENHANCED_WORD_DURATION_MS)
-                            .coerceAtLeast(wordStartMs + 1L)
-                    WordTimestamp(
-                        text = rawWord.text,
-                        startTime = wordStartMs / MILLIS_PER_SECOND,
-                        endTime = wordEndMs / MILLIS_PER_SECOND,
-                    )
+    /**
+     * Parses the `<mm:ss.xxx>` fraction of an enhanced-LRC word stamp into milliseconds, or null
+     * when the stamp is malformed.
+     */
+    private fun parseEnhancedLrcStampMs(stamp: String): Long? {
+        val body = stamp.removePrefix("<").removeSuffix(">")
+        val parts = body.split(':', '.')
+        if (parts.size < 2) return null
+        val min = parts[0].toLongOrNull() ?: return null
+        val sec = parts[1].toLongOrNull() ?: return null
+        val mil =
+            parts.getOrNull(2)?.let { fraction ->
+                when (fraction.length) {
+                    1 -> fraction.toLongOrNull()?.times(100)
+                    2 -> fraction.toLongOrNull()?.times(10)
+                    else -> fraction.take(3).padEnd(3, '0').toLongOrNull()
                 }
-            val lineEndMs = words.maxOf { word -> (word.endTime * MILLIS_PER_SECOND).toLong() }
-            LyricsEntry(
-                time = lineStartMs,
-                text = visibleText,
-                words = words,
-                durationMs = (lineEndMs - lineStartMs).coerceAtLeast(1L),
+            } ?: 0L
+        return min * 60_000L + sec * 1_000L + mil
+    }
+
+    /**
+     * Extracts per-word timings from a line carrying inline `<mm:ss.xxx>` stamps — the shape
+     * YouLyPlus's v2 endpoint generates and most enhanced-LRC files use — or null when the line has
+     * fewer than two stamped words (one stamp is not word sync, and a single word says nothing about
+     * which word is being sung).
+     *
+     * The stamp marks a word's start and the NEXT stamp ends it; the last word of the line gets
+     * [ENHANCED_LRC_LAST_WORD_DEFAULT_DURATION_MS] and is later clamped to the next line by
+     * [clampEnhancedLrcLastWordEnds].
+     */
+    private fun extractEnhancedLrcWordTimestamps(rawText: String): List<WordTimestamp>? {
+        if (!ENHANCED_LRC_WORD_TIME_REGEX.containsMatchIn(rawText)) return null
+        val tokens = ENHANCED_LRC_WORD_TOKEN_REGEX.findAll(rawText).toList()
+        if (tokens.size < 2) return null
+
+        val words = mutableListOf<WordTimestamp>()
+        tokens.forEachIndexed { index, token ->
+            val startMs = parseEnhancedLrcStampMs(token.groupValues[1]) ?: return@forEachIndexed
+            val normalizedText = token.groupValues[2].replace(WHITESPACE_REGEX, " ")
+            val wordText = normalizedText.trim { it.isWhitespace() || it == NBSP }
+            if (wordText.isEmpty()) return@forEachIndexed
+            // Keep one trailing space when the source carries it: the verbatim word renderers
+            // (LyricsV2 / LyricsEnhanced karaoke) lay each word out as-is, so trimming the edge gap
+            // collapsed "Hello world" into "Helloworld" for every provider whose generator puts the
+            // separator after the word.
+            val textWithGap = if (normalizedText.endsWith(" ")) "$wordText " else wordText
+            val nextStartMs =
+                tokens
+                    .getOrNull(index + 1)
+                    ?.let { parseEnhancedLrcStampMs(it.groupValues[1]) }
+            val endMs = nextStartMs ?: (startMs + ENHANCED_LRC_LAST_WORD_DEFAULT_DURATION_MS)
+            words.add(
+                WordTimestamp(
+                    text = textWithGap,
+                    startTime = startMs / 1000.0,
+                    endTime = maxOf(endMs, startMs + MIN_WORD_DURATION_MS) / 1000.0,
+                ),
             )
         }
+        return words.takeIf { it.size >= 2 }
     }
 
-    private fun hasEnhancedLrcWordTimings(line: String): Boolean {
-        val matchResult = LINE_REGEX.matchEntire(line.trim()) ?: return false
-        val content = matchResult.groupValues[3]
-        val timingMatches = ENHANCED_LRC_WORD_TIME_REGEX.findAll(content).toList()
-        return timingMatches.indices.any { index ->
-            val timingMatch = timingMatches[index]
-            val textStart = timingMatch.range.last + 1
-            val textEnd = timingMatches.getOrNull(index + 1)?.range?.first ?: content.length
-            textStart < textEnd && content.substring(textStart, textEnd).isNotEmpty()
+    /**
+     * Pulls the end of each line's last word back to the start of the next line.
+     *
+     * Enhanced LRC timestamps only mark word STARTs, so the last word carries the
+     * [ENHANCED_LRC_LAST_WORD_DEFAULT_DURATION_MS] guess, which can run past the line it belongs to and keep
+     * the karaoke highlight on a word while the next line is already singing. The final line has no
+     * following stamp to clamp against, so it keeps a generous fixed tail.
+     *
+     * Only guessed tails are touched. A word end from any other producer is real, and a line
+     * legitimately runs past the next one there (duets, instrumental tails), so clamping those would
+     * cut a line short; [hasGuessedLastWordEnd] is what tells the two apart.
+     */
+    private fun clampEnhancedLrcLastWordEnds(entries: List<LyricsEntry>): List<LyricsEntry> =
+        entries.mapIndexed { index, entry ->
+            val words = entry.words ?: return@mapIndexed entry
+            if (words.isEmpty() || !hasGuessedLastWordEnd(words)) return@mapIndexed entry
+            val nextStartMs =
+                entries
+                    .getOrNull(index + 1)
+                    ?.takeIf { it.time > entry.time }
+                    ?.time
+                    ?: (entry.time + ENHANCED_LRC_TRAILING_LINE_DURATION_MS)
+            val lastEndMs = (words.last().endTime * 1000.0).toLong()
+            if (lastEndMs > nextStartMs) {
+                val clamped = words.last().copy(endTime = nextStartMs / 1000.0)
+                entry.copy(words = words.dropLast(1) + clamped)
+            } else {
+                entry
+            }
         }
-    }
 
-    private fun firstLineTimestampMs(line: String): Long? {
-        val matchResult = LINE_REGEX.matchEntire(line.trim()) ?: return null
-        return TIME_REGEX.find(matchResult.groupValues[1])?.toLrcTimestampMs()
-    }
-
-    private fun findNextLineStartMs(
-        lines: List<String>,
-        currentIndex: Int,
-        currentLineStartMs: Long?,
-    ): Long? {
-        for (index in currentIndex + 1 until lines.size) {
-            val candidate = firstLineTimestampMs(lines[index]) ?: continue
-            if (currentLineStartMs == null || candidate > currentLineStartMs) return candidate
-        }
-        return null
+    /**
+     * True when [words] ends in the tail [extractEnhancedLrcWordTimestamps] invents for a last word.
+     * That is the extractor's signature — the duration is not read from anywhere — so it doubles as
+     * the provenance check that keeps the clamp off real word timings.
+     */
+    private fun hasGuessedLastWordEnd(words: List<WordTimestamp>): Boolean {
+        val lastWord = words.last()
+        val startMs = (lastWord.startTime * 1000.0).roundToLong()
+        val guessedDurationMs =
+            ENHANCED_LRC_LAST_WORD_DEFAULT_DURATION_MS.coerceAtLeast(MIN_WORD_DURATION_MS)
+        return (lastWord.endTime * 1000.0).roundToLong() - startMs == guessedDurationMs
     }
 
     private fun MatchResult.toLrcTimestampMs(): Long? {
@@ -1094,8 +1127,6 @@ object LyricsUtils {
             .replace(WHITESPACE_REGEX, " ")
             .trim { it.isWhitespace() || it == NBSP }
 
-    private const val MILLIS_PER_SECOND = 1000.0
-    private const val DEFAULT_ENHANCED_WORD_DURATION_MS = 1000L
 
     fun findCurrentLineIndex(
         lines: List<LyricsEntry>,
