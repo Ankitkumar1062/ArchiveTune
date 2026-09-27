@@ -473,7 +473,7 @@ class MusicService :
     private var scopeJob = SupervisorJob()
     private var scope = CoroutineScope(Dispatchers.Main + scopeJob)
     private var ioScope = CoroutineScope(Dispatchers.IO + scopeJob)
-    private val binder = MusicBinder()
+    private val binder = MusicBinder(this)
     private var hasBoundClients = false
     private var idleStopJob: Job? = null
 
@@ -2968,7 +2968,15 @@ class MusicService :
         // promoted ExoPlayer, and a fresh wrapper does not inherit playWhenReady. Nothing used to
         // re-assert it, so the promoted player came up paused and the incoming song stopped a few
         // seconds in — right at the end of the fade, which is what made it look random.
-        val shouldKeepPlaying = crossfadePlaybackRequested || incomingPlayer.playWhenReady || oldSessionPlayer.playWhenReady
+        //
+        // The intent itself is crossfadePlaybackRequested, kept live by onPlayWhenReadyChanged for
+        // the whole fade and promotion window and cleared by any pause that is not the outgoing
+        // player's own end-of-item auto-pause — so a pause (user tap or audio-focus loss) landing
+        // mid-fade is no longer overridden by the stale `oldSessionPlayer.playWhenReady` the
+        // outgoing player still reports. Focus is a precondition too: when playback was paused for
+        // audio-focus loss the GAIN handler resumes it via wasPlayingBeforeAudioFocusLoss, so
+        // promotion must not force play while the system has not returned focus.
+        val shouldKeepPlaying = crossfadePlaybackRequested && hasAudioFocusForPlayback()
         crossfadeHandoffInProgress = true
         return try {
             incomingPlayer.removeListener(secondaryCrossfadeListener)
@@ -3297,8 +3305,18 @@ class MusicService :
             }
 
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-                hasAudioFocus = false
-                pauseForAudioFocusLoss(resumeWhenFocusReturns = true)
+                // Duck instead of pausing. CAN_DUCK losses arrive for route changes (Bluetooth
+                // reconnects, assistant beeps, navigation prompts) where stopping playback
+                // mid-song — and then racing a crossfade promotion that force-resumes — reads as
+                // "the app muted itself". The stream stays alive at MIN_AUDIO_FOCUS_VOLUME_FACTOR;
+                // AUDIOFOCUS_GAIN restores the factor to 1f.
+                //
+                // Focus itself is still held (the system only asked us to lower the volume), so
+                // hasAudioFocus stays true: a re-request during the duck must not read as a
+                // re-gain and cancel it, and playback paused mid-crossfade must not be forced
+                // back on the assumption that focus was lost.
+                hasAudioFocus = true
+                audioFocusVolumeFactor.value = MIN_AUDIO_FOCUS_VOLUME_FACTOR
 
                 lastAudioFocusState = focusChange
             }
@@ -3326,7 +3344,12 @@ class MusicService :
 
     private fun requestAudioFocus(): Boolean {
         if (hasAudioFocus) {
-            if (audioFocusVolumeFactor.value != 1f || lastAudioFocusState == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
+            // A CAN_DUCK loss is still in effect while the factor is lowered: re-requesting focus
+            // (every playback-state event funnels through ensureAudioFocusForActivePlayback) must
+            // not restore full volume behind the duck. Only the real re-gain paths clear it.
+            if (audioFocusVolumeFactor.value != 1f &&
+                lastAudioFocusState != AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK
+            ) {
                 restoreAudioFocusVolume()
             }
             return true
@@ -5495,14 +5518,23 @@ class MusicService :
         reason: Int,
     ) {
         super.onPlayWhenReadyChanged(playWhenReady, reason)
+        val isEndOfOutgoingItemPause =
+            !playWhenReady &&
+                reason == Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM &&
+                localPlayer.pauseAtEndOfMediaItems
+        if (isCrossfading || crossfadeHandoffInProgress) {
+            // Track the live playback intent across the whole crossfade, including the promotion
+            // window: there secondaryCrossfadePlayer is already null while the session player is
+            // being swapped, so tracking inside that null-check silently dropped a pause landing
+            // in the window and the freshly promoted player resumed on its own. The outgoing
+            // player's end-of-item auto-pause is not user intent and keeps the intent unchanged.
+            if (!isEndOfOutgoingItemPause) {
+                crossfadePlaybackRequested = playWhenReady
+            }
+        }
         secondaryCrossfadePlayer?.let { secondaryPlayer ->
             if (isCrossfading) {
-                val isEndOfOutgoingItemPause =
-                    !playWhenReady &&
-                        reason == Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM &&
-                        localPlayer.pauseAtEndOfMediaItems
                 if (!isEndOfOutgoingItemPause) {
-                    crossfadePlaybackRequested = playWhenReady
                     secondaryPlayer.playWhenReady = crossfadePlaybackRequested
                     if (crossfadePlaybackRequested) {
                         secondaryPlayer.play()
@@ -7226,7 +7258,7 @@ class MusicService :
         query: SourceQuery,
         trusted: Boolean = false,
     ): DirectStream? {
-        if (AppleMusicAudioProvider.mediaUserToken() == null || AppleMusicAudioProvider.devToken() == null) {
+        if (AppleMusicAudioProvider.mediaUserToken() == null || AppleMusicAudioProvider.usableDevToken() == null) {
             Timber
                 .tag("MusicService")
                 .d("Apple Music source: missing tokens (sign in via Settings → Apple Music)")
@@ -8646,7 +8678,7 @@ class MusicService :
 
     private fun buildAppleDrmSessionManager(track: AppleTrackDrmInfo): DrmSessionManager? {
         val mediaToken = AppleMusicAudioProvider.mediaUserToken() ?: return null
-        val devToken = AppleMusicAudioProvider.devToken()
+        val devToken = AppleMusicAudioProvider.usableDevToken()
         val callback = AppleLicenseCallback(track, devToken, mediaToken)
         return DefaultDrmSessionManager
             .Builder()
@@ -9398,6 +9430,9 @@ class MusicService :
     }
 
     override fun onDestroy() {
+        // Released before anything else is torn down: once destruction has started no bound client
+        // may obtain this service again (and the binder must stop pinning it).
+        binder.release()
         equalizerPlaybackController.detach(this)
         sponsorBlockPlaybackController.detach()
         musicHapticsEngine?.release()
@@ -9609,9 +9644,23 @@ class MusicService :
         widgetUpdater.updateProgressTracking()
     }
 
-    inner class MusicBinder : Binder() {
+    /**
+     * Hands [service] to bound clients. The reference is dropped by [MusicService.onDestroy] so
+     * that a client which kept the binder — a widget update, a lingering ServiceConnection, an
+     * Android Auto consumer — can no longer reach, and therefore cannot pin, a service whose
+     * players, media session and scopes have already been released. Deliberately NOT an inner
+     * class: an inner binder would hold a second, implicit reference to the service.
+     */
+    class MusicBinder internal constructor(service: MusicService) : Binder() {
+        @Volatile
+        private var serviceReference: MusicService? = service
+
         val service: MusicService
-            get() = this@MusicService
+            get() = checkNotNull(serviceReference) { "MusicService has been destroyed" }
+
+        internal fun release() {
+            serviceReference = null
+        }
     }
 
     companion object {
