@@ -208,7 +208,13 @@ object AppleMusicProvider {
      */
     suspend fun ensureTokenFresh(): String? {
         devTokenProvider?.invoke()?.trim()?.takeIf { it.isNotBlank() }?.let { userDevToken ->
-            return userDevToken
+            // An expired user token used to win unconditionally here and 401 every call.
+            // Respect its JWT exp: while valid it still wins; once expired fall through to
+            // the scraped web token. expSec returns 0 for a malformed token, which counts
+            // as usable-unknown rather than expired, so it still wins (never a crash).
+            val expSec = AppleWebPlayToken.expSec(userDevToken)
+            if (expSec == 0L || expSec > System.currentTimeMillis() / 1000L) return userDevToken
+            Log.w("Apple Music user dev token expired (exp=${expSec}s) — falling back to the scraped web token")
         }
         val nowSec = System.currentTimeMillis() / 1000L
         val held = appleMusicToken
@@ -225,6 +231,15 @@ object AppleMusicProvider {
 
     /** The held token when it is still strictly valid at [nowSec] — a refresh may have failed. */
     private fun validHeldToken(nowSec: Long): String? = appleMusicToken?.takeIf { appleMusicTokenExpAtSec > nowSec }
+
+    /** Non-suspend access to the last scraped web token, when it is still unexpired. */
+    fun cachedScrapedDevToken(): String? {
+        val token = appleMusicToken ?: return null
+        if (token.isBlank()) return null
+        val nowSec = System.currentTimeMillis() / 1000L
+        if (appleMusicTokenExpAtSec != 0L && appleMusicTokenExpAtSec <= nowSec) return null
+        return token
+    }
 
     /**
      * Resolved storefront for the pasted Media-User-Token (ES/JP/…).
