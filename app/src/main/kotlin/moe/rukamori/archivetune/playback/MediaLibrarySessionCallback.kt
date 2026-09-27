@@ -601,10 +601,7 @@ class MediaLibrarySessionCallback
                                 }
 
                                 parentId.startsWith("${MusicService.PLAYLIST}/") -> {
-                                    playlistChildren(
-                                        session = session,
-                                        parentId = parentId,
-                                    )
+                                    playlistChildren(parentId)
                                 }
 
                                 parentId.startsWith("${MusicService.ONLINE_PLAYLIST}/") -> {
@@ -1170,10 +1167,7 @@ class MediaLibrarySessionCallback
             return resolved
         }
 
-        private suspend fun playlistChildren(
-            session: MediaLibrarySession,
-            parentId: String,
-        ): List<MediaItem> {
+        private suspend fun playlistChildren(parentId: String): List<MediaItem> {
             val path = parentId.pathSegments()
             val playlistId = path.getOrNull(1) ?: return emptyList()
             return when (path.getOrNull(2)) {
@@ -1198,29 +1192,20 @@ class MediaLibrarySessionCallback
                                     MediaMetadata.MEDIA_TYPE_FOLDER_MIXED,
                                 ),
                             )
-                            val playlist = database.getPlaylistById(playlistId)
-                            val playlistEntity = playlist?.playlist
-                            val currentSongId =
-                                withContext(Dispatchers.Main.immediate) {
-                                    session.player.currentMediaItem
-                                        ?.mediaId
-                                        ?.trim()
-                                }?.takeIf(String::isNotBlank)
-                            val canAddCurrentSong =
-                                playlistEntity != null &&
-                                    playlistEntity.isEditable &&
-                                    currentSongId != null &&
-                                    database.checkInPlaylist(playlistId, currentSongId) == 0 &&
-                                    (
-                                        playlistEntity.browseId == null ||
-                                            !(currentSongId.isLocalMediaId() || currentSongId.isTelegramMediaId())
-                                    )
-                            if (canAddCurrentSong) {
+                            // Shown from the playlist's own properties only, never from playback
+                            // state. Keyed on the current song (not already in the playlist, not a
+                            // local/Telegram file for an online playlist), the row came and went on
+                            // every track change, so a re-fetch of this folder returned one child
+                            // more or fewer and Android Auto rebuilt the list, scrolled back to the
+                            // top. The tap re-checks all of that and does nothing when the song
+                            // cannot be added (addCurrentSongToPlaylist).
+                            val playlistEntity = database.getPlaylistById(playlistId)?.playlist
+                            if (playlistEntity?.isEditable == true) {
                                 add(
                                     queueMediaItem(
                                         "$parentId/$PLAYLIST_ACTION_ADD_CURRENT_SONG",
                                         context.getString(R.string.add_current_song),
-                                        playlistEntity?.name,
+                                        playlistEntity.name,
                                         drawableUri(R.drawable.playlist_add),
                                         MediaMetadata.MEDIA_TYPE_MUSIC,
                                     ),
