@@ -31,6 +31,8 @@ class LocalAlbumRadio(
                 params = "wAEB",
             )
 
+    private val localOnly = albumWithSongs.album.isLocal || albumWithSongs.songs.all { it.song.isLocal }
+    private val initialSongIds = albumWithSongs.songs.map { it.id }.toSet()
     private var continuation: String? = null
     private var firstTimeLoaded: Boolean = false
 
@@ -43,10 +45,11 @@ class LocalAlbumRadio(
             )
         }
 
-    override fun hasNextPage(): Boolean = !firstTimeLoaded || continuation != null
+    override fun hasNextPage(): Boolean = !localOnly && (!firstTimeLoaded || continuation != null)
 
     override suspend fun nextPage(): List<MediaItem> =
         withContext(IO) {
+            if (localOnly) return@withContext emptyList()
             if (!firstTimeLoaded) {
                 playlistId =
                     YouTube
@@ -57,10 +60,8 @@ class LocalAlbumRadio(
                 continuation = nextResult.continuation
                 firstTimeLoaded = true
                 return@withContext nextResult.items
-                    .subList(
-                        albumWithSongs.songs.size,
-                        nextResult.items.size,
-                    ).map { it.toMediaItem() }
+                    .filterNot { it.id in initialSongIds }
+                    .map { it.toMediaItem() }
             }
             val nextResult = YouTube.next(endpoint, continuation).getOrThrow()
             continuation = nextResult.continuation
