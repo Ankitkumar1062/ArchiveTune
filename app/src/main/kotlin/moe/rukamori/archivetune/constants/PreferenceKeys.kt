@@ -465,6 +465,10 @@ val LocalSongsIncludedFoldersKey = stringSetPreferencesKey("local_songs_included
 val LocalSongsExcludedFoldersKey = stringSetPreferencesKey("local_songs_excluded_folders")
 val LocalSongsSortTypeKey = stringPreferencesKey("local_songs_sort_type")
 val LocalSongsSortDescendingKey = booleanPreferencesKey("local_songs_sort_descending")
+// The extraction version the local library was last fully read with. A scan whose stored value is
+// below LocalSongScanner's current one re-reads every file once instead of trusting its
+// unchanged-file skip, so a library read by an older build still gains what that build never read.
+val LocalScanExtractionVersionKey = intPreferencesKey("local_scan_extraction_version")
 
 val ListenBrainzEnabledKey = booleanPreferencesKey("listenbrainz_enabled")
 val ListenBrainzTokenKey = stringPreferencesKey("listenbrainz_token")
