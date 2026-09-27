@@ -25,8 +25,10 @@ introduce a REST/WS path to koiverse domains.
 
 ## Performance
 
-SpatialFlow research is recorded in `HANDOFF.md`. Its player is a useful comparison, not a source to copy wholesale. Before changing buffer sizes or adding audio processors, measure transition latency, resolver calls, cache hit rate, decoder state, dropped frames, CPU, radio use, and thermal status. Low-end validation must cover crossfade, canvas/artwork, lyrics, and audio offload independently.
+SpatialFlow's player (a second Media3 player, 50–60 s buffering, a 250 ms progress loop and a simpler linear crossfade handoff) is a useful comparison, not a source to copy wholesale: this fork already has stronger readiness, generation, cache, codec, audio-route and promotion safeguards, so measure before borrowing anything. Before changing buffer sizes or adding audio processors, measure transition latency, resolver calls, cache hit rate, decoder state, dropped frames, CPU, radio use, and thermal status. Low-end validation must cover crossfade, canvas/artwork, lyrics, and audio offload independently.
 
 ## Data and privacy
 
 Spotify history synchronization is read-only and uses the existing authenticated Recently Played request. It is opt-in, appears in the History source list only when enabled, and never launches Spotify playback or a background WebView.
+
+Community Source Pool credentials (the pool's accounts, plus the user's own Tidal/Qobuz/Deezer tokens) live in ordinary Preferences DataStore, not Android Keystore, and the backup rules exclude only the ExoPlayer cache, the download directory and `exoplayer_internal.db` — so preferences, pool tokens included, are eligible for cloud backup and device transfer. The pool's `POOL_CLIENT_KEY` ships in the APK, so it stops accidental disclosure of the feed, not a determined user; the security control that matters is server-side (independent 32-byte keys and `READ_KEYS_ENFORCED` on the pool deployment).

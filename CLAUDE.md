@@ -18,9 +18,14 @@ JDK 21, compileSdk 37, Gradle wrapper 9.6.1. Flavors: `gms|foss` × `mobile|tv` 
 ./gradlew :app:testGmsMobileUniversalDebugUnitTest # fork contract tests
 ```
 
-CI builds `gms-mobile-arm64` and `gms-tv-universal` on every push to `main`/`dev`;
-that is the only compile signal if you cannot build locally. There is no `foss`+`tv`
-variant, deliberately — the fork ships GMS-only.
+CI is the only compile signal if you cannot build locally: `Build APKs` (`build.yml`,
+on push to `main`/`dev`) builds `gms-mobile-arm64` and `gms-tv-universal`; a push
+to `canary` runs `Canary build` (`canary.yml`), which publishes the C-tagged
+prerelease the in-app updater takes, and a push to `dev` also runs `Nightly
+(canary) build` (`nightly.yml`, N-tagged). Unit tests are their own workflow
+(`tests.yml`, on `main`/`dev`/`canary`) because the APK jobs assemble releases and
+never compile `app/src/test`. There is no `foss`+`tv` variant, deliberately — the
+fork ships GMS-only.
 
 ## Branches
 
@@ -38,6 +43,7 @@ into `dev` only after the device QA in [docs/claude/RELEASES.md](docs/claude/REL
 | [docs/tv.md](docs/tv.md) | Android TV / Fire TV: detection, focus, what is known to be missing |
 | [docs/fork-divergence.md](docs/fork-divergence.md) | What 4nx3b's fork has that we do not and the reverse, by tree comparison rather than commit count |
 | [docs/source-logins.md](docs/source-logins.md) | The four WebView sign-in screens: what each captures, why nothing saves unverified, the Qobuz app-secret search |
+| [docs/instance-racing.md](docs/instance-racing.md) | Tidal public instances: where they come from, how the resolver races them, health and cooldowns |
 | [docs/telegram-native.md](docs/telegram-native.md) | The TDLight engine: why the native library is downloaded, the digest pinning, schema drift from 1.8.56 |
 | [docs/spotify-native-playback.md](docs/spotify-native-playback.md) | Playing Spotify tracks with no YouTube release: shipped ISRC resolution, and the unshipped native-id design |
 | [docs/REMOVED_RUKAMORI_COMPONENTS.md](docs/REMOVED_RUKAMORI_COMPONENTS.md) | What the 2026-08 cleanup deleted, and why not to restore it |
@@ -45,7 +51,6 @@ into `dev` only after the device QA in [docs/claude/RELEASES.md](docs/claude/REL
 ## Task state
 
 [docs/claude/](docs/claude/) carries what survives between sessions:
-[HANDOFF.md](docs/claude/HANDOFF.md) (what is in flight),
 [ARCHITECTURE.md](docs/claude/ARCHITECTURE.md) (playback and source boundaries),
 [SETTINGS.md](docs/claude/SETTINGS.md) (routes, search anchors, Apple Music status),
 [RELEASES.md](docs/claude/RELEASES.md) (release + device QA),
