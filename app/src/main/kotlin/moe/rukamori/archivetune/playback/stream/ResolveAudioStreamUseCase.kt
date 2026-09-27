@@ -10,6 +10,7 @@ package moe.rukamori.archivetune.playback.stream
 
 import android.content.ComponentCallbacks2
 import android.os.Looper
+import android.os.SystemClock
 import androidx.annotation.WorkerThread
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -20,6 +21,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.guava.future
 import timber.log.Timber
+import java.io.InterruptedIOException
 import java.net.SocketTimeoutException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutionException
@@ -97,14 +99,30 @@ class ResolveAudioStreamUseCase
                 } else {
                     PLAYBACK_RESOLUTION_TIMEOUT_SECONDS
                 }
+            val startedAt = SystemClock.elapsedRealtime()
+            Timber.tag(TAG).d(
+                "Resolving mediaId=%s purpose=%s watchdogSeconds=%d",
+                request.mediaId,
+                request.purpose,
+                timeoutSeconds,
+            )
             val future = scope.future { invoke(request) }
             return try {
-                future.get(timeoutSeconds, TimeUnit.SECONDS)
+                future.get(timeoutSeconds, TimeUnit.SECONDS).also {
+                    Timber.tag(TAG).d("Resolution delivered elapsedMs=%d", SystemClock.elapsedRealtime() - startedAt)
+                }
             } catch (throwable: TimeoutException) {
                 future.cancel(true)
+                Timber.tag(TAG).w("Resolution watchdog expired elapsedMs=%d", SystemClock.elapsedRealtime() - startedAt)
                 throw SocketTimeoutException(
                     "Audio stream resolution timed out after $timeoutSeconds seconds",
                 ).apply { initCause(throwable) }
+            } catch (throwable: InterruptedException) {
+                future.cancel(true)
+                Thread.currentThread().interrupt()
+                throw InterruptedIOException("Audio stream resolution interrupted").apply {
+                    initCause(throwable)
+                }
             } catch (throwable: ExecutionException) {
                 future.cancel(true)
                 throw throwable.cause ?: throwable
