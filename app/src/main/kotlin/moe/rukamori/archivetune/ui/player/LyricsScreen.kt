@@ -591,8 +591,8 @@ fun LyricsScreen(
         modifier =
             modifier
                 .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.systemBars)
-                .background(backgroundColor),
+                // Root-level pointer handler for the edge-swipe dismiss. Sitting on the ROOT
+                // container makes it an ancestor of every hit path: Compose delivers pointer
                 // events to the hit node and its ancestors, so taps land here even when the
                 // lyrics LazyColumn consumes them for scrolling.
                 .pointerInput(

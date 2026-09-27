@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.json.Json
 import moe.rukamori.archivetune.constants.SponsorBlockApiUrlKey
 import moe.rukamori.archivetune.constants.SponsorBlockCategoriesKey
 import moe.rukamori.archivetune.constants.SponsorBlockEnabledKey

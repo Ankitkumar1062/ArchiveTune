@@ -505,6 +505,9 @@ fun AppearanceSectionSettings(
             defaultValue = "",
         )
     val playlistTagsViewModel: PlaylistTagsViewModel = hiltViewModel()
+    var showLibraryChipOrderDialog by rememberSaveable {
+        mutableStateOf(false)
+    }
     var showPlaylistTagOrderDialog by rememberSaveable {
         mutableStateOf(false)
     }
@@ -516,6 +519,15 @@ fun AppearanceSectionSettings(
             playlistTagsViewModel.screenState.collectAsStateWithLifecycle()
         } else {
             remember { mutableStateOf(PlaylistTagsScreenState.Loading) }
+        }
+    val availablePlaylistTags =
+        (playlistTagsState as? PlaylistTagsScreenState.Success)?.tags.orEmpty()
+    val playlistTagOrder =
+        remember(availablePlaylistTags, playlistTagOrderPreference) {
+            val tagsById = availablePlaylistTags.associateBy(PlaylistTagUiModel::id)
+            playlistTagOrderPreference
+                .toPlaylistTagOrder(availablePlaylistTags.map(PlaylistTagUiModel::id))
+                .mapNotNull { tagId -> tagsById[tagId] }
         }
 
     if (showLibraryChipOrderDialog) {

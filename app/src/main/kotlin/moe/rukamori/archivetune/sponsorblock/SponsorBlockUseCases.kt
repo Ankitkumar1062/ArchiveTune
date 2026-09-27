@@ -70,6 +70,7 @@ class GetSponsorBlockSegmentsUseCase
             }
         }
     }
+
 class SetSponsorBlockEnabledUseCase
     @Inject
     constructor(
@@ -108,30 +109,3 @@ class ValidateSponsorBlockApiUrlUseCase
     constructor() {
         operator fun invoke(apiUrl: String): Boolean = normalizeSponsorBlockApiUrl(apiUrl) != null
     }
-
-/**
- * Segments to skip for [videoId], honouring the settings passed in.
- *
- * Deliberately delegates to [SponsorBlockRepository.segments]: that call already validates the
- * id, respects the enabled flag and the selected categories, merges overlaps, and answers an
- * empty list — never a failure — when the service is unreachable, so playback never blocks on it.
- */
-@Singleton
-class GetSponsorBlockSegmentsUseCase
-    @Inject
-    constructor(
-        private val repository: SponsorBlockRepository,
-    ) {
-        suspend operator fun invoke(
-            videoId: String,
-            settings: SponsorBlockSettings? = null,
-        ): List<SponsorBlockSegment> {
-            val resolved = settings ?: repository.settings()
-            return if (!resolved.enabled || resolved.categories.isEmpty()) {
-                emptyList()
-            } else {
-                repository.segments(videoId)
-            }
-        }
-    }
-}

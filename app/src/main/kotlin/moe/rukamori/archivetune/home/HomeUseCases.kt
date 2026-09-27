@@ -167,4 +167,3 @@ class LoadPersonalizedQuickPicksUseCase
             const val ARTIST_AFFINITY_SCORE = 80
         }
     }
-}
