@@ -578,6 +578,12 @@ class MusicService :
     private val persistentStateLock = Any()
     private val persistentSaveGeneration = AtomicLong(0L)
 
+    // Persistent files whose contents this process could not read, reported once each. A file
+    // written by an older build stays unreadable after a model change, and the next save replaces
+    // it, so this is routine rather than an error: it says so once, quietly, instead of repeating
+    // a stack trace every time the restore path runs.
+    private val reportedPersistentReadFailures = mutableSetOf<String>()
+
     @Volatile
     private var isRestoringPersistentState = false
 
@@ -9728,6 +9734,7 @@ class MusicService :
             currentMediaMetadata.value?.takeIf { it.id == mediaId }
                 ?: queuedMetadataByMediaId[mediaId]
                 ?: player.findNextMediaItemById(mediaId)?.metadata
+        if (queuedMetadata?.isMusicVideo == true) return true
         // A direct blocking read on purpose: the Flow variant spins up a Room observer only to take
         // its first emission, and every caller of this gate is already off the main thread.
         return runCatching { database.getSongByIdBlocking(mediaId) }.getOrNull()?.song?.isMusicVideo == true

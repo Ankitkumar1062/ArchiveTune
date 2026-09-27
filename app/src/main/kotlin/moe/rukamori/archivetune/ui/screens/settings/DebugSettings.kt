@@ -135,7 +135,7 @@ fun DebugSettings(navController: NavController) {
     val (showCodecOnPlayer, onShowCodecOnPlayerChange) =
         rememberPreference(
             key = ShowCodecOnPlayerKey,
-            defaultValue = false,
+            defaultValue = true,
         )
 
     val (manualSourceLogin, onManualSourceLoginChange) =
