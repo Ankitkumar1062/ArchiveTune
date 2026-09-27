@@ -34,8 +34,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Headphones
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -50,10 +48,12 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import moe.rukamori.archivetune.R
 import moe.rukamori.archivetune.db.entities.FormatEntity
 import java.util.Locale
 
@@ -131,7 +131,7 @@ internal fun codecLabel(mimeType: String?): String? = when {
     else -> mimeType.substringAfter('/').uppercase(Locale.ROOT)
 }
 
-/** A headphone glyph ahead of the quality tag — "Upgrading Quality", "Hi-Quality", "Lossless". */
+/** A lossless-wave glyph ahead of the quality tag — "Upgrading Quality", "Hi-Quality", "Lossless". */
 @Composable
 private fun LosslessLabel(text: String, animated: Boolean, modifier: Modifier = Modifier) {
     Row(
@@ -140,7 +140,7 @@ private fun LosslessLabel(text: String, animated: Boolean, modifier: Modifier = 
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
-            imageVector = Icons.Rounded.Headphones,
+            painter = painterResource(R.drawable.ic_lossless_wave),
             contentDescription = null,
             tint = Color.White.copy(alpha = if (animated) 0.7f else 0.45f),
             modifier = Modifier.size(13.dp),
