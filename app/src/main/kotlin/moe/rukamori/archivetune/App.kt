@@ -505,6 +505,14 @@ class App :
         }
         applicationScope.launch(Dispatchers.IO) {
             dataStore.data
+                .map { it[UsePoolAccountsKey] ?: true }
+                .distinctUntilChanged()
+                .collect { enabled ->
+                    PoolAccountManager.setPoolAccountsEnabled(enabled)
+                }
+        }
+        applicationScope.launch(Dispatchers.IO) {
+            dataStore.data
                 .map { prefs ->
                     LastFmServiceConfig.fromPreferences(prefs) to prefs[LastFMSessionKey]
                 }.distinctUntilChanged()
