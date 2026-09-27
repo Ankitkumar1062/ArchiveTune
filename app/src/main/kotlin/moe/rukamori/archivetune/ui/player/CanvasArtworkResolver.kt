@@ -13,6 +13,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import moe.rukamori.archivetune.canvas.AppleMusicProvider
+import moe.rukamori.archivetune.canvas.CanvasRequestPolicy
+import moe.rukamori.archivetune.canvas.CanvasSource
 import moe.rukamori.archivetune.canvas.SpotifyCanvasProvider
 import moe.rukamori.archivetune.canvas.models.CanvasArtwork
 import moe.rukamori.archivetune.canvas.models.looselyMatchesSongIdentity
@@ -20,6 +22,7 @@ import moe.rukamori.archivetune.canvas.models.matchesSongIdentity
 import moe.rukamori.archivetune.telegram.isTelegramMediaId
 import moe.rukamori.archivetune.utils.isLocalMediaId
 import timber.log.Timber
+import java.util.concurrent.ConcurrentHashMap
 
 internal suspend fun resolveCanvasArtworkForPlayback(
     mediaId: String,
@@ -61,6 +64,21 @@ internal suspend fun resolveCanvasArtworkForPlayback(
         return null
     }
 
+    // Both providers deny at the request policy when their source is switched off (or the
+    // network is blocked), and that denial is indistinguishable from "this song has no
+    // canvas". So the negative is keyed on the sources this lookup may actually ask:
+    // switching a source on changes the key instead of being masked by the older negative.
+    // The probe reads live connectivity, so it runs off the caller's thread.
+    val queriedSources =
+        withContext(Dispatchers.IO) { queriedCanvasSources(strictIdentity, trySpotifyCanvas) }
+
+    if (queriedSources.isNotEmpty() &&
+        CanvasResolutionMissCache.isRecentlyMissed(mediaId, requireVertical, queriedSources)
+    ) {
+        Timber.tag(CanvasArtworkLogTag).d("Skipping canvas lookup for %s — negative result is still fresh", mediaId)
+        return null
+    }
+
     return withContext(Dispatchers.IO) {
         // Spotify Canvas: when enabled and the current media is a YouTube Music video
         // (i.e. mediaId is the video ID), look up the official Spotify Canvas via the
@@ -80,7 +98,9 @@ internal suspend fun resolveCanvasArtworkForPlayback(
                 }.getOrNull()
             if (spotifyCanvas != null && spotifyCanvas.hasRequiredCanvasVariant(requireVertical)) {
                 Timber.tag(CanvasArtworkLogTag).d("Spotify Canvas resolved for %s", mediaId)
-                return@withContext CanvasArtworkPlaybackCache.put(mediaId, spotifyCanvas)
+                return@withContext CanvasArtworkPlaybackCache
+                    .put(mediaId, spotifyCanvas)
+                    .also { CanvasResolutionMissCache.clear(mediaId) }
             }
         }
 
@@ -96,10 +116,16 @@ internal suspend fun resolveCanvasArtworkForPlayback(
 
         if (fetched == null) {
             Timber.tag(CanvasArtworkLogTag).d("No playable canvas resolved for %s", mediaId)
+            // Only a lookup that actually asked a provider may be remembered as a miss.
+            if (queriedSources.isNotEmpty()) {
+                CanvasResolutionMissCache.markMissed(mediaId, requireVertical, queriedSources)
+            }
             return@withContext null
         }
 
-        CanvasArtworkPlaybackCache.put(mediaId, fetched)
+        CanvasArtworkPlaybackCache
+            .put(mediaId, fetched)
+            .also { CanvasResolutionMissCache.clear(mediaId) }
     }
 }
 
@@ -165,7 +191,9 @@ internal suspend fun refetchCanvasArtworkForPlayback(
                 albumTitle = albumTitle,
             ) ?: return@withContext null
 
-        CanvasArtworkPlaybackCache.replace(mediaId, fetched)
+        CanvasArtworkPlaybackCache
+            .replace(mediaId, fetched)
+            .also { CanvasResolutionMissCache.clear(mediaId) }
     }
 }
 
@@ -302,4 +330,75 @@ private fun normalizeCanvasArtistName(raw: String): String {
             .orEmpty()
 
     return first.replace(Regex("\\s+"), " ").trim()
+}
+
+/**
+ * The canvas sources a lookup is actually allowed to query, as a compact cache key.
+ *
+ * [CanvasRequestPolicy] is the gate every provider checks before it goes out, so a source
+ * that is switched off — or a network the policy blocks — produces exactly the same null as
+ * a song that genuinely has no canvas. A lookup that could not ask a source therefore must
+ * not record a negative against the ones that did, or switching that source on later would
+ * be masked by the stale answer.
+ */
+private fun queriedCanvasSources(
+    strictIdentity: Boolean,
+    trySpotifyCanvas: Boolean,
+): String {
+    fun allowed(source: CanvasSource): Boolean = runCatching { CanvasRequestPolicy.check(source) }.isSuccess
+
+    return buildString {
+        if (allowed(CanvasSource.APPLE_MUSIC)) append('A')
+        // Spotify Canvas is keyed on the YouTube video id, so a local/Telegram id can never
+        // match it — that branch is not attempted and must not count as queried.
+        if (trySpotifyCanvas && strictIdentity && allowed(CanvasSource.SPOTIFY)) append('S')
+    }
+}
+
+/**
+ * Short-lived negative-result cache for canvas resolution. Without it a song that resolves
+ * to no canvas is re-queried against Apple Music + Spotify every time the UI re-requests
+ * artwork (observed every ~2-4 minutes while playing), which burns the Spotify REST quota
+ * with 429s and keeps the lookup busy for nothing.
+ *
+ * [sources] is the source set the lookup was allowed to query (see [queriedCanvasSources]),
+ * so a negative recorded while a source was off cannot mask that source once it is on.
+ */
+internal object CanvasResolutionMissCache {
+    private const val TTL_MS = 10 * 60 * 1000L
+    private val misses = ConcurrentHashMap<String, Long>()
+
+    private fun key(
+        mediaId: String,
+        requireVertical: Boolean,
+        sources: String,
+    ): String = "$mediaId|v$requireVertical|$sources"
+
+    fun isRecentlyMissed(
+        mediaId: String,
+        requireVertical: Boolean,
+        sources: String,
+    ): Boolean {
+        val cacheKey = key(mediaId, requireVertical, sources)
+        val markedAtMs = misses[cacheKey] ?: return false
+        if (System.currentTimeMillis() - markedAtMs < TTL_MS) return true
+        // Drop it rather than leaving it: the map is only ever read through this TTL check,
+        // so expired entries would otherwise accumulate for the life of the process.
+        misses.remove(cacheKey)
+        return false
+    }
+
+    fun markMissed(
+        mediaId: String,
+        requireVertical: Boolean,
+        sources: String,
+    ) {
+        misses[key(mediaId, requireVertical, sources)] = System.currentTimeMillis()
+    }
+
+    /** Forgets every negative for [mediaId], whatever source set or variant it was keyed on. */
+    fun clear(mediaId: String) {
+        val prefix = "$mediaId|"
+        misses.keys.removeAll { it.startsWith(prefix) }
+    }
 }
