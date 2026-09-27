@@ -131,7 +131,6 @@ fun DebugSettings(navController: NavController) {
             defaultValue = true,
         )
 
-
     val playerConnection = LocalPlayerConnection.current
 
     Scaffold(
@@ -204,7 +203,6 @@ fun DebugSettings(navController: NavController) {
                         onCheckedChange = onShowCodecOnPlayerChange,
                     )
                 }
-
 
                 item {
                     PreferenceEntry(

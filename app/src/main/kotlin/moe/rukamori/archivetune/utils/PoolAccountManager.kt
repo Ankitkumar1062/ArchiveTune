@@ -22,6 +22,7 @@ import moe.rukamori.archivetune.BuildConfig
 import moe.rukamori.archivetune.audiosource.AmazonInstance
 import moe.rukamori.archivetune.audiosource.AmazonInstances
 import moe.rukamori.archivetune.canvas.AppleMusicProvider
+import moe.rukamori.archivetune.constants.UsePoolAccountsKey
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -38,16 +39,21 @@ import java.util.concurrent.TimeUnit
  */
 object PoolAccountManager {
     /**
-     * True when the user has enabled pool account usage (default ON). When OFF, all account getters
-     * return empty lists so playback falls through to manually-added accounts or YouTube. Checked
-     * synchronously via a volatile flag that App.kt updates on every preference change.
+     * Mirrors [UsePoolAccountsKey] (default ON). When OFF, every account getter answers an empty
+     * list, so resolvers fall through to the user's own accounts or YouTube, and [refresh] does
+     * not touch the network. Re-read from the store in [loadCached] (which [refresh] calls first);
+     * App's preference collector keeps it current when the switch changes in between.
      */
     @Volatile
     private var poolAccountsEnabled: Boolean = true
 
-    /** Called by App.kt whenever UsePoolAccountsKey changes. Thread-safe: volatile write. */
+    /** Called by App's preference collector whenever [UsePoolAccountsKey] changes. */
     fun setPoolAccountsEnabled(enabled: Boolean) {
         poolAccountsEnabled = enabled
+    }
+
+    private suspend fun syncPoolAccountsEnabled(context: Context) {
+        poolAccountsEnabled = context.dataStore.getAsync(UsePoolAccountsKey) ?: true
     }
 
     private const val TAG = "PoolAccounts"
@@ -347,6 +353,7 @@ object PoolAccountManager {
      * network [refresh] finishes.
      */
     suspend fun loadCached(context: Context) {
+        syncPoolAccountsEnabled(context)
         if (loadedFromDisk) return
         appContext = context.applicationContext
         withContext(Dispatchers.IO) {
@@ -395,6 +402,9 @@ object PoolAccountManager {
             appContext = context.applicationContext
             if (!isEnabled) return@withContext false
             loadCached(context)
+            // Off means no fetch at all, so a user who opted out never wakes the pool. loadCached
+            // just re-read the switch, so this cannot race App's collector at startup.
+            if (!poolAccountsEnabled) return@withContext false
 
             val now = System.currentTimeMillis()
             if (!force && hasAccounts() && now - lastRefreshAtMillis < refreshIntervalMs()) {

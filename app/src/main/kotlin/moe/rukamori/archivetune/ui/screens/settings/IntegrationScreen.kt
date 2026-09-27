@@ -36,14 +36,11 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import moe.rukamori.archivetune.LocalPlayerAwareWindowInsets
 import moe.rukamori.archivetune.R
-import moe.rukamori.archivetune.constants.AmazonEnabledKey
-import moe.rukamori.archivetune.constants.DeezerArlKey
 import moe.rukamori.archivetune.constants.ListenBrainzEnabledKey
 import moe.rukamori.archivetune.constants.ListenBrainzTokenKey
-import moe.rukamori.archivetune.constants.QobuzTokensKey
 import moe.rukamori.archivetune.constants.ShowSpotifyPlaylistsKey
 import moe.rukamori.archivetune.constants.SpotifyHistorySyncEnabledKey
-import moe.rukamori.archivetune.constants.TidalAccessTokenKey
+import moe.rukamori.archivetune.constants.UsePoolAccountsKey
 import moe.rukamori.archivetune.spotify.SpotifyAccountViewModel
 import moe.rukamori.archivetune.ui.component.IconButton
 import moe.rukamori.archivetune.ui.component.InfoLabel
@@ -53,6 +50,7 @@ import moe.rukamori.archivetune.ui.component.SwitchPreference
 import moe.rukamori.archivetune.ui.component.TextFieldDialog
 import moe.rukamori.archivetune.ui.menu.CrossServiceImportPlaylistDialog
 import moe.rukamori.archivetune.ui.utils.backToMain
+import moe.rukamori.archivetune.utils.PoolAccountManager
 import moe.rukamori.archivetune.utils.rememberPreference
 import androidx.compose.foundation.layout.asPaddingValues
 
@@ -65,21 +63,7 @@ fun IntegrationScreen(
 ) {
     val (listenBrainzEnabled, onListenBrainzEnabledChange) = rememberPreference(ListenBrainzEnabledKey, false)
     val (listenBrainzToken, onListenBrainzTokenChange) = rememberPreference(ListenBrainzTokenKey, "")
-    // Manual Tidal/Qobuz/Deezer sign-in UI is always visible now; the UsePoolAccountsKey toggle
-    // (in Internet Settings) controls whether the pool is consulted, but the manual rows are no
-    // longer gated. A source the user has already signed into must stay reachable regardless.
-    val (deezerArl, _) = rememberPreference(DeezerArlKey, "")
-    val (tidalAccessToken, _) = rememberPreference(TidalAccessTokenKey, "")
-    val (qobuzTokens, _) = rememberPreference(QobuzTokensKey, "")
-    // Amazon's row is gated on the source being enabled rather than a signed-in account: the
-    // instance-based source has no account, only instances + a Turnstile JWT (see AmazonSettings).
-    val (amazonSourceEnabled, _) = rememberPreference(AmazonEnabledKey, false)
-    // All manual sign-in rows are always visible, regardless of whether an account is signed in.
-    // The pool toggle (UsePoolAccountsKey in Internet Settings) controls pool usage separately.
-    val showDeezerRow = true
-    val showAmazonRow = true
-    val showTidalRow = true
-    val showQobuzRow = true
+    val (usePoolAccounts, onUsePoolAccountsChange) = rememberPreference(UsePoolAccountsKey, true)
 
     val spotifyState by spotifyAccountViewModel.uiState.collectAsStateWithLifecycle()
     val (showSpotifyPlaylists, onShowSpotifyPlaylistsChange) = rememberPreference(ShowSpotifyPlaylistsKey, false)
@@ -166,17 +150,27 @@ fun IntegrationScreen(
                 }
             }
 
-            // "Music Sources" groups every external streaming source together:
-            // Tidal, Qobuz, Deezer, Apple Music, and Telegram. Tidal/Qobuz/Deezer are
-            // gated behind the "Manual source sign-in" experimental toggle because their
-            // instance/token flows aren't useful for most users (the app auto-uses the
-            // community source pool by default). Telegram is NOT gated — its TDLib client is
-            // self-contained — and neither is Apple Music: the source pool now covers it,
-            // so playback works with zero user setup and the row is always worth showing.
+            // "Music Sources" groups every external streaming source together: Tidal, Qobuz,
+            // Deezer, Amazon, Apple Music, QQ Music and Telegram. Every sign-in row is always
+            // shown (there is no manual-login gate), and the first switch decides whether the
+            // community source pool's shared accounts are used alongside the user's own.
             PreferenceGroup(
                 modifier = positions.modifierFor("music_sources"),
                 title = stringResource(R.string.music_sources),
             ) {
+                // Only where a pool is baked in: without SOURCE_PROVIDER_URL there is no pool to
+                // switch off, and PoolAccountManager already answers no accounts.
+                item(visible = PoolAccountManager.isEnabled) {
+                    SwitchPreference(
+                        modifier = positions.modifierFor("use_pool_accounts"),
+                        title = { Text(stringResource(R.string.use_pool_accounts)) },
+                        description = stringResource(R.string.use_pool_accounts_desc),
+                        icon = { Icon(painterResource(R.drawable.group), null) },
+                        checked = usePoolAccounts,
+                        onCheckedChange = onUsePoolAccountsChange,
+                    )
+                }
+
                 item {
                     PreferenceEntry(
                         modifier = positions.modifierFor("applemusic"),
@@ -187,7 +181,7 @@ fun IntegrationScreen(
                     )
                 }
 
-                item(visible = showTidalRow) {
+                item {
                     PreferenceEntry(
                         modifier = positions.modifierFor("tidal"),
                         title = { Text(stringResource(R.string.tidal_integration)) },
@@ -199,7 +193,7 @@ fun IntegrationScreen(
                     )
                 }
 
-                item(visible = showQobuzRow) {
+                item {
                     PreferenceEntry(
                         modifier = positions.modifierFor("qobuz"),
                         title = { Text(stringResource(R.string.qobuz_integration)) },
@@ -211,7 +205,7 @@ fun IntegrationScreen(
                     )
                 }
 
-                item(visible = showDeezerRow) {
+                item {
                     PreferenceEntry(
                         modifier = positions.modifierFor("deezer"),
                         title = { Text(stringResource(R.string.deezer_integration)) },
@@ -223,7 +217,7 @@ fun IntegrationScreen(
                     )
                 }
 
-                item(visible = showAmazonRow) {
+                item {
                     PreferenceEntry(
                         modifier = positions.modifierFor("amazon"),
                         title = { Text(stringResource(R.string.source_amazon)) },
