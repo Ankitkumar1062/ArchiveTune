@@ -1466,6 +1466,11 @@ fun BitChordPlayerContent(
                 ) {
                     Box(
                         modifier = Modifier
+                            // Measured after the two fixed circles and given only the width they
+                            // leave. Unweighted, a long provider name ("Musixmatch (experimental)")
+                            // claimed the whole row and wrapped to two lines; the circles, sized
+                            // from the row height, then grew and slid off-screen over the pill.
+                            .weight(1f, fill = false)
                             .clip(RoundedCornerShape(percent = 50))
                             .background(Color.White.copy(alpha = 0.10f))
                             .padding(horizontal = 18.dp, vertical = 8.dp),
@@ -1478,6 +1483,8 @@ fun BitChordPlayerContent(
                             },
                             style = MaterialTheme.typography.labelLarge,
                             color = Color.White.copy(alpha = 0.7f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                     Spacer(Modifier.width(8.dp))
