@@ -77,6 +77,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
@@ -793,12 +794,18 @@ fun BitChordPlayerContent(
     val onPlayPause = {
         if (player.isPlaying) player.pause() else player.play()
     }
+    // Read the session player AT CALL TIME: the captured `player` val goes
+    // stale the moment the service swaps the session player (automix/crossfade
+    // promotion), which left the seekbar driving a released player — the bar
+    // moved but nothing seeked. The connection's getter always resolves to
+    // the live player.
     val onSeekFraction: (Float) -> Unit = { f ->
+        val livePlayer = playerConnection.player
         // The scrubber is the one caller that knows where along the bar it
         // wants to go; the conversion uses the player's own freshest duration.
-        val d = player.duration
+        val d = livePlayer.duration
         if (d > 0 && d != androidx.media3.common.C.TIME_UNSET) {
-            player.seekTo((f * d).toLong())
+            livePlayer.seekTo((f * d).toLong())
         }
     }
 
@@ -1009,10 +1016,11 @@ fun BitChordPlayerContent(
             ) {
                 // The height this box would have if the controls at the foot of
                 // the screen were at their natural size. They aren't: they are
-                // holding [controlSpread] of extra gap, which came out of here,
-                // so adding it back cancels the only thing down there that
-                // depends on what is decided up here.
-                val roomy = maxHeight + if (lyricsOpen) 0.dp else controlSpread
+                // holding [controlSpread] / 3 of extra gap above and below the
+                // transport, which came out of here, so adding those two thirds
+                // back cancels the only thing down there that depends on what is
+                // decided up here.
+                val roomy = maxHeight + if (lyricsOpen) 0.dp else controlSpread / 3 * 2
                 // The sleeve is square, so it is bounded by whichever of the
                 // two axes runs out first: the player's width on a phone, or —
                 // on a tablet, where there is width to spare — the height left
@@ -1552,7 +1560,7 @@ fun BitChordPlayerContent(
             // The transport rides midway between the two blocks it separates:
             // the scrubber above it, and the volume bar and toggle row below,
             // which sit close enough together to read as one.
-            Spacer(Modifier.height(14.dp + controlSpread / 2))
+            Spacer(Modifier.height(10.dp + controlSpread / 3))
 
             // ---- Transport ----
             Row(
@@ -1568,9 +1576,9 @@ fun BitChordPlayerContent(
                 // While the stream URL resolves and buffers, the play glyph
                 // would be a lie — show progress instead.
                 if (isLoading) {
-                    // Same footprint as TransportGlyph(62.dp) — a smaller box
+                    // Same footprint as TransportGlyph(72.dp) — a smaller box
                     // here would shunt everything below it on every load.
-                    Box(Modifier.size(74.dp), contentAlignment = Alignment.Center) {
+                    Box(Modifier.size(84.dp), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(
                             color = Color.White,
                             strokeWidth = 3.dp,
@@ -1581,7 +1589,7 @@ fun BitChordPlayerContent(
                     TransportGlyph(
                         icon = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                         contentDescription = if (isPlaying) "Pause" else "Play",
-                        size = 62.dp,
+                        size = 72.dp,
                         onClick = onPlayPause,
                         haptic = if (isPlaying) Haptic.Pause else Haptic.Resume,
                     )
@@ -1589,14 +1597,14 @@ fun BitChordPlayerContent(
                 TransportGlyph(
                     icon = Icons.Rounded.FastForward,
                     contentDescription = "Next",
-                    size = 46.dp,
+                    size = 48.dp,
                     onClick = { playerConnection.seekToNext() },
                     enabled = canSkipNext,
                     haptic = Haptic.SkipNext,
                 )
             }
 
-            Spacer(Modifier.height(18.dp + controlSpread / 2))
+            Spacer(Modifier.height(12.dp + controlSpread / 3))
 
             // ---- Volume ----
             Row(
@@ -1636,59 +1644,88 @@ fun BitChordPlayerContent(
                 )
             }
 
-            Spacer(Modifier.height(24.dp))
+            // The volume slider already has ~13dp below its drawn track; a
+            // 6dp rest brings the pill row up tight under the sliders the way
+            // the reference stacks seekbar -> transport -> volume -> pills.
+            Spacer(Modifier.height(6.dp))
 
-            // ---- Shuffle · Repeat · Queue ----
-            // These live here rather than in the queue panel so their state is
-            // readable without opening anything.
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                BottomGlyph(
-                    icon = BitChordIcons.Shuffle,
-                    contentDescription = if (shuffleEnabled) "Shuffle on" else "Shuffle off",
-                    onClick = { player.shuffleModeEnabled = !shuffleEnabled },
-                    highlighted = shuffleEnabled,
-                    haptic = if (shuffleEnabled) Haptic.ToggleOff else Haptic.ToggleOn,
-                )
-                BottomGlyph(
-                    icon = if (repeatMode == Player.REPEAT_MODE_ONE) null else BitChordIcons.Repeat,
-                    label = if (repeatMode == Player.REPEAT_MODE_ONE) "1" else null,
-                    contentDescription = when (repeatMode) {
-                        Player.REPEAT_MODE_ONE -> "Repeat one"
-                        Player.REPEAT_MODE_ALL -> "Repeat all"
-                        else -> "Repeat off"
-                    },
-                    onClick = {
-                        player.repeatMode = when (repeatMode) {
-                            Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
-                            Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
-                            else -> Player.REPEAT_MODE_OFF
-                        }
-                    },
-                    highlighted = repeatMode != Player.REPEAT_MODE_OFF,
-                    // Three states, so the buzz tracks the edges of the cycle.
-                    haptic = when (repeatMode) {
-                        Player.REPEAT_MODE_OFF -> Haptic.ToggleOn
-                        Player.REPEAT_MODE_ONE -> Haptic.ToggleOff
-                        else -> Haptic.Select
-                    },
-                )
-                BottomGlyph(
-                    icon = Icons.AutoMirrored.Rounded.QueueMusic,
-                    contentDescription = "Up next",
-                    onClick = {
-                        lyricsOpen = false
-                        queueOpen = !queueOpen
-                    },
-                    highlighted = queueOpen,
-                    haptic = if (queueOpen) Haptic.Tap else Haptic.Expand,
-                )
+            // ---- Lyrics · Shuffle/Repeat capsule · Queue ----
+            // Shuffle and repeat live INSIDE the pill so their state reads
+            // without opening anything; the flanking glyphs open the lyrics
+            // panel and the queue.
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                // Sized for the capsule, not the loose glyphs: fixed inset keeps
+                // the three ends aligned no matter the repeat glyph's state.
+                val widestRow = BOTTOM_GLYPH_DIAMETER * 2 + pillWidth(2)
+                val edgeInset = ((maxWidth - widestRow) / 4).coerceAtLeast(0.dp)
+                Row(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = edgeInset),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    BottomGlyph(
+                        icon = BitChordIcons.LyricsQuote,
+                        // This row only exists while the panel is closed, so
+                        // the glyph only ever opens it — no lit state of its own.
+                        contentDescription = "Open lyrics",
+                        // One sleeve: opening the queue closes lyrics and vice
+                        // versa, so the two glyphs can never be lit at once.
+                        onClick = {
+                            queueOpen = false
+                            lyricsOpen = !lyricsOpen
+                        },
+                        haptic = Haptic.Expand,
+                    )
+                    Pill {
+                        PillSegment(
+                            icon = BitChordIcons.Shuffle,
+                            contentDescription = if (shuffleEnabled) "Shuffle on" else "Shuffle off",
+                            onClick = { player.shuffleModeEnabled = !shuffleEnabled },
+                            highlighted = shuffleEnabled,
+                            haptic = if (shuffleEnabled) Haptic.ToggleOff else Haptic.ToggleOn,
+                        )
+                        PillDivider()
+                        PillSegment(
+                            icon = if (repeatMode == Player.REPEAT_MODE_ONE) null else BitChordIcons.Repeat,
+                            label = if (repeatMode == Player.REPEAT_MODE_ONE) "1" else null,
+                            contentDescription = when (repeatMode) {
+                                Player.REPEAT_MODE_ONE -> "Repeat one"
+                                Player.REPEAT_MODE_ALL -> "Repeat all"
+                                else -> "Repeat off"
+                            },
+                            onClick = {
+                                player.repeatMode = when (repeatMode) {
+                                    Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+                                    Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+                                    else -> Player.REPEAT_MODE_OFF
+                                }
+                            },
+                            highlighted = repeatMode != Player.REPEAT_MODE_OFF,
+                            // Three states, so the buzz tracks the edges of the cycle.
+                            haptic = when (repeatMode) {
+                                Player.REPEAT_MODE_OFF -> Haptic.ToggleOn
+                                Player.REPEAT_MODE_ONE -> Haptic.ToggleOff
+                                else -> Haptic.Select
+                            },
+                        )
+                    }
+                    BottomGlyph(
+                        icon = Icons.AutoMirrored.Rounded.QueueMusic,
+                        contentDescription = "Up next",
+                        onClick = {
+                            lyricsOpen = false
+                            queueOpen = !queueOpen
+                        },
+                        highlighted = queueOpen,
+                        haptic = if (queueOpen) Haptic.Tap else Haptic.Expand,
+                    )
+                }
             }
 
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(12.dp))
             }
             }
             }
@@ -1852,7 +1889,7 @@ private fun BottomGlyph(
     val haptics = rememberHaptics()
     Box(
         modifier = Modifier
-            .size(44.dp)
+            .size(BOTTOM_GLYPH_DIAMETER)
             .clip(CircleShape)
             .background(
                 if (highlighted) Color.White.copy(alpha = 0.20f) else Color.Transparent,
@@ -1880,6 +1917,103 @@ private fun BottomGlyph(
                 text = label,
                 color = tint,
                 fontSize = 19.sp,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The segmented capsule at the centre of the bottom row (reference style):
+// squared-off segments joined by hairline dividers, one highlight fill.
+// ---------------------------------------------------------------------------
+
+/** Diameter of the glyphs flanking the capsule, which the row is sized around. */
+private val BOTTOM_GLYPH_DIAMETER = 44.dp
+
+/**
+ * Height of the capsule. The reference draws it as tall as the glyphs; each
+ * segment is a control of its own here, so the capsule sits at Material's 48dp
+ * minimum touch target instead — the segments keep the reference's width and
+ * their fill still runs edge to edge, so the proportions hold.
+ */
+private val BOTTOM_ACTION_HEIGHT = 48.dp
+
+/** Width of one [PillSegment]; the capsule is a whole number of these. */
+private val PILL_SEGMENT_WIDTH = 54.dp
+
+/** Icon size inside a [PillSegment]. */
+private val PILL_ICON_SIZE = 24.dp
+
+/** Outer width of an n-segment capsule, dividers included. */
+private fun pillWidth(segments: Int): Dp =
+    PILL_SEGMENT_WIDTH * segments + 1.dp * (segments - 1)
+
+@Composable
+private fun Pill(content: @Composable RowScope.() -> Unit) {
+    Row(
+        modifier = Modifier
+            .height(BOTTOM_ACTION_HEIGHT)
+            .clip(CircleShape)
+            .background(Color.White.copy(alpha = 0.12f)),
+        verticalAlignment = Alignment.CenterVertically,
+        content = content,
+    )
+}
+
+@Composable
+private fun PillDivider() {
+    Box(
+        Modifier
+            .width(1.dp)
+            .height(20.dp)
+            .background(Color.White.copy(alpha = 0.20f)),
+    )
+}
+
+/**
+ * One control inside a [Pill] — [BottomGlyph]'s twin, squared off. A glyph's
+ * highlight is a circle sized to itself; a segment's fills its share of the
+ * capsule edge to edge or the join stops reading as one.
+ */
+@Composable
+private fun PillSegment(
+    contentDescription: String,
+    onClick: () -> Unit,
+    icon: ImageVector? = null,
+    label: String? = null,
+    highlighted: Boolean = false,
+    haptic: Haptic = Haptic.Tap,
+) {
+    val haptics = rememberHaptics()
+    Box(
+        modifier = Modifier
+            .width(PILL_SEGMENT_WIDTH)
+            .height(BOTTOM_ACTION_HEIGHT)
+            .background(if (highlighted) Color.White.copy(alpha = 0.14f) else Color.Transparent)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+            ) {
+                haptics.play(haptic)
+                onClick()
+            }
+            .semantics { this.contentDescription = contentDescription },
+        contentAlignment = Alignment.Center,
+    ) {
+        val tint = Color.White.copy(alpha = if (highlighted) 1f else 0.75f)
+        if (icon != null) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = tint,
+                modifier = Modifier.size(PILL_ICON_SIZE),
+            )
+        } else if (label != null) {
+            Text(
+                text = label,
+                color = tint,
+                fontSize = 17.sp,
                 fontWeight = FontWeight.Bold,
             )
         }
@@ -1971,7 +2105,7 @@ private fun BitChordPreviousGlyph(
     TransportGlyph(
         icon = Icons.Rounded.FastRewind,
         contentDescription = "Previous",
-        size = 46.dp,
+        size = 48.dp,
         onClick = onClick,
         // Lit whenever back has something to do — either a track to step to, or enough elapsed for
         // it to restart this one.

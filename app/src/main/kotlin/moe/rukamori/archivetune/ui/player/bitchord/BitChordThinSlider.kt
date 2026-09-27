@@ -50,6 +50,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -98,6 +99,12 @@ fun ThinSlider(
     /** Halfway between the two track colours: visible against unplayed, invisible under played. */
     markerColor: Color = Color.White.copy(alpha = 0.5f),
 ) {
+    // The gesture block runs under a Unit-keyed pointerInput, so it keeps the
+    // FIRST composition's lambdas. Re-read the latest here or a drag-seek
+    // lands on a stale player after the service swaps the session player
+    // (automix/crossfade promotion): the bar moves, nothing seeks.
+    val currentOnValueChange by rememberUpdatedState(onValueChange)
+    val currentOnValueChangeFinished by rememberUpdatedState(onValueChangeFinished)
     var dragging by remember { mutableStateOf(false) }
     val height by animateDpAsState(
         targetValue = if (dragging) activeHeight else idleHeight,
@@ -120,7 +127,7 @@ fun ThinSlider(
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     dragging = true
-                    onValueChange((down.position.x / size.width).coerceIn(0f, 1f))
+                    currentOnValueChange((down.position.x / size.width).coerceIn(0f, 1f))
 
                     while (true) {
                         val event = awaitPointerEvent()
@@ -130,13 +137,13 @@ fun ThinSlider(
                             break
                         }
                         if (pointer.positionChanged()) {
-                            onValueChange((pointer.position.x / size.width).coerceIn(0f, 1f))
+                            currentOnValueChange((pointer.position.x / size.width).coerceIn(0f, 1f))
                             pointer.consume()
                         }
                     }
 
                     dragging = false
-                    onValueChangeFinished?.invoke()
+                    currentOnValueChangeFinished?.invoke()
                 }
             },
         contentAlignment = Alignment.Center,
