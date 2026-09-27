@@ -109,6 +109,10 @@ android {
     namespace = "moe.rukamori.archivetune"
     compileSdk = 37
 
+    // Pinned so the NDK used by every builder is identical (AGP otherwise picks whatever
+    // the local SDK holds); reproducible-build hash comparisons depend on it (#1323).
+    ndkVersion = "30.0.16248370"
+
     defaultConfig {
     applicationId = "moe.rukamori.archivetune"
         minSdk = 26
