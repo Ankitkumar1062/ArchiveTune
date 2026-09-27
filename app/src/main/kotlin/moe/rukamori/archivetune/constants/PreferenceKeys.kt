@@ -362,6 +362,14 @@ object DownloadSourceConfig {
             .filterNot { it == DownloadSource.AUTO || it == DownloadSource.YOUTUBE_MUSIC }
             .map { "${it.name.lowercase(Locale.US)}:" }
 
+    /**
+     * Every cache key a song's bytes may live under, most specific first: each source's prefix,
+     * then the bare id the playback cache also uses. The one definition the download path, its
+     * purge and playback's cache probes share, so bytes are never written under a key playback
+     * does not look at.
+     */
+    fun cacheKeysFor(mediaId: String): List<String> = CACHE_KEY_PREFIXES.map { "$it$mediaId" } + mediaId
+
     private fun parseType(name: String): DownloadSource? =
         runCatching { DownloadSource.valueOf(name.trim().uppercase()) }.getOrNull()
 

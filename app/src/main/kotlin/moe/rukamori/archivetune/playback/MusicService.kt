@@ -155,6 +155,7 @@ import moe.rukamori.archivetune.constants.CrossfadeGaplessKey
 import moe.rukamori.archivetune.constants.DeviceMutePlaybackRecoveryVolumeKey
 import moe.rukamori.archivetune.constants.DiscordShowWhenPausedKey
 import moe.rukamori.archivetune.constants.DiscordTokenKey
+import moe.rukamori.archivetune.constants.DownloadSourceConfig
 import moe.rukamori.archivetune.constants.EnableDiscordRPCKey
 import moe.rukamori.archivetune.constants.EnableLastFMScrobblingKey
 import moe.rukamori.archivetune.constants.EqualizerAutoHeadroomEnabledKey
@@ -5885,17 +5886,12 @@ class MusicService :
         val hasAnyCachedData =
             isFullyDownloadedMedia ||
                 runCatching {
-                    downloadCache.getCachedSpans(currentMediaId).isNotEmpty() ||
-                        playerCache.getCachedSpans(currentMediaId).isNotEmpty() ||
-                        // Also check source-prefixed keys (qobuz:, tidal:, deezer:) —
-                        // downloads from external lossless sources are cached under
-                        // these keys, not the bare mediaId.
-                        downloadCache.getCachedSpans("qobuz:$currentMediaId").isNotEmpty() ||
-                        downloadCache.getCachedSpans("tidal:$currentMediaId").isNotEmpty() ||
-                        downloadCache.getCachedSpans("deezer:$currentMediaId").isNotEmpty() ||
-                        playerCache.getCachedSpans("qobuz:$currentMediaId").isNotEmpty() ||
-                        playerCache.getCachedSpans("tidal:$currentMediaId").isNotEmpty() ||
-                        playerCache.getCachedSpans("deezer:$currentMediaId").isNotEmpty()
+                    // Every key a download can use (all source prefixes, then the bare id): a copy
+                    // under one this sweep skipped was treated as not cached at all.
+                    DownloadSourceConfig.cacheKeysFor(currentMediaId).any { key ->
+                        downloadCache.getCachedSpans(key).isNotEmpty() ||
+                            playerCache.getCachedSpans(key).isNotEmpty()
+                    }
                 }.getOrDefault(false)
 
         val isConnectionError =
@@ -8437,7 +8433,7 @@ class MusicService :
                     // keys and use that as the requested length. Without it, the
                     // resolver returns null here, falls through to the YouTube
                     // resolver, and fails offline.
-                    val candidateKeys = listOf(mediaId, "qobuz:$mediaId", "tidal:$mediaId", "deezer:$mediaId")
+                    val candidateKeys = DownloadSourceConfig.cacheKeysFor(mediaId)
                     val maxCachedLength =
                         candidateKeys.maxOfOrNull { key ->
                             runCatching {
@@ -8471,16 +8467,16 @@ class MusicService :
                 }
             }
 
-        // Find the first source-prefixed key (or the bare mediaId) that
-        // has the requested byte range fully cached. Returning the
-        // DataSpec with the matching key is critical — without it the
-        // CacheDataSource would look up the bytes under the bare mediaId
-        // and miss the lossless FLAC bytes cached under "qobuz:$mediaId"
-        // / "tidal:$mediaId", then fall through to the YouTube resolver
-        // and serve a lossy MP3 stream — producing Code 3003 when the
-        // Media3 extractors then tried to read MP3 bytes under a FLAC
-        // FormatEntity.
-        val candidateKeys = listOf(mediaId, "qobuz:$mediaId", "tidal:$mediaId", "deezer:$mediaId")
+        // Find the first key (every download source's prefix, then the bare mediaId, as
+        // DownloadSourceConfig.cacheKeysFor orders them) that has the requested byte range fully
+        // cached. Returning the DataSpec with the matching key is critical — without it the
+        // CacheDataSource would look up the bytes under the bare mediaId and miss the lossless
+        // FLAC bytes cached under "qobuz:$mediaId" / "tidal:$mediaId", then fall through to the
+        // YouTube resolver and serve a lossy MP3 stream — producing Code 3003 when the Media3
+        // extractors then tried to read MP3 bytes under a FLAC FormatEntity. The hardcoded list
+        // this replaces skipped qobuz_backup: and jiosaavn:, so those downloads never played
+        // offline.
+        val candidateKeys = DownloadSourceConfig.cacheKeysFor(mediaId)
         val matchingKey = candidateKeys.firstOrNull { key ->
             getContinuousCachedLengthForKey(
                 key = key,
@@ -8549,7 +8545,7 @@ class MusicService :
     ): Long {
         val targetEnd = position.saturatingAdd(requestedLength)
         var cursor = position
-        // Include source-prefixed cache keys (qobuz:, tidal:, deezer:) so
+        // Include every source-prefixed cache key a download can use so
         // that a song downloaded from a lossless source plays back as the
         // lossless bytes — not as a re-fetched YouTube Music stream. Without
         // this, playing a downloaded FLAC song would bypass the cached FLAC
@@ -8557,7 +8553,7 @@ class MusicService :
         // resolver, which serves a different (lossy MP3/AAC) stream —
         // causing the "Code 3003 UnrecognizedInputFormatException" when the
         // Media3 extractors received an MP3 stream under a FLAC cache key.
-        val candidateKeys = listOf(mediaId, "qobuz:$mediaId", "tidal:$mediaId", "deezer:$mediaId")
+        val candidateKeys = DownloadSourceConfig.cacheKeysFor(mediaId)
         val playerCacheSpans =
             if (includePlayerCache) {
                 candidateKeys.flatMap { key ->

@@ -81,6 +81,7 @@ import moe.rukamori.archivetune.LocalDownloadUtil
 import moe.rukamori.archivetune.LocalPlayerAwareWindowInsets
 import moe.rukamori.archivetune.LocalPlayerConnection
 import moe.rukamori.archivetune.R
+import moe.rukamori.archivetune.constants.DownloadSourceConfig
 import moe.rukamori.archivetune.constants.ShowCodecOnPlayerKey
 import moe.rukamori.archivetune.ui.component.IconButton
 import moe.rukamori.archivetune.ui.component.PreferenceEntry
@@ -92,8 +93,8 @@ import moe.rukamori.archivetune.utils.rememberPreference
 import kotlin.math.roundToInt
 
 /**
- * Best-effort: sum the cached bytes for a song across all source-prefixed cache keys (qobuz:,
- * tidal:, deezer:, and the bare mediaId).
+ * Best-effort: sum the cached bytes for a song across every key a download can use
+ * ([DownloadSourceConfig.cacheKeysFor]: each source prefix, then the bare mediaId).
  */
 private fun sumCachedBytesForSong(
     downloadUtil: moe.rukamori.archivetune.playback.DownloadUtil?,
@@ -101,7 +102,7 @@ private fun sumCachedBytesForSong(
 ): Long {
     val cache = downloadUtil?.playerCache ?: return 0L
     var total = 0L
-    for (key in listOf("qobuz:$songId", "tidal:$songId", "deezer:$songId", songId)) {
+    for (key in DownloadSourceConfig.cacheKeysFor(songId)) {
         total += runCatching { sumCacheSpans(cache, key) }.getOrDefault(0L)
     }
     return total
