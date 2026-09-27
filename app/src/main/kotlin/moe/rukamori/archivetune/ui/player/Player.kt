@@ -345,7 +345,7 @@ fun BottomSheetPlayer(
     navController: NavController,
     modifier: Modifier = Modifier,
     pureBlack: Boolean,
-    isMiniPlayerPairedWithNavigation: Boolean = false,
+    navigationProximityProvider: () -> Float = { 0f },
     onLyricsVisibilityChange: (Boolean) -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -1316,7 +1316,7 @@ fun BottomSheetPlayer(
                 position = position,
                 duration = duration,
                 pureBlack = pureBlack,
-                isPairedWithNavigation = isMiniPlayerPairedWithNavigation,
+                navigationProximityProvider = navigationProximityProvider,
             )
         },
     ) {

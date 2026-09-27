@@ -97,6 +97,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.util.fastCoerceIn
 import androidx.compose.ui.util.lerp
 import kotlinx.coroutines.Dispatchers
@@ -108,6 +109,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import moe.rukamori.archivetune.utils.ImageBlurUtils
 import moe.rukamori.archivetune.constants.DisableAnimationsKey
+import moe.rukamori.archivetune.constants.FloatingBarJunctionCornerRadius
+import moe.rukamori.archivetune.constants.FloatingBarOuterCornerRadius
+import moe.rukamori.archivetune.constants.FloatingBarStandaloneCornerRadius
 import moe.rukamori.archivetune.constants.FloatingNavigationBarMaxWidth
 import moe.rukamori.archivetune.constants.HideNavigationBarLabelsKey
 import moe.rukamori.archivetune.constants.NAVIGATION_BAR_CORNER_RADIUS_DEFAULT
@@ -198,7 +202,7 @@ fun FloatingNavigationToolbar(
     items: List<Screens>,
     pureBlack: Boolean,
     modifier: Modifier = Modifier,
-    isPairedWithMiniPlayer: Boolean = false,
+    miniPlayerProximityProvider: () -> Float = { 0f },
     style: NavigationBarStyle = NavigationBarStyle.DEFAULT,
     frostedBlur: Boolean = false,
     tintFrostedBlur: Boolean = false,
@@ -245,11 +249,18 @@ fun FloatingNavigationToolbar(
     val itemVerticalPadding =
         if (canLiquidGlass) SukiSUItemPadding else NavigationItemVerticalPadding
     val itemHorizontalPadding = if (canLiquidGlass) SukiSUItemPadding else 0.dp
+    // Same per-frame discipline as the mini player: the provider fires every sheet-drag
+    // frame, so read it through derivedStateOf and remember the shape. At proximity 0 the
+    // lerp settles on exactly 32.dp, which is MaterialTheme.shapes.extraLarge (see
+    // Theme.kt) — the previous unpaired fallback — so rest geometry is bit-identical.
+    val miniPlayerProximity by remember(miniPlayerProximityProvider) {
+        derivedStateOf { miniPlayerProximityProvider().coerceIn(0f, 1f) }
+    }
     val navigationShape =
         if (canLiquidGlass) {
             RoundedCornerShape(percent = 50)
         } else {
-            remember(isPairedWithMiniPlayer, isFloating, isAppleMusic, navBarCornerRadius) {
+            remember(isFloating, isAppleMusic, navBarCornerRadius, miniPlayerProximity) {
                 when {
                     // Apple Music's tab bar is a floating, rounded bar inset from the edges — the
                     // reference separates it from the content on all four sides, which is why it
@@ -257,16 +268,18 @@ fun FloatingNavigationToolbar(
                     isAppleMusic -> RoundedCornerShape(navBarCornerRadius.dp)
                     // A detached pill keeps the user-configurable corner radius (default 28 dp).
                     isFloating -> RoundedCornerShape(navBarCornerRadius.dp)
-                    isPairedWithMiniPlayer ->
+                    // Docked under the mini player: top corners pinch toward the junction
+                    // radius while the bottom corners keep the outer radius, continuous in
+                    // the sheet's proximity to collapsed.
+                    else ->
                         RoundedCornerShape(
-                            topStart = 12.dp,
-                            topEnd = 12.dp,
-                            bottomStart = navBarCornerRadius.dp,
-                            bottomEnd = navBarCornerRadius.dp,
+                            topStart = lerp(FloatingBarStandaloneCornerRadius, FloatingBarJunctionCornerRadius, miniPlayerProximity),
+                            topEnd = lerp(FloatingBarStandaloneCornerRadius, FloatingBarJunctionCornerRadius, miniPlayerProximity),
+                            bottomStart = lerp(FloatingBarStandaloneCornerRadius, FloatingBarOuterCornerRadius, miniPlayerProximity),
+                            bottomEnd = lerp(FloatingBarStandaloneCornerRadius, FloatingBarOuterCornerRadius, miniPlayerProximity),
                         )
-                    else -> null
                 }
-            } ?: MaterialTheme.shapes.extraLarge
+            }
         }
     val navigationContainerColor =
         if (canLiquidGlass) {
@@ -363,14 +376,12 @@ fun FloatingNavigationToolbar(
                     unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
                     unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-            pureBlack ->
-                ShortNavigationBarItemDefaults.colors(
-                    selectedIndicatorColor = Color.Transparent,
-                    selectedIconColor = Color.White,
-                    selectedTextColor = Color.White,
-                    unselectedIconColor = Color.White.copy(alpha = 0.6f),
-                    unselectedTextColor = Color.White.copy(alpha = 0.6f),
-                )
+            // The tinted bar keeps its tinted identity in EVERY scheme — including
+            // pure black. With the pureBlack branch first, a pure-black + tinted
+            // combination fell through to the plain white-on-black item set, which
+            // (together with the near-black 30%-tint base) made the bar read as the
+            // untinted pure-black navbar. Tint wins here, matching the container
+            // color which already stays tinted in pure black.
             tintFrostedBlur ->
                 ShortNavigationBarItemDefaults.colors(
                     selectedIndicatorColor = Color.Transparent,
@@ -380,6 +391,14 @@ fun FloatingNavigationToolbar(
                     // against the dark tinted glass.
                     unselectedIconColor = Color.White.copy(alpha = 0.7f),
                     unselectedTextColor = Color.White.copy(alpha = 0.7f),
+                )
+            pureBlack ->
+                ShortNavigationBarItemDefaults.colors(
+                    selectedIndicatorColor = Color.Transparent,
+                    selectedIconColor = Color.White,
+                    selectedTextColor = Color.White,
+                    unselectedIconColor = Color.White.copy(alpha = 0.6f),
+                    unselectedTextColor = Color.White.copy(alpha = 0.6f),
                 )
             else -> ShortNavigationBarItemDefaults.colors(selectedIndicatorColor = Color.Transparent)
         }
@@ -664,9 +683,11 @@ fun FloatingNavigationToolbar(
                     containerColor = Color.Transparent,
                     contentColor =
                         when {
-                            pureBlack -> Color.White
+                            // Tint wins over pure black so the bar keeps its tinted
+                            // identity in the AMOLED scheme too (see itemColors).
                             // Tint-frosted bar is now dark glass, so content is white.
                             tintFrostedBlur -> Color.White
+                            pureBlack -> Color.White
                             else -> MaterialTheme.colorScheme.onSurface
                         },
                     windowInsets = WindowInsets(0, 0, 0, 0),
