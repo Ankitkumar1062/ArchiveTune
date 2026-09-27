@@ -43,6 +43,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.TextUnitType
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -51,6 +52,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import moe.rukamori.archivetune.LocalDatabase
+import moe.rukamori.archivetune.LocalSyncUtils
 import moe.rukamori.archivetune.R
 import moe.rukamori.archivetune.constants.ListThumbnailSize
 import moe.rukamori.archivetune.db.entities.Playlist
@@ -80,6 +82,7 @@ fun AddToPlaylistDialogOnline(
     onStatusChange: (String) -> Unit = {},
 ) {
     val database = LocalDatabase.current
+    val syncUtils = LocalSyncUtils.current
     val coroutineScope = rememberCoroutineScope()
     var allPlaylists by remember { mutableStateOf(emptyList<Playlist>()) }
     val playlists = remember(allPlaylists) { playlistsForAddToPlaylist(allPlaylists).asReversed() }
@@ -171,12 +174,26 @@ fun AddToPlaylistDialogOnline(
                                                         database.addSongToPlaylist(targetPlaylist, ids)
                                                     }
                                                     if (addToLiked) {
-                                                        val entity = media.toSongEntity()
-                                                        database.query {
-                                                            update(entity.toggleLike())
+                                                        val storedSong =
+                                                            database.getSongById(firstSong.id)?.song
+                                                                ?: throw IllegalStateException(
+                                                                    "Missing imported song ${firstSong.id}",
+                                                                )
+                                                        if (!storedSong.liked) {
+                                                            val failedLikeIds =
+                                                                syncUtils.likeSongs(
+                                                                    listOf(storedSong.toggleLike()),
+                                                                )
+                                                            if (failedLikeIds.isNotEmpty()) {
+                                                                throw IllegalStateException(
+                                                                    "Failed to like imported song ${firstSong.id}",
+                                                                )
+                                                            }
                                                         }
                                                     }
                                                     success = true
+                                                } catch (error: CancellationException) {
+                                                    throw error
                                                 } catch (e: Exception) {
                                                     Timber.e(e, "Error inserting/adding song")
                                                 }

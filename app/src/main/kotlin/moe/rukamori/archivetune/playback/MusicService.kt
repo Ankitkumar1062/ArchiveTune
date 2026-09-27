@@ -4379,23 +4379,34 @@ class MusicService :
         val mediaMetadata = currentMediaMetadata.value ?: return
         ioScope.launch {
             try {
-                val song =
+                val result =
                     toggleLikeMutex.withLock {
-                        database.withTransaction {
-                            val currentSongEntity =
-                                getSongById(mediaMetadata.id)
-                                    ?: run {
-                                        insert(mediaMetadata) {
-                                            it.copy(isLocal = mediaMetadata.id.isLocalMediaId())
+                        val requestedSong =
+                            database.withTransaction {
+                                val currentSongEntity =
+                                    getSongById(mediaMetadata.id)
+                                        ?: run {
+                                            insert(mediaMetadata) {
+                                                it.copy(isLocal = mediaMetadata.id.isLocalMediaId())
+                                            }
+                                            getSongById(mediaMetadata.id)
                                         }
-                                        getSongById(mediaMetadata.id)
-                                    }
-                                    ?: return@withTransaction null
-                            currentSongEntity.song.toggleLike().also(::update)
-                        }
+                                        ?: return@withTransaction null
+                                // State change only: SyncUtils.likeSong persists the row and
+                                // drives the remote like, so writing it here too would race
+                                // the sync path and write it twice.
+                                currentSongEntity.song.toggleLike()
+                            } ?: return@withLock null
+                        syncUtils.likeSong(requestedSong)
                     } ?: return@launch
-
-                syncUtils.likeSong(song)
+                val song =
+                    result.getOrElse { error ->
+                        reportException(error)
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(this@MusicService, R.string.error_unknown, Toast.LENGTH_SHORT).show()
+                        }
+                        return@launch
+                    }
 
                 // Check if auto-download on like is enabled and the song is now liked
                 if (!song.isLocal && dataStore.get(AutoDownloadOnLikeKey, false) && song.liked) {
