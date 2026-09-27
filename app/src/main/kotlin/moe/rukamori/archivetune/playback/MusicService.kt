@@ -87,7 +87,6 @@ import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.analytics.PlaybackStats
 import androidx.media3.exoplayer.analytics.PlaybackStatsListener
 import androidx.media3.exoplayer.audio.DefaultAudioSink
-import androidx.media3.exoplayer.audio.SilenceSkippingAudioProcessor
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
@@ -155,6 +154,7 @@ import moe.rukamori.archivetune.constants.CrossfadeGaplessKey
 import moe.rukamori.archivetune.constants.DeviceMutePlaybackRecoveryVolumeKey
 import moe.rukamori.archivetune.constants.DiscordShowWhenPausedKey
 import moe.rukamori.archivetune.constants.DiscordTokenKey
+import moe.rukamori.archivetune.constants.DownloadSourceConfig
 import moe.rukamori.archivetune.constants.EnableDiscordRPCKey
 import moe.rukamori.archivetune.constants.EnableLastFMScrobblingKey
 import moe.rukamori.archivetune.constants.EqualizerAutoHeadroomEnabledKey
@@ -473,7 +473,7 @@ class MusicService :
     private var scopeJob = SupervisorJob()
     private var scope = CoroutineScope(Dispatchers.Main + scopeJob)
     private var ioScope = CoroutineScope(Dispatchers.IO + scopeJob)
-    private val binder = MusicBinder()
+    private val binder = MusicBinder(this)
     private var hasBoundClients = false
     private var idleStopJob: Job? = null
 
@@ -2968,7 +2968,15 @@ class MusicService :
         // promoted ExoPlayer, and a fresh wrapper does not inherit playWhenReady. Nothing used to
         // re-assert it, so the promoted player came up paused and the incoming song stopped a few
         // seconds in — right at the end of the fade, which is what made it look random.
-        val shouldKeepPlaying = crossfadePlaybackRequested || incomingPlayer.playWhenReady || oldSessionPlayer.playWhenReady
+        //
+        // The intent itself is crossfadePlaybackRequested, kept live by onPlayWhenReadyChanged for
+        // the whole fade and promotion window and cleared by any pause that is not the outgoing
+        // player's own end-of-item auto-pause — so a pause (user tap or audio-focus loss) landing
+        // mid-fade is no longer overridden by the stale `oldSessionPlayer.playWhenReady` the
+        // outgoing player still reports. Focus is a precondition too: when playback was paused for
+        // audio-focus loss the GAIN handler resumes it via wasPlayingBeforeAudioFocusLoss, so
+        // promotion must not force play while the system has not returned focus.
+        val shouldKeepPlaying = crossfadePlaybackRequested && hasAudioFocusForPlayback()
         crossfadeHandoffInProgress = true
         return try {
             incomingPlayer.removeListener(secondaryCrossfadeListener)
@@ -3297,8 +3305,18 @@ class MusicService :
             }
 
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-                hasAudioFocus = false
-                pauseForAudioFocusLoss(resumeWhenFocusReturns = true)
+                // Duck instead of pausing. CAN_DUCK losses arrive for route changes (Bluetooth
+                // reconnects, assistant beeps, navigation prompts) where stopping playback
+                // mid-song — and then racing a crossfade promotion that force-resumes — reads as
+                // "the app muted itself". The stream stays alive at MIN_AUDIO_FOCUS_VOLUME_FACTOR;
+                // AUDIOFOCUS_GAIN restores the factor to 1f.
+                //
+                // Focus itself is still held (the system only asked us to lower the volume), so
+                // hasAudioFocus stays true: a re-request during the duck must not read as a
+                // re-gain and cancel it, and playback paused mid-crossfade must not be forced
+                // back on the assumption that focus was lost.
+                hasAudioFocus = true
+                audioFocusVolumeFactor.value = MIN_AUDIO_FOCUS_VOLUME_FACTOR
 
                 lastAudioFocusState = focusChange
             }
@@ -3326,7 +3344,12 @@ class MusicService :
 
     private fun requestAudioFocus(): Boolean {
         if (hasAudioFocus) {
-            if (audioFocusVolumeFactor.value != 1f || lastAudioFocusState == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
+            // A CAN_DUCK loss is still in effect while the factor is lowered: re-requesting focus
+            // (every playback-state event funnels through ensureAudioFocusForActivePlayback) must
+            // not restore full volume behind the duck. Only the real re-gain paths clear it.
+            if (audioFocusVolumeFactor.value != 1f &&
+                lastAudioFocusState != AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK
+            ) {
                 restoreAudioFocusVolume()
             }
             return true
@@ -4356,23 +4379,34 @@ class MusicService :
         val mediaMetadata = currentMediaMetadata.value ?: return
         ioScope.launch {
             try {
-                val song =
+                val result =
                     toggleLikeMutex.withLock {
-                        database.withTransaction {
-                            val currentSongEntity =
-                                getSongById(mediaMetadata.id)
-                                    ?: run {
-                                        insert(mediaMetadata) {
-                                            it.copy(isLocal = mediaMetadata.id.isLocalMediaId())
+                        val requestedSong =
+                            database.withTransaction {
+                                val currentSongEntity =
+                                    getSongById(mediaMetadata.id)
+                                        ?: run {
+                                            insert(mediaMetadata) {
+                                                it.copy(isLocal = mediaMetadata.id.isLocalMediaId())
+                                            }
+                                            getSongById(mediaMetadata.id)
                                         }
-                                        getSongById(mediaMetadata.id)
-                                    }
-                                    ?: return@withTransaction null
-                            currentSongEntity.song.toggleLike().also(::update)
-                        }
+                                        ?: return@withTransaction null
+                                // State change only: SyncUtils.likeSong persists the row and
+                                // drives the remote like, so writing it here too would race
+                                // the sync path and write it twice.
+                                currentSongEntity.song.toggleLike()
+                            } ?: return@withLock null
+                        syncUtils.likeSong(requestedSong)
                     } ?: return@launch
-
-                syncUtils.likeSong(song)
+                val song =
+                    result.getOrElse { error ->
+                        reportException(error)
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(this@MusicService, R.string.error_unknown, Toast.LENGTH_SHORT).show()
+                        }
+                        return@launch
+                    }
 
                 // Check if auto-download on like is enabled and the song is now liked
                 if (!song.isLocal && dataStore.get(AutoDownloadOnLikeKey, false) && song.liked) {
@@ -5495,14 +5529,23 @@ class MusicService :
         reason: Int,
     ) {
         super.onPlayWhenReadyChanged(playWhenReady, reason)
+        val isEndOfOutgoingItemPause =
+            !playWhenReady &&
+                reason == Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM &&
+                localPlayer.pauseAtEndOfMediaItems
+        if (isCrossfading || crossfadeHandoffInProgress) {
+            // Track the live playback intent across the whole crossfade, including the promotion
+            // window: there secondaryCrossfadePlayer is already null while the session player is
+            // being swapped, so tracking inside that null-check silently dropped a pause landing
+            // in the window and the freshly promoted player resumed on its own. The outgoing
+            // player's end-of-item auto-pause is not user intent and keeps the intent unchanged.
+            if (!isEndOfOutgoingItemPause) {
+                crossfadePlaybackRequested = playWhenReady
+            }
+        }
         secondaryCrossfadePlayer?.let { secondaryPlayer ->
             if (isCrossfading) {
-                val isEndOfOutgoingItemPause =
-                    !playWhenReady &&
-                        reason == Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM &&
-                        localPlayer.pauseAtEndOfMediaItems
                 if (!isEndOfOutgoingItemPause) {
-                    crossfadePlaybackRequested = playWhenReady
                     secondaryPlayer.playWhenReady = crossfadePlaybackRequested
                     if (crossfadePlaybackRequested) {
                         secondaryPlayer.play()
@@ -5885,17 +5928,12 @@ class MusicService :
         val hasAnyCachedData =
             isFullyDownloadedMedia ||
                 runCatching {
-                    downloadCache.getCachedSpans(currentMediaId).isNotEmpty() ||
-                        playerCache.getCachedSpans(currentMediaId).isNotEmpty() ||
-                        // Also check source-prefixed keys (qobuz:, tidal:, deezer:) —
-                        // downloads from external lossless sources are cached under
-                        // these keys, not the bare mediaId.
-                        downloadCache.getCachedSpans("qobuz:$currentMediaId").isNotEmpty() ||
-                        downloadCache.getCachedSpans("tidal:$currentMediaId").isNotEmpty() ||
-                        downloadCache.getCachedSpans("deezer:$currentMediaId").isNotEmpty() ||
-                        playerCache.getCachedSpans("qobuz:$currentMediaId").isNotEmpty() ||
-                        playerCache.getCachedSpans("tidal:$currentMediaId").isNotEmpty() ||
-                        playerCache.getCachedSpans("deezer:$currentMediaId").isNotEmpty()
+                    // Every key a download can use (all source prefixes, then the bare id): a copy
+                    // under one this sweep skipped was treated as not cached at all.
+                    DownloadSourceConfig.cacheKeysFor(currentMediaId).any { key ->
+                        downloadCache.getCachedSpans(key).isNotEmpty() ||
+                            playerCache.getCachedSpans(key).isNotEmpty()
+                    }
                 }.getOrDefault(false)
 
         val isConnectionError =
@@ -7231,7 +7269,7 @@ class MusicService :
         query: SourceQuery,
         trusted: Boolean = false,
     ): DirectStream? {
-        if (AppleMusicAudioProvider.mediaUserToken() == null || AppleMusicAudioProvider.devToken() == null) {
+        if (AppleMusicAudioProvider.mediaUserToken() == null || AppleMusicAudioProvider.usableDevToken() == null) {
             Timber
                 .tag("MusicService")
                 .d("Apple Music source: missing tokens (sign in via Settings → Apple Music)")
@@ -8437,7 +8475,7 @@ class MusicService :
                     // keys and use that as the requested length. Without it, the
                     // resolver returns null here, falls through to the YouTube
                     // resolver, and fails offline.
-                    val candidateKeys = listOf(mediaId, "qobuz:$mediaId", "tidal:$mediaId", "deezer:$mediaId")
+                    val candidateKeys = DownloadSourceConfig.cacheKeysFor(mediaId)
                     val maxCachedLength =
                         candidateKeys.maxOfOrNull { key ->
                             runCatching {
@@ -8471,16 +8509,16 @@ class MusicService :
                 }
             }
 
-        // Find the first source-prefixed key (or the bare mediaId) that
-        // has the requested byte range fully cached. Returning the
-        // DataSpec with the matching key is critical — without it the
-        // CacheDataSource would look up the bytes under the bare mediaId
-        // and miss the lossless FLAC bytes cached under "qobuz:$mediaId"
-        // / "tidal:$mediaId", then fall through to the YouTube resolver
-        // and serve a lossy MP3 stream — producing Code 3003 when the
-        // Media3 extractors then tried to read MP3 bytes under a FLAC
-        // FormatEntity.
-        val candidateKeys = listOf(mediaId, "qobuz:$mediaId", "tidal:$mediaId", "deezer:$mediaId")
+        // Find the first key (every download source's prefix, then the bare mediaId, as
+        // DownloadSourceConfig.cacheKeysFor orders them) that has the requested byte range fully
+        // cached. Returning the DataSpec with the matching key is critical — without it the
+        // CacheDataSource would look up the bytes under the bare mediaId and miss the lossless
+        // FLAC bytes cached under "qobuz:$mediaId" / "tidal:$mediaId", then fall through to the
+        // YouTube resolver and serve a lossy MP3 stream — producing Code 3003 when the Media3
+        // extractors then tried to read MP3 bytes under a FLAC FormatEntity. The hardcoded list
+        // this replaces skipped qobuz_backup: and jiosaavn:, so those downloads never played
+        // offline.
+        val candidateKeys = DownloadSourceConfig.cacheKeysFor(mediaId)
         val matchingKey = candidateKeys.firstOrNull { key ->
             getContinuousCachedLengthForKey(
                 key = key,
@@ -8549,7 +8587,7 @@ class MusicService :
     ): Long {
         val targetEnd = position.saturatingAdd(requestedLength)
         var cursor = position
-        // Include source-prefixed cache keys (qobuz:, tidal:, deezer:) so
+        // Include every source-prefixed cache key a download can use so
         // that a song downloaded from a lossless source plays back as the
         // lossless bytes — not as a re-fetched YouTube Music stream. Without
         // this, playing a downloaded FLAC song would bypass the cached FLAC
@@ -8557,7 +8595,7 @@ class MusicService :
         // resolver, which serves a different (lossy MP3/AAC) stream —
         // causing the "Code 3003 UnrecognizedInputFormatException" when the
         // Media3 extractors received an MP3 stream under a FLAC cache key.
-        val candidateKeys = listOf(mediaId, "qobuz:$mediaId", "tidal:$mediaId", "deezer:$mediaId")
+        val candidateKeys = DownloadSourceConfig.cacheKeysFor(mediaId)
         val playerCacheSpans =
             if (includePlayerCache) {
                 candidateKeys.flatMap { key ->
@@ -8651,7 +8689,7 @@ class MusicService :
 
     private fun buildAppleDrmSessionManager(track: AppleTrackDrmInfo): DrmSessionManager? {
         val mediaToken = AppleMusicAudioProvider.mediaUserToken() ?: return null
-        val devToken = AppleMusicAudioProvider.devToken()
+        val devToken = AppleMusicAudioProvider.usableDevToken()
         val callback = AppleLicenseCallback(track, devToken, mediaToken)
         return DefaultDrmSessionManager
             .Builder()
@@ -8958,13 +8996,6 @@ class MusicService :
                 .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
                 .setAudioProcessorChain(
                     DefaultAudioSink.DefaultAudioProcessorChain(
-                        SilenceSkippingAudioProcessor(
-                            1_500_000L,
-                            0.35f,
-                            500_000L,
-                            10,
-                            150.toShort(),
-                        ),
                         SonicAudioProcessor(),
                         // Analyses the decoded PCM for the haptics engine and passes it through
                         // untouched. A fresh instance per sink — an AudioProcessor may belong to
@@ -9410,6 +9441,9 @@ class MusicService :
     }
 
     override fun onDestroy() {
+        // Released before anything else is torn down: once destruction has started no bound client
+        // may obtain this service again (and the binder must stop pinning it).
+        binder.release()
         equalizerPlaybackController.detach(this)
         sponsorBlockPlaybackController.detach()
         musicHapticsEngine?.release()
@@ -9621,9 +9655,23 @@ class MusicService :
         widgetUpdater.updateProgressTracking()
     }
 
-    inner class MusicBinder : Binder() {
+    /**
+     * Hands [service] to bound clients. The reference is dropped by [MusicService.onDestroy] so
+     * that a client which kept the binder — a widget update, a lingering ServiceConnection, an
+     * Android Auto consumer — can no longer reach, and therefore cannot pin, a service whose
+     * players, media session and scopes have already been released. Deliberately NOT an inner
+     * class: an inner binder would hold a second, implicit reference to the service.
+     */
+    class MusicBinder internal constructor(service: MusicService) : Binder() {
+        @Volatile
+        private var serviceReference: MusicService? = service
+
         val service: MusicService
-            get() = this@MusicService
+            get() = checkNotNull(serviceReference) { "MusicService has been destroyed" }
+
+        internal fun release() {
+            serviceReference = null
+        }
     }
 
     companion object {

@@ -187,7 +187,6 @@ import moe.rukamori.archivetune.constants.DarkModeKey
 import moe.rukamori.archivetune.constants.DisableBlurKey
 import moe.rukamori.archivetune.constants.EnableHapticFeedbackKey
 import moe.rukamori.archivetune.constants.EnableVideoPlaybackKey
-import moe.rukamori.archivetune.constants.InnerTubeCookieKey
 import moe.rukamori.archivetune.constants.MaxCanvasCacheSizeKey
 import moe.rukamori.archivetune.constants.PlayerBackgroundStyle
 import moe.rukamori.archivetune.constants.PlayerBackgroundStyleKey
@@ -210,7 +209,6 @@ import moe.rukamori.archivetune.constants.SpotifyCanvasKey
 import moe.rukamori.archivetune.constants.ThumbnailCornerRadiusKey
 import moe.rukamori.archivetune.extensions.metadata
 import moe.rukamori.archivetune.extensions.togglePlayPause
-import moe.rukamori.archivetune.innertube.utils.hasYouTubeLoginCookie
 import moe.rukamori.archivetune.models.MediaMetadata
 import moe.rukamori.archivetune.playback.artwork.PlayerPaletteCacheKey
 import moe.rukamori.archivetune.playback.artwork.guessArtworkProvider
@@ -347,7 +345,7 @@ fun BottomSheetPlayer(
     navController: NavController,
     modifier: Modifier = Modifier,
     pureBlack: Boolean,
-    isMiniPlayerPairedWithNavigation: Boolean = false,
+    navigationProximityProvider: () -> Float = { 0f },
     onLyricsVisibilityChange: (Boolean) -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -357,13 +355,8 @@ fun BottomSheetPlayer(
 
     val playerConnection = LocalPlayerConnection.current ?: return
     val playbackError by playerConnection.error.collectAsStateWithLifecycle()
-    val (innerTubeCookie) = rememberPreference(InnerTubeCookieKey, defaultValue = "")
     val (poTokenGvs) = rememberPreference(PoTokenGvsKey, defaultValue = "")
     val (poTokenPlayer) = rememberPreference(PoTokenPlayerKey, defaultValue = "")
-    val isYouTubeLoggedIn =
-        remember(innerTubeCookie) {
-            hasYouTubeLoginCookie(innerTubeCookie)
-        }
     val isPoTokenLoggedIn =
         remember(poTokenGvs, poTokenPlayer) {
             poTokenGvs.isNotBlank() && poTokenPlayer.isNotBlank()
@@ -1323,7 +1316,7 @@ fun BottomSheetPlayer(
                 position = position,
                 duration = duration,
                 pureBlack = pureBlack,
-                isPairedWithNavigation = isMiniPlayerPairedWithNavigation,
+                navigationProximityProvider = navigationProximityProvider,
             )
         },
     ) {
@@ -2819,7 +2812,7 @@ fun BottomSheetPlayer(
 
         PlaybackErrorDialog(
             error = activePlaybackError,
-            showLoginAction = !isYouTubeLoggedIn,
+            showLoginAction = errorInfo.loginRecoveryUrl != null,
             showPoTokenLoginAction = !isPoTokenLoggedIn,
             onRetry = retryPlayback,
             onClose = dismissPlaybackError,

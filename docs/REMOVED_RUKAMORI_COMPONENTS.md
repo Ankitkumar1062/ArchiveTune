@@ -11,10 +11,15 @@ git checkout 819476ff6 -- <path>   # restore it into the tree
 
 Do **not** restore any of these without re-evaluating: they were removed
 because they phone home to `*.koiiverse.cloud` / Rukamori servers, or were
-inert leftovers. The AGENTS.md guards will fail the build if the koiverse
-surface is reintroduced. (The upstream-sync workflow and its
+inert leftovers. No CI guard enforces this today — keep any koiverse surface out
+by review (the automated checks were deleted with the sync scripts); when
+porting from upstream, grep for `koiiverse`, `Gatekeeper`, `TogetherOnline`,
+`ArchiveTuneCanvas` and bearer-token BuildConfig fields first. The
+upstream-sync workflow and its
 `scripts/upstream_sync.sh` / `scripts/ai_resolve.py` were removed outright
-in 2026-09 — see V0_CHAT_MEMORY.md.)
+in 2026-09 — commit `699d1e390` removed the workflow, both scripts and the
+`UPSTREAM_SYNC.md` guide; upstream changes are now pulled by manual tree
+comparison.
 
 ---
 
@@ -49,10 +54,10 @@ Wire format (if a compatible server is ever needed again):
   `kick`, `ban` (see `TogetherMessages.kt`, still in the tree — the message
   envelope survived for the LAN server).
 
-The live replacement is the vivimusic public protocol (`TogetherPublicServers.kt`
-defaults `wss://devilmi-vivi-music-listen-together.hf.space` /
-`wss://vivimusic-listen-together.onrender.com`, `TogetherPublicClient.kt`,
-`TogetherPublicProtocol.kt`), plus the LAN `TogetherServer.kt`/`TogetherClient.kt`.
+The live replacement is the public-protocol set in
+`listentogether/ListenTogetherServers.kt` — the two vivimusic JSON servers and
+Metrolist's protobuf-only The Meowery (`wss://metroserverx.meowery.eu/ws`) —
+plus the LAN `TogetherServer.kt`/`TogetherClient.kt`.
 
 ## 2. Canvas proxy — ArchiveTuneCanvas (deleted)
 

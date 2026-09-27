@@ -35,7 +35,9 @@
 
 package moe.rukamori.archivetune.ui.player.tiktok
 
+import android.content.Context
 import android.content.Intent
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
@@ -90,7 +92,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import coil3.compose.AsyncImage
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import moe.rukamori.archivetune.LocalDatabase
@@ -108,6 +111,7 @@ import moe.rukamori.archivetune.ui.utils.ShowMediaInfo
 import moe.rukamori.archivetune.ui.utils.formatCompactCount
 import moe.rukamori.archivetune.utils.isLocalMediaId
 import moe.rukamori.archivetune.utils.shareLocalAudio
+import timber.log.Timber
 import java.util.concurrent.ConcurrentHashMap
 
 /** TikTok's brand red, the same one the reference feed uses for its active heart. */
@@ -448,39 +452,70 @@ internal fun rememberTikTokLikeAction(
 ): (Boolean) -> Unit {
     val database = LocalDatabase.current
     val syncUtils = LocalSyncUtils.current
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     // Observes the same Room row the rail renders from; the delegated read
     // inside the remembered lambda stays live, so the like-only guard sees
     // the freshest row at call time without an extra query per tap.
     val librarySong by database.song(pageMetadata.id)
         .collectAsStateWithLifecycle(initialValue = null)
-    return remember(database, syncUtils, scope, pageMetadata, isCurrentPage, playerConnection) {
+    return remember(database, syncUtils, context, scope, pageMetadata, isCurrentPage, playerConnection) {
         { likeOnly: Boolean ->
             val row = librarySong?.song
             when {
                 // Already liked and this is a double-tap: stay liked.
                 likeOnly && row?.liked == true -> Unit
 
-                row != null -> {
-                    val s = row.toggleLike()
-                    database.query { update(s) }
-                    syncUtils.likeSong(s)
+                row != null -> scope.launch(Dispatchers.IO) {
+                    val requestedSong =
+                        try {
+                            row.toggleLike()
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (error: Exception) {
+                            reportLikeFailure(error, "Failed to prepare liked song ${pageMetadata.id}", context)
+                            return@launch
+                        }
+                    syncUtils.likeSong(requestedSong).onFailure { error ->
+                        reportLikeFailure(error, "Failed to update liked song ${pageMetadata.id}", context)
+                    }
                 }
 
                 isCurrentPage -> playerConnection.toggleLike()
 
                 else -> {
-                    database.transaction { insert(pageMetadata) }
-                    scope.launch {
-                        val entity = database.song(pageMetadata.id).first()?.song ?: return@launch
-                        val s = entity.toggleLike()
-                        database.query { update(s) }
-                        syncUtils.likeSong(s)
+                    scope.launch(Dispatchers.IO) {
+                        val requestedSong =
+                            try {
+                                database.withTransaction {
+                                    val currentSong =
+                                        getSongById(pageMetadata.id)?.song
+                                            ?: pageMetadata.toSongEntity().also { insert(pageMetadata) }
+                                    currentSong.toggleLike()
+                                }
+                            } catch (error: CancellationException) {
+                                throw error
+                            } catch (error: Exception) {
+                                reportLikeFailure(error, "Failed to prepare liked song ${pageMetadata.id}", context)
+                                return@launch
+                            }
+                        syncUtils.likeSong(requestedSong).onFailure { error ->
+                            reportLikeFailure(error, "Failed to update liked song ${pageMetadata.id}", context)
+                        }
                     }
                 }
             }
         }
     }
+}
+
+private fun reportLikeFailure(
+    error: Throwable,
+    message: String,
+    context: Context,
+) {
+    Timber.w(error, message)
+    Toast.makeText(context, R.string.error_unknown, Toast.LENGTH_SHORT).show()
 }
 
 /**

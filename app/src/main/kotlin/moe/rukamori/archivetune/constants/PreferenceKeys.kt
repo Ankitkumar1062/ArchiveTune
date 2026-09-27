@@ -362,6 +362,14 @@ object DownloadSourceConfig {
             .filterNot { it == DownloadSource.AUTO || it == DownloadSource.YOUTUBE_MUSIC }
             .map { "${it.name.lowercase(Locale.US)}:" }
 
+    /**
+     * Every cache key a song's bytes may live under, most specific first: each source's prefix,
+     * then the bare id the playback cache also uses. The one definition the download path, its
+     * purge and playback's cache probes share, so bytes are never written under a key playback
+     * does not look at.
+     */
+    fun cacheKeysFor(mediaId: String): List<String> = CACHE_KEY_PREFIXES.map { "$it$mediaId" } + mediaId
+
     private fun parseType(name: String): DownloadSource? =
         runCatching { DownloadSource.valueOf(name.trim().uppercase()) }.getOrNull()
 
@@ -465,6 +473,10 @@ val LocalSongsIncludedFoldersKey = stringSetPreferencesKey("local_songs_included
 val LocalSongsExcludedFoldersKey = stringSetPreferencesKey("local_songs_excluded_folders")
 val LocalSongsSortTypeKey = stringPreferencesKey("local_songs_sort_type")
 val LocalSongsSortDescendingKey = booleanPreferencesKey("local_songs_sort_descending")
+// The extraction version the local library was last fully read with. A scan whose stored value is
+// below LocalSongScanner's current one re-reads every file once instead of trusting its
+// unchanged-file skip, so a library read by an older build still gains what that build never read.
+val LocalScanExtractionVersionKey = intPreferencesKey("local_scan_extraction_version")
 
 val ListenBrainzEnabledKey = booleanPreferencesKey("listenbrainz_enabled")
 val ListenBrainzTokenKey = stringPreferencesKey("listenbrainz_token")

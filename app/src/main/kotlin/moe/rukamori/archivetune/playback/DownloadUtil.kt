@@ -460,19 +460,11 @@ class DownloadUtil
          * references and no evictor reclaims.
          */
         private fun purgeSongCacheEntries(mediaId: String) {
-            for (key in cacheKeysFor(mediaId)) {
+            for (key in DownloadSourceConfig.cacheKeysFor(mediaId)) {
                 runCatching { downloadCache.removeResource(key) }
                 runCatching { playerCache.removeResource(key) }
             }
         }
-
-        /**
-         * Every cache key a song's bytes may live under, most specific first. One definition so the
-         * pre-warm, the download resolver and the purge above cannot disagree about where a
-         * download's bytes are.
-         */
-        private fun cacheKeysFor(mediaId: String): List<String> =
-            DownloadSourceConfig.CACHE_KEY_PREFIXES.map { "$it$mediaId" } + mediaId
 
         /**
          * Pre-warms the cache for [mediaId] by resolving the highest-quality stream available
@@ -495,7 +487,7 @@ class DownloadUtil
 
             // Fast path: bytes already cached under any source-prefixed key — no work to do. The
             // DownloadManager will pick them up via the resolver in [youtubeDataSourceFactory].
-            for (key in cacheKeysFor(mediaId)) {
+            for (key in DownloadSourceConfig.cacheKeysFor(mediaId)) {
                 val spans = runCatching { playerCache.getCachedSpans(key) }.getOrNull().orEmpty()
                 if (spans.isNotEmpty()) {
                     val expected = database.getSongByIdBlocking(mediaId)?.format?.contentLength ?: 0L

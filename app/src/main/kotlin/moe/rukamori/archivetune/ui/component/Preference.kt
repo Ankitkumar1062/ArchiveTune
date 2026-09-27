@@ -676,7 +676,7 @@ private fun PreferenceSelectionOption(
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun <T> PreferenceMultiSelectBottomSheet(
+internal fun <T : Any> PreferenceMultiSelectBottomSheet(
     title: @Composable () -> Unit,
     values: List<T>,
     isSelected: (T) -> Boolean,

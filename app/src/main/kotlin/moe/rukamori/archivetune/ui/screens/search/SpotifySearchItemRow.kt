@@ -15,10 +15,12 @@
 package moe.rukamori.archivetune.ui.screens.search
 
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -124,10 +126,15 @@ private fun SpotifyCatalogRow(
 
 @Composable
 private fun SpotifyProviderIcon() {
+    // The asset is the full-colour logo (green disc, opaque white waves). Icon's default tint
+    // painted every opaque pixel one colour, leaving a featureless disc that also changed colour
+    // with the row's active highlight. The inset keeps it off the highlight's edge: ListItem gives
+    // trailing content none of its own, and the resolving spinner sits right beside it.
     Icon(
         painter = painterResource(R.drawable.spotify_icon),
         contentDescription = stringResource(R.string.spotify_account),
-        modifier = Modifier.size(18.dp),
+        tint = Color.Unspecified,
+        modifier = Modifier.padding(horizontal = 12.dp).size(18.dp),
     )
 }
 

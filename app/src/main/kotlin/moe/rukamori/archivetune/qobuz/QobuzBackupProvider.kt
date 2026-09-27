@@ -25,11 +25,36 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 /**
- * Catalogue lookups for the **Qobuz backup** source (the community-hosted `mlc-ytify.kouzu.in`
+ * Catalogue lookups for the **Qobuz backup** source (the community-hosted kouzu.in
  * mirror, which serves a FLAC per YouTube video id).
  */
 object QobuzBackupProvider {
-    private const val BASE_URL = "https://mlc-ytify.kouzu.in"
+    /**
+     * Live community mirror. The retired `mlc-ytify.kouzu.in` host stopped resolving
+     * (DNS removed) and both upstreams still carry it in places, so the value is funnelled
+     * through [normalizeEndpoint] before any request is built.
+     */
+    private const val DEFAULT_ENDPOINT = "https://mls.kouzu.in"
+
+    /**
+     * Heals a mirror URL before it is used. The app's network security policy blocks
+     * cleartext, so an `http://` entry can never succeed — upgrade it instead of burning a
+     * failure. References to the retired `mlc-ytify.kouzu.in` host move to `mls.kouzu.in`,
+     * which serves the same API.
+     */
+    private fun normalizeEndpoint(raw: String): String {
+        val https = if (raw.startsWith("http://")) "https://" + raw.removePrefix("http://") else raw
+        return https.replace("mlc-ytify.kouzu.in", "mls.kouzu.in")
+    }
+
+    /**
+     * Base URL every mirror call is built from, healed and https-checked: only an
+     * `https://` result is usable, so a cleartext or retired-host endpoint can never shadow
+     * the healthy default with a failure the mirror never had a chance to answer.
+     */
+    private val BASE_URL: String =
+        normalizeEndpoint(DEFAULT_ENDPOINT).takeIf { it.startsWith("https://") } ?: DEFAULT_ENDPOINT
+
     private const val USER_AGENT = "ArchiveTune-Android"
     private const val SEARCH_CACHE_MS = 10 * 60 * 1000L
 

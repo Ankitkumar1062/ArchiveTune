@@ -21,6 +21,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,6 +47,7 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.palette.graphics.Palette
 import coil3.imageLoader
@@ -57,6 +59,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import moe.rukamori.archivetune.LocalPlayerConnection
+import moe.rukamori.archivetune.constants.FloatingBarJunctionCornerRadius
+import moe.rukamori.archivetune.constants.FloatingBarOuterCornerRadius
+import moe.rukamori.archivetune.constants.FloatingBarStandaloneCornerRadius
 import moe.rukamori.archivetune.constants.MiniPlayerBackgroundStyle
 import moe.rukamori.archivetune.constants.MiniPlayerBackgroundStyleKey
 import moe.rukamori.archivetune.constants.MiniPlayerHeight
@@ -81,14 +86,14 @@ fun MiniPlayer(
     duration: Long,
     modifier: Modifier = Modifier,
     pureBlack: Boolean,
-    isPairedWithNavigation: Boolean = false,
+    navigationProximityProvider: () -> Float = { 0f },
 ) {
     NewMiniPlayer(
         position = position,
         duration = duration,
         modifier = modifier,
         pureBlack = pureBlack,
-        isPairedWithNavigation = isPairedWithNavigation,
+        navigationProximityProvider = navigationProximityProvider,
     )
 }
 
@@ -98,7 +103,7 @@ private fun NewMiniPlayer(
     duration: Long,
     modifier: Modifier = Modifier,
     pureBlack: Boolean,
-    isPairedWithNavigation: Boolean,
+    navigationProximityProvider: () -> Float,
 ) {
     val playerConnection = LocalPlayerConnection.current ?: return
     val context = LocalContext.current
@@ -242,23 +247,31 @@ private fun NewMiniPlayer(
                     effectiveBackgroundStyle == MiniPlayerBackgroundStyle.GLOW ||
                     effectiveBackgroundStyle == MiniPlayerBackgroundStyle.LIQUID_GLASS,
         )
+    // The provider fires every sheet-drag frame; route it through derivedStateOf so the
+    // shape below only recomputes when the snapped proximity value changes, and remember
+    // the shape itself so each recomposition reuses one object instead of allocating.
+    val navigationProximity by remember(navigationProximityProvider) {
+        derivedStateOf { navigationProximityProvider().coerceIn(0f, 1f) }
+    }
     val miniPlayerShape =
-        remember(isPairedWithNavigation) {
-            if (isPairedWithNavigation) {
-                RoundedCornerShape(
-                    topStart = 28.dp,
-                    topEnd = 28.dp,
-                    bottomStart = 12.dp,
-                    bottomEnd = 12.dp,
-                )
-            } else {
-                null
-            }
-        } ?: MaterialTheme.shapes.extraLarge
+        remember(navigationProximity) {
+            RoundedCornerShape(
+                topStart = lerp(FloatingBarStandaloneCornerRadius, FloatingBarOuterCornerRadius, navigationProximity),
+                topEnd = lerp(FloatingBarStandaloneCornerRadius, FloatingBarOuterCornerRadius, navigationProximity),
+                bottomStart = lerp(FloatingBarStandaloneCornerRadius, FloatingBarJunctionCornerRadius, navigationProximity),
+                bottomEnd = lerp(FloatingBarStandaloneCornerRadius, FloatingBarJunctionCornerRadius, navigationProximity),
+            )
+        }
+    // Width snaps instead of morphing: the mini player is full-width until contact, then
+    // clamps to the nav bar width. Kept outside the shape's derivedStateOf — a boolean
+    // threshold flips at most twice per gesture, not every frame.
+    val constrainToNavigationWidth by remember(navigationProximityProvider) {
+        derivedStateOf { navigationProximityProvider() > 0f }
+    }
 
     SwipeableMiniPlayerBox(
         modifier = modifier,
-        contentMaxWidth = if (isPairedWithNavigation) NavigationBarMaxWidth else null,
+        contentMaxWidth = if (constrainToNavigationWidth) NavigationBarMaxWidth else null,
         swipeSensitivity = swipeSensitivity,
         swipeThumbnail = swipeThumbnail,
         playerConnection = playerConnection,

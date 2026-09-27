@@ -20,9 +20,8 @@ permissions:
 jobs:
   build:
     name: Build Release APKs (${{ matrix.distribution }}-${{ matrix.device }}-${{ matrix.abi }})
-    # Skip mirror syncs. mirror-4nx3b.yml pushes the same commit to dev and main, so this workflow
-    # would fire twice over a tree that release.yml is already building for the stable release --
-    # three full matrix builds of identical code. release.yml owns the build for mirrored commits.
+    # Dependabot/Renovate pushes skip the matrix: this workflow builds every
+    # push to main/dev; see the trigger filter in the `if:` below.
     if: >-
       github.actor != 'dependabot[bot]' && github.actor != 'renovate[bot]' &&
       (github.event_name == 'workflow_dispatch' ||

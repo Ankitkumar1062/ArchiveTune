@@ -1537,11 +1537,13 @@ class MainActivity : ComponentActivity() {
                             null
                         }
 
-                    val bottomNavigationBarHeight by animateDpAsState(
-                        targetValue = if (shouldShowNavigationBar && !useRail) navVisibleHeight else 0.dp,
-                        animationSpec = if (disableAnimations) snap() else NavigationBarAnimationSpec,
-                        label = "",
-                    )
+                    val bottomNavigationBarHeightState =
+                        animateDpAsState(
+                            targetValue = if (shouldShowNavigationBar && !useRail) navVisibleHeight else 0.dp,
+                            animationSpec = if (disableAnimations) snap() else NavigationBarAnimationSpec,
+                            label = "",
+                        )
+                    val bottomNavigationBarHeight by bottomNavigationBarHeightState
 
                     val playerBottomSheetState =
                         rememberBottomSheetState(
@@ -2969,19 +2971,58 @@ class MainActivity : ComponentActivity() {
                                 },
                                 bottomBar = {
                                     Box {
-                                        // A floating pill never docks with the mini player.
-                                        val areBottomBarsPaired =
-                                            shouldShowNavigationBar &&
-                                                !useRail &&
-                                                !isFloatingNavBar &&
-                                                playerBottomSheetState.isCollapsed
+                                        // Continuous 0..1 docking factor shared by the mini player
+                                        // (top corners morph toward the junction radius) and the
+                                        // nav bar (top corners morph instead of its bottom ones).
+                                        // Pure arithmetic over snapshot reads — no allocation — so
+                                        // invoking it every sheet-drag frame stays cheap; the
+                                        // consumers quantize it through derivedStateOf + remember.
+                                        val showNavigationBarState = rememberUpdatedState(shouldShowNavigationBar)
+                                        val useRailState = rememberUpdatedState(useRail)
+                                        val navigationProximityProvider: () -> Float =
+                                            remember(
+                                                playerBottomSheetState,
+                                                bottomNavigationBarHeightState,
+                                                navVisibleHeight,
+                                                isFloatingNavBar,
+                                            ) {
+                                                {
+                                                    val navRatio =
+                                                        (bottomNavigationBarHeightState.value / navVisibleHeight).coerceIn(0f, 1f)
+                                                    val isNavTransitioning =
+                                                        bottomNavigationBarHeightState.value > 0.dp &&
+                                                            bottomNavigationBarHeightState.value < navVisibleHeight
+                                                    // Swipe distance over which the corners finish
+                                                    // morphing once the sheet leaves collapsed.
+                                                    val morphThreshold = MiniPlayerHeight + MiniPlayerBottomSpacing
+                                                    val swipeDeviation =
+                                                        if (isNavTransitioning && playerBottomSheetState.targetAnchor == COLLAPSED_ANCHOR) {
+                                                            0.dp
+                                                        } else {
+                                                            playerBottomSheetState.value.let { v ->
+                                                                if (v < playerBottomSheetState.collapsedBound) {
+                                                                    playerBottomSheetState.collapsedBound - v
+                                                                } else {
+                                                                    v - playerBottomSheetState.collapsedBound
+                                                                }
+                                                            }
+                                                        }
+                                                    val sheetPresence = (1f - (swipeDeviation / morphThreshold)).coerceIn(0f, 1f)
+                                                    // A floating pill never docks with the mini player.
+                                                    if (!showNavigationBarState.value || useRailState.value || isFloatingNavBar) {
+                                                        0f
+                                                    } else {
+                                                        navRatio * sheetPresence
+                                                    }
+                                                }
+                                            }
 
                                         ProvideVideoFullscreenState {
                                             BottomSheetPlayer(
                                                 state = playerBottomSheetState,
                                                 navController = navController,
                                                 pureBlack = pureBlack,
-                                                isMiniPlayerPairedWithNavigation = areBottomBarsPaired,
+                                                navigationProximityProvider = navigationProximityProvider,
                                                 onLyricsVisibilityChange = { isPlayerLyricsFullScreen = it },
                                             )
                                         }
@@ -3032,7 +3073,7 @@ class MainActivity : ComponentActivity() {
                                             FloatingNavigationToolbar(
                                                 items = navigationItems,
                                                 pureBlack = pureBlack,
-                                                isPairedWithMiniPlayer = areBottomBarsPaired,
+                                                miniPlayerProximityProvider = navigationProximityProvider,
                                                 style = navigationBarStyle,
                                                 frostedBlur = navigationBarFrostedBlur,
                                                 tintFrostedBlur = navigationBarTintFrostedBlur,

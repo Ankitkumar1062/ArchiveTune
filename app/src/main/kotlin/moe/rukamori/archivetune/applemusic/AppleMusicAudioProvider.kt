@@ -26,6 +26,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import moe.rukamori.archivetune.canvas.AppleMusicProvider
+import moe.rukamori.archivetune.canvas.AppleWebPlayToken
 import moe.rukamori.archivetune.constants.AppleMusicQuality
 import moe.rukamori.archivetune.utils.PoolAccountManager
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -78,7 +79,7 @@ object AppleMusicAudioProvider {
             val stillFresh = cachedStorefront?.takeIf { now - cachedStorefrontAtMs < STOREFRONT_TTL_MS }
             if (stillFresh != null) return@withLock stillFresh
             val media = mediaUserToken()?.takeIf { it.isNotBlank() } ?: return@withLock cachedStorefront ?: "us"
-            val dev = devToken() ?: return@withLock cachedStorefront ?: "us"
+            val dev = usableDevToken() ?: return@withLock cachedStorefront ?: "us"
             fetchedStorefront(media, dev)?.let { fetched ->
                 cachedStorefront = fetched
                 cachedStorefrontAtMs = System.currentTimeMillis()
@@ -115,10 +116,28 @@ object AppleMusicAudioProvider {
 
     fun devToken(): String? = AppleMusicProvider.devTokenProvider?.invoke()?.trim()?.takeIf { it.isNotBlank() }
 
+    /**
+     * A dev token that is actually usable: the user's stored token while unexpired,
+     * otherwise the last scraped web token. An expired user token used to flow into the
+     * search, the stream build and the Widevine licence callback — every call 401'd and
+     * the source fell back to YouTube opus even with a logged-in account and pool accounts.
+     * expSec returns 0 for a malformed token, which counts as usable-unknown rather than
+     * expired, so it still wins here instead of crashing.
+     */
+    fun usableDevToken(): String? {
+        val userToken = devToken()
+        if (userToken != null) {
+            val expSec = AppleWebPlayToken.expSec(userToken)
+            if (expSec == 0L || expSec > System.currentTimeMillis() / 1000L) return userToken
+        }
+        AppleMusicProvider.cachedScrapedDevToken()?.let { return it }
+        return userToken
+    }
+
     fun mediaUserToken(): String? = AppleMusicProvider.mediaUserTokenProvider?.invoke()?.trim()?.takeIf { it.isNotBlank() }
 
     /** True when both tokens are present — the source cannot resolve anything otherwise. */
-    fun isAvailable(): Boolean = devToken() != null && mediaUserToken() != null
+    fun isAvailable(): Boolean = usableDevToken() != null && mediaUserToken() != null
 
     /** Thrown by [searchSongIds]/[webPlayback] on 401/403 — the media-user-token is dead. */
     private class AuthException : Exception("apple media-user-token rejected (401/403)")
@@ -188,7 +207,11 @@ object AppleMusicAudioProvider {
         quality: AppleMusicQuality = AppleMusicQuality.LOSSLESS,
     ): List<AppleMusicStream> =
         withContext(Dispatchers.IO) {
-            val devToken = devToken() ?: return@withContext emptyList()
+            // ensureTokenFresh first: it returns an unexpired user token as-is and otherwise the
+            // held or a re-scraped web token. usableDevToken() alone would hand back an expired
+            // user token whenever nothing had been scraped yet, and every call would 401.
+            val devToken =
+                AppleMusicProvider.ensureTokenFresh() ?: usableDevToken() ?: return@withContext emptyList()
             val ringEntries = accountRing()
             if (ringEntries.isEmpty()) return@withContext emptyList()
 

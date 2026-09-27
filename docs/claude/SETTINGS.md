@@ -2,9 +2,9 @@
 
 ## Stable navigation
 
-Settings search uses parent routes and `?scrollTo=` anchors. Preserve both when changing groups. Provider-specific pages remain reachable from Integration even when manual login is disabled if an account credential already exists.
+Settings search uses parent routes and `?scrollTo=` anchors. Preserve both when changing groups. There is no manual-login gate: every sign-in row on Integration (Tidal, Qobuz, Deezer, Amazon, Apple Music, QQ Music, Telegram) is always visible. The `Use pool accounts` switch at the top of the Music Sources group (default on; rendered only where a pool URL is baked in) decides whether the community Source Pool's shared accounts are consulted at all — off means no pool fetch, and the "Refresh from pool" row is hidden.
 
-Important Integration anchors include `external_sources`, `spotify`, `music_sources`, `lastfm_scrobbling`, `lastfm_account`, `listenbrainz`, and `cross_service_import`.
+Important Integration anchors include `external_sources`, `spotify`, `music_sources`, `use_pool_accounts`, `lastfm_scrobbling`, `lastfm_account`, `listenbrainz`, and `cross_service_import`.
 
 ## Spotify integration
 

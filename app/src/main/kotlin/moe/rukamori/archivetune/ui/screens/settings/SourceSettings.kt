@@ -52,7 +52,9 @@ import moe.rukamori.archivetune.ui.component.PreferenceEntry
 import moe.rukamori.archivetune.ui.component.PreferenceGroup
 import moe.rukamori.archivetune.ui.component.TextFieldDialog
 import moe.rukamori.archivetune.ui.utils.backToMain
+import moe.rukamori.archivetune.constants.UsePoolAccountsKey
 import moe.rukamori.archivetune.utils.PoolAccountManager
+import moe.rukamori.archivetune.utils.rememberPreference
 import androidx.compose.foundation.layout.asPaddingValues
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -119,12 +121,14 @@ fun SourceSettings(navController: NavController, scrollTo: String? = null) {
 /**
  * Top-of-screen action that force-refreshes the shared source pool: re-fetches contributed
  * accounts (via [PoolAccountManager]) and re-discovers verified Tidal instances (via
- * [TidalInstanceHealthManager]), bypassing the normal throttle. Hidden entirely when no source
- * pool URL is baked in, since there is nothing to refresh.
+ * [TidalInstanceHealthManager]), bypassing the normal throttle. Hidden when no source pool URL is
+ * baked in, or when the user has switched the pool off in Integration: either way there is
+ * nothing to refresh, and refresh() would decline and report "up to date".
  */
 @Composable
 private fun PoolRefreshSection(positions: PreferencePositions) {
-    if (!PoolAccountManager.isEnabled) return
+    val (usePoolAccounts) = rememberPreference(UsePoolAccountsKey, true)
+    if (!PoolAccountManager.isEnabled || !usePoolAccounts) return
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()

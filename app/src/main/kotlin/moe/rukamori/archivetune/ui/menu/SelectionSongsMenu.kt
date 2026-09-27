@@ -65,7 +65,6 @@ import moe.rukamori.archivetune.R
 import moe.rukamori.archivetune.db.entities.PlaylistSongMap
 import moe.rukamori.archivetune.db.entities.Song
 import moe.rukamori.archivetune.extensions.toMediaItem
-import moe.rukamori.archivetune.innertube.YouTube
 import moe.rukamori.archivetune.models.MediaMetadata
 import moe.rukamori.archivetune.playback.ExoDownloadService
 import moe.rukamori.archivetune.playback.queues.ListQueue
@@ -354,32 +353,24 @@ fun SelectionSongMenu(
                                 coroutineScope.launch(Dispatchers.IO) {
                                     val shouldAdd = !allInLibrary
                                     val now = LocalDateTime.now()
-                                    val failed = LinkedHashSet<String>()
-                                    val updatedSongs = ArrayList<moe.rukamori.archivetune.db.entities.SongEntity>()
-                                    for (song in songSelection.asSequence().map { it.song }.distinctBy { it.id }) {
-                                        val remoteResult = YouTube.likeVideo(song.id, shouldAdd)
-                                        if (remoteResult.isFailure) {
-                                            failed += song.id
-                                            continue
-                                        }
-                                        updatedSongs +=
-                                            song.copy(
-                                                liked = shouldAdd,
-                                                likedDate = if (shouldAdd) now else null,
-                                                inLibrary = if (shouldAdd) now else null,
-                                            )
-                                    }
-
-                                    if (updatedSongs.isNotEmpty()) {
-                                        database.withTransaction {
-                                            updatedSongs.forEach(::update)
-                                        }
-                                    }
+                                    val requestedSongs =
+                                        songSelection
+                                            .asSequence()
+                                            .map { it.song }
+                                            .distinctBy { it.id }
+                                            .map { song ->
+                                                song.copy(
+                                                    liked = shouldAdd,
+                                                    likedDate = if (shouldAdd) now else null,
+                                                    inLibrary = if (shouldAdd) now else null,
+                                                )
+                                            }.toList()
+                                    val failedSongIds = syncUtils.likeSongs(requestedSongs)
 
                                     withContext(Dispatchers.Main) {
                                         onDismiss()
                                         clearAction()
-                                        if (failed.isNotEmpty()) {
+                                        if (failedSongIds.isNotEmpty()) {
                                             Toast
                                                 .makeText(context, context.getString(R.string.error_unknown), Toast.LENGTH_SHORT)
                                                 .show()
@@ -429,10 +420,12 @@ fun SelectionSongMenu(
                                 if (updatedSongs.isEmpty()) return@clickable
 
                                 coroutineScope.launch(Dispatchers.IO) {
-                                    database.withTransaction {
-                                        updatedSongs.forEach(::update)
+                                    val failedSongIds = syncUtils.likeSongs(updatedSongs)
+                                    if (failedSongIds.isNotEmpty()) {
+                                        withContext(Dispatchers.Main) {
+                                            Toast.makeText(context, R.string.error_unknown, Toast.LENGTH_SHORT).show()
+                                        }
                                     }
-                                    syncUtils.likeSongs(updatedSongs)
                                 }
                             },
                         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
@@ -981,10 +974,18 @@ fun SelectionMediaMetadataMenu(
                                 if (updatedSongs.isEmpty()) return@clickable
 
                                 coroutineScope.launch(Dispatchers.IO) {
+                                    // Selection entries are MediaMetadata (e.g. an online playlist's
+                                    // items), not necessarily stored rows yet. likeSong only records
+                                    // against an existing row, so materialise them first.
                                     database.withTransaction {
-                                        updatedSongs.forEach(::update)
+                                        songSelection.forEach { insert(it) }
                                     }
-                                    syncUtils.likeSongs(updatedSongs)
+                                    val failedSongIds = syncUtils.likeSongs(updatedSongs)
+                                    if (failedSongIds.isNotEmpty()) {
+                                        withContext(Dispatchers.Main) {
+                                            Toast.makeText(context, R.string.error_unknown, Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
                                 }
                             },
                         colors = ListItemDefaults.colors(containerColor = Color.Transparent),

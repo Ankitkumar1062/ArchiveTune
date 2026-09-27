@@ -76,6 +76,7 @@ import moe.rukamori.archivetune.LocalDatabase
 import moe.rukamori.archivetune.LocalDownloadUtil
 import moe.rukamori.archivetune.LocalPlayerAwareWindowInsets
 import moe.rukamori.archivetune.R
+import moe.rukamori.archivetune.constants.DownloadSourceConfig
 import moe.rukamori.archivetune.db.entities.detectAudioExtensionFromSpans
 import moe.rukamori.archivetune.db.entities.extensionToMimeType
 import moe.rukamori.archivetune.ui.component.IconButton
@@ -84,8 +85,8 @@ import androidx.compose.foundation.layout.asPaddingValues
 
 /**
  * A single downloadable song surfaced in the export picker. The [songId] is the
- * raw media id (no source prefix); the actual cached spans may live under
- * "qobuz:$songId" or "tidal:$songId" — see [resolveSpans].
+ * raw media id (no source prefix); the actual cached spans may live under any key
+ * [DownloadSourceConfig.cacheKeysFor] lists — see [resolveSpansWithSource].
  */
 private data class DownloadedSongRow(
     val songId: String,
@@ -142,7 +143,7 @@ fun ExportDownloadedSongsScreen(navController: NavController) {
                 songIds.mapNotNull { songId ->
                     // Only include songs that actually have cached spans.
                     val hasSpans =
-                        listOf("qobuz:$songId", "tidal:$songId", "deezer:$songId", songId).any { key ->
+                        DownloadSourceConfig.cacheKeysFor(songId).any { key ->
                             cache.getCachedSpans(key).isNotEmpty()
                         }
                     if (!hasSpans) return@mapNotNull null
@@ -326,7 +327,7 @@ fun ExportDownloadedSongsScreen(navController: NavController) {
                     val playerCache = downloadUtil.playerCache
                     for (row in toDelete) {
                         var removed = false
-                        for (key in listOf("qobuz:${row.songId}", "tidal:${row.songId}", "deezer:${row.songId}", row.songId)) {
+                        for (key in DownloadSourceConfig.cacheKeysFor(row.songId)) {
                             runCatching { cache.removeResource(key) }.onSuccess { removed = true }
                             runCatching { playerCache.removeResource(key) }.onSuccess { removed = true }
                         }
@@ -743,20 +744,8 @@ fun ExportDownloadedSongsScreen(navController: NavController) {
 }
 
 /**
- * Returns the cached spans for [songId], preferring source-prefixed keys
- * ("qobuz:$songId" / "tidal:$songId") so the export pulls the lossless FLAC
- * bytes when available, falling back to the bare media id.
- */
-private fun resolveSpans(
-    cache: androidx.media3.datasource.cache.Cache,
-    songId: String,
-): java.util.NavigableSet<androidx.media3.datasource.cache.CacheSpan>? =
-    resolveSpansWithSource(cache, songId)?.spans
-
-/**
- * Same as [resolveSpans] but also returns the matched cache key so the caller can determine whether
- * the cached bytes came from a lossless source ("qobuz:$songId" / "tidal:$songId" /
- * "deezer:$songId") or from YouTube Music (bare media id, no prefix).
+ * A song's cached spans plus the key they were found under: a source prefix (the container is
+ * then sniffed from the bytes) or null for the bare media id, i.e. a YouTube Music copy.
  */
 private data class ResolvedSpansWithSource(
     val spans: java.util.NavigableSet<androidx.media3.datasource.cache.CacheSpan>,
@@ -767,7 +756,7 @@ private fun resolveSpansWithSource(
     cache: androidx.media3.datasource.cache.Cache,
     songId: String,
 ): ResolvedSpansWithSource? {
-    for (key in listOf("qobuz:$songId", "tidal:$songId", "deezer:$songId", songId)) {
+    for (key in DownloadSourceConfig.cacheKeysFor(songId)) {
         val spans = cache.getCachedSpans(key)
         if (spans.isNotEmpty()) {
             val sourceKey = key.takeIf { it != songId }

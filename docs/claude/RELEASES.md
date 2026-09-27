@@ -9,7 +9,9 @@ Use the repository workflow and its existing signing secrets. Never commit or re
 ./gradlew :app:testGmsMobileUniversalDebugUnitTest
 ```
 
-For a Canary candidate, inspect the GitHub Actions run for the `canary` branch, confirm the artifact is produced from the intended head SHA, and install the matching APK on a test device. Nightly uses the equivalent release-shaped workflow and must preserve the historical signing identity.
+For a Canary candidate, inspect the GitHub Actions run for the `canary` branch, confirm the artifact is produced from the intended head SHA, and install the matching APK on a test device. `Canary build` (`canary.yml`) publishes a `C<yyyyMMddHHmm>` prerelease with `app-<dist>-<device>-<abi>-canary.apk` assets and keeps the newest five; `dev` pushes run `Nightly (canary) build` (`nightly.yml`), which publishes the equivalent `N<yyyyMMddHHmm>` prerelease and must preserve the historical signing identity.
+
+Note what gates a release: the unit-test workflow is separate and the publishing job depends only on `check` and `build`, so a red test run does not stop a Canary prerelease from going out. Every prerelease the updater can see is a build users may install; treat a published tag as shipped.
 
 ## Device QA
 

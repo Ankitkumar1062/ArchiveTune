@@ -86,6 +86,7 @@ import moe.rukamori.archivetune.constants.SwipeToSongKey
 import moe.rukamori.archivetune.constants.TelegramLosslessOnlyKey
 import moe.rukamori.archivetune.constants.TidalArtworkFallbackEnabledKey
 import moe.rukamori.archivetune.constants.TidalEnabledKey
+import moe.rukamori.archivetune.constants.UsePoolAccountsKey
 import moe.rukamori.archivetune.constants.TranslateLyricsKey
 import moe.rukamori.archivetune.constants.UseLyricsV2Key
 import moe.rukamori.archivetune.constants.UseSystemFontKey
@@ -679,6 +680,7 @@ fun buildSettingsGroups(
                 SettingsChild("Listen Together", "listen_together", listOf("listen together", "listen together settings", "room", "shared playback", "sync playback", "listen party", "group listening", "chat", "together")) { SearchResultSwitch(ListenTogetherSyncVolumeKey, false) },
                 SettingsChild("Listen Together screen", "listen_together_screen", listOf("listen together screen", "create room", "join room", "room code", "share room", "invite friends")),
                 SettingsChild("Spotify", "spotify", listOf("spotify", "spotify connect", "spotify playlists")) { SearchResultSwitch(ShowSpotifyPlaylistsKey, false) },
+                SettingsChild("Use pool accounts", "use_pool_accounts", listOf("pool", "source pool", "pool accounts", "shared accounts", "community accounts")) { SearchResultSwitch(UsePoolAccountsKey, true) },
                 SettingsChild("Tidal", "tidal", listOf("tidal", "hifi", "master", "mqa", "lossless", "flac")) { SearchResultSwitch(TidalEnabledKey, false) },
                 SettingsChild("Tidal account", "tidal_account", listOf("tidal account", "tidal login", "tidal token", "tidal session")),
                 SettingsChild("Tidal instances", "tidal_instances", listOf("tidal instance", "tidal server", "tidal url", "tidal endpoint")),
@@ -977,14 +979,13 @@ fun buildSettingsGroups(
             title = stringResource(R.string.settings_developer_options_title),
             subtitle = stringResource(R.string.settings_developer_options_subtitle),
             accentColor = MaterialTheme.colorScheme.tertiary,
-            keywords = listOf("developer", "debug", "experimental", "advanced", "logcat", "dev", "manual source", "changelog", "update"),
+            keywords = listOf("developer", "debug", "experimental", "advanced", "logcat", "dev", "changelog", "update"),
             onClick = { navController.navigate("settings/misc") },
             children = listOf(
                 SettingsChild("Logcat", "logcat", listOf("logcat", "log", "debug log")),
                 SettingsChild("Changelog", "changelog", listOf("changelog", "changes", "release notes", "what's new")),
                 SettingsChild("Update channel", "update_channel", listOf("update channel", "canary", "stable", "beta")),
                 SettingsChild("Enable update notification", "enable_update_notification", listOf("update notification", "notify update", "update alert")),
-                SettingsChild("Manual source login", "manual_source_login", listOf("manual source login", "manual login", "dev source login")),
                 SettingsChild("YTM sync", "ytm_sync", listOf("ytm sync", "youtube music sync", "sync library")),
                 SettingsChild("Force sync on account switch", "force_sync_account_switch", listOf("force sync", "account switch sync", "sync on switch")),
                 SettingsChild("Show nerd stats", "show_nerd_stats", listOf("nerd stats", "show nerd stats", "debug stats", "playback stats", "technical info")),

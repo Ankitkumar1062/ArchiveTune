@@ -3,7 +3,6 @@
 ## Playback and performance
 
 - Collect Perfetto/Media3 analytics for the reported second-track stop and compare crossfade, source resolution, decoder, cache, artwork, and thermal costs.
-- Add adaptive low-RAM and battery-saver crossfade/buffer profiles only after device measurements.
 - Review upstream baseline-profile and preload-loop fixes individually against fork invariants.
 - Validate Tidal instance recovery and Apple Music Widevine failure messaging so a failed source falls through without leaving a stalled player.
 

@@ -174,12 +174,12 @@ class SpotifyHomeViewModel @Inject constructor(
                     .joinToString(" ")
                 resolveSpotifyReleaseAlbumId(
                     query = query,
-                    searchAlbum = { searchCatalogItem<AlbumItem>(it, YouTube.SearchFilter.FILTER_ALBUM) },
-                    searchSong = { searchCatalogItem<SongItem>(it, YouTube.SearchFilter.FILTER_SONG) },
+                    searchAlbum = { searchYouTubeCatalogItem<AlbumItem>(it, YouTube.SearchFilter.FILTER_ALBUM) },
+                    searchSong = { searchYouTubeCatalogItem<SongItem>(it, YouTube.SearchFilter.FILTER_SONG) },
                 )?.let { SpotifyHomeNavigationEvent.OpenAlbum(it) }
             }
             is SpotifyHomeAction.ArtistClick -> resolveSelection("artist:${action.id}") {
-                searchCatalogItem<ArtistItem>(action.name, YouTube.SearchFilter.FILTER_ARTIST)
+                searchYouTubeCatalogItem<ArtistItem>(action.name, YouTube.SearchFilter.FILTER_ARTIST)
                     ?.let { SpotifyHomeNavigationEvent.OpenArtist(it.id) }
             }
         }
@@ -217,18 +217,6 @@ class SpotifyHomeViewModel @Inject constructor(
                 _resolvingItemKey.value = null
             }
         }
-    }
-
-    private suspend inline fun <reified T : YTItem> searchCatalogItem(
-        query: String,
-        filter: YouTube.SearchFilter,
-    ): T? {
-        val anonymous = YouTube.search(query, filter, useAccountContext = false)
-        currentCoroutineContext().ensureActive()
-        anonymous.getOrNull()?.items?.filterIsInstance<T>()?.firstOrNull()?.let { return it }
-        val fallback = YouTube.search(query, filter)
-        currentCoroutineContext().ensureActive()
-        return fallback.getOrThrow().items.filterIsInstance<T>().firstOrNull()
     }
 
     private fun load(force: Boolean = false) {
@@ -446,4 +434,21 @@ internal suspend fun resolveSpotifyReleaseAlbumId(
 ): String? {
     searchAlbum(query)?.browseId?.takeIf(String::isNotBlank)?.let { return it }
     return searchSong(query)?.album?.id?.takeIf(String::isNotBlank)
+}
+
+/**
+ * The first [T] YouTube Music returns for [query] under [filter], searched without the account
+ * context first and with it as the fallback. Shared by the Spotify home and Spotify search, which
+ * both open a tapped Spotify album or artist on its YouTube Music page.
+ */
+internal suspend inline fun <reified T : YTItem> searchYouTubeCatalogItem(
+    query: String,
+    filter: YouTube.SearchFilter,
+): T? {
+    val anonymous = YouTube.search(query, filter, useAccountContext = false)
+    currentCoroutineContext().ensureActive()
+    anonymous.getOrNull()?.items?.filterIsInstance<T>()?.firstOrNull()?.let { return it }
+    val fallback = YouTube.search(query, filter)
+    currentCoroutineContext().ensureActive()
+    return fallback.getOrThrow().items.filterIsInstance<T>().firstOrNull()
 }

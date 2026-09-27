@@ -9,6 +9,7 @@
 package moe.rukamori.archivetune.utils
 
 import android.content.Context
+import android.os.SystemClock
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -48,9 +49,20 @@ import moe.rukamori.archivetune.innertube.utils.hasYouTubeLoginCookie
 import moe.rukamori.archivetune.models.toMediaMetadata
 import timber.log.Timber
 import java.time.LocalDateTime
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
+
+private const val SYNC_DATABASE_BATCH_SIZE = 900
+private const val LIKED_SONG_ORDER_STEP_NANOS = 1_000_000L
+private const val SONG_LIKE_MUTATION_STRIPE_COUNT = 32
+private const val PENDING_SONG_LIKE_RETENTION_MILLIS = 5 * 60 * 1_000L
+
+private data class PendingSongLike(
+    val liked: Boolean,
+    val expiresAtElapsedRealtime: Long,
+)
 
 @Singleton
 class SyncUtils
@@ -64,8 +76,11 @@ class SyncUtils
         private val syncGeneration = AtomicLong(0L)
 
         private val syncMutex = Mutex()
+        private val likedSongsSyncMutex = Mutex()
         private val playlistSyncMutex = Mutex()
         private val dbWriteSemaphore = Semaphore(2)
+        private val songLikeMutationMutexes = Array(SONG_LIKE_MUTATION_STRIPE_COUNT) { Mutex() }
+        private val pendingSongLikes = ConcurrentHashMap<String, PendingSongLike>()
 
         init {
             syncScope.launch {
@@ -220,60 +235,134 @@ class SyncUtils
 
         private fun isSyncStillEnabled(gen: Long): Boolean = syncEnabled.value && syncGeneration.get() == gen
 
-        fun likeSong(s: SongEntity) {
-            if (s.isLocal) return
-            syncScope.launch {
-                if (!isLoggedIn()) {
-                    Timber.w("Skipping likeSong - user not logged in")
-                    return@launch
-                }
-                if (!isYtmSyncEnabled()) {
-                    Timber.w("Skipping likeSong - sync disabled")
-                    return@launch
-                }
-                val gen = syncGeneration.get()
-                if (!isSyncStillEnabled(gen)) return@launch
-                YouTube.likeVideo(s.id, s.liked)
-            }
-        }
-
-        fun likeSongs(songs: Collection<SongEntity>) {
-            val uniqueSongs = songs.filterNot(SongEntity::isLocal).distinctBy { it.id }
-            if (uniqueSongs.isEmpty()) return
-
-            syncScope.launch {
-                if (!isLoggedIn()) {
-                    Timber.w("Skipping likeSongs - user not logged in")
-                    return@launch
-                }
-                if (!isYtmSyncEnabled()) {
-                    Timber.w("Skipping likeSongs - sync disabled")
-                    return@launch
-                }
-
-                val gen = syncGeneration.get()
-                uniqueSongs.chunked(8).forEach { batch ->
-                    if (!isSyncStillEnabled(gen)) return@launch
-
-                    coroutineScope {
-                        batch
-                            .map { song ->
-                                async {
-                                    if (!isSyncStillEnabled(gen)) return@async
-                                    YouTube
-                                        .likeVideo(song.id, song.liked)
-                                        .onFailure { error ->
-                                            if (error is CancellationException) throw error
-                                            Timber.w(error, "likeSongs: Failed to sync like for ${song.id}")
-                                        }
-                                }
-                            }.awaitAll()
+        suspend fun likeSong(song: SongEntity): Result<SongEntity> {
+            val mutationMutex = songLikeMutationMutexes[(song.id.hashCode() and Int.MAX_VALUE) % SONG_LIKE_MUTATION_STRIPE_COUNT]
+            return mutationMutex.withLock {
+                try {
+                    val currentSong =
+                        database.getSongById(song.id)?.song
+                            ?: throw IllegalStateException("Cannot update missing song ${song.id}")
+                    if (currentSong.liked == song.liked && currentSong.inLibrary == song.inLibrary) {
+                        return@withLock Result.success(currentSong)
                     }
+                    val shouldSyncRemote = !song.isLocal && isLoggedIn() && isYtmSyncEnabled()
+                    if (!shouldSyncRemote) {
+                        return@withLock Result.success(persistSongLike(song))
+                    }
+
+                    val pending =
+                        PendingSongLike(
+                            liked = song.liked,
+                            expiresAtElapsedRealtime = Long.MAX_VALUE,
+                        )
+                    pendingSongLikes[song.id] = pending
+
+                    try {
+                        YouTube.likeVideo(song.id, song.liked).getOrThrow()
+                        val updatedSong = persistSongLike(song)
+                        pendingSongLikes.replace(
+                            song.id,
+                            pending,
+                            pending.copy(
+                                expiresAtElapsedRealtime =
+                                    SystemClock.elapsedRealtime() + PENDING_SONG_LIKE_RETENTION_MILLIS,
+                            ),
+                        )
+                        Result.success(updatedSong)
+                    } catch (error: CancellationException) {
+                        pendingSongLikes.remove(song.id, pending)
+                        throw error
+                    } catch (error: Exception) {
+                        pendingSongLikes.remove(song.id, pending)
+                        Timber.w(error, "likeSong: Failed to sync like for ${song.id}")
+                        Result.failure(error)
+                    }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    Timber.w(error, "likeSong: Failed to update like for ${song.id}")
+                    Result.failure(error)
                 }
             }
         }
 
-        suspend fun syncLikedSongs(authoritative: Boolean = false) =
+        suspend fun likeSongs(songs: Collection<SongEntity>): Set<String> =
+            coroutineScope {
+                val failedSongIds = linkedSetOf<String>()
+                songs.distinctBy { it.id }.chunked(8).forEach { batch ->
+                    batch
+                        .map { song ->
+                            async {
+                                song.id to likeSong(song)
+                            }
+                        }.awaitAll()
+                        .filter { (_, result) -> result.isFailure }
+                        .forEach { (songId) -> failedSongIds += songId }
+                }
+                failedSongIds
+            }
+
+        private suspend fun persistSongLike(song: SongEntity): SongEntity =
+            database.withTransaction {
+                val currentSong =
+                    getSongById(song.id)?.song
+                        ?: throw IllegalStateException("Cannot update missing song ${song.id}")
+                val updatedSong =
+                    currentSong.copy(
+                        liked = song.liked,
+                        likedDate =
+                            if (song.liked) {
+                                song.likedDate ?: currentSong.likedDate ?: LocalDateTime.now()
+                            } else {
+                                null
+                            },
+                        inLibrary = song.inLibrary,
+                    )
+                update(updatedSong)
+                updatedSong
+            }
+
+        private fun activePendingSongLikes(): Map<String, Boolean> {
+            val now = SystemClock.elapsedRealtime()
+            pendingSongLikes.entries.forEach { entry ->
+                val pending = entry.value
+                if (pending.expiresAtElapsedRealtime <= now) {
+                    pendingSongLikes.remove(entry.key, pending)
+                }
+            }
+            return pendingSongLikes.mapValues { (_, pending) -> pending.liked }
+        }
+
+        private fun pendingSongLike(songId: String): Boolean? {
+            val pending = pendingSongLikes[songId] ?: return null
+            if (pending.expiresAtElapsedRealtime <= SystemClock.elapsedRealtime()) {
+                pendingSongLikes.remove(songId, pending)
+                return null
+            }
+            return pending.liked
+        }
+
+        suspend fun syncLikedSongs(authoritative: Boolean = false) {
+            if (authoritative) {
+                likedSongsSyncMutex.withLock {
+                    syncLikedSongsInternal(authoritative = true)
+                }
+                return
+            }
+
+            if (!likedSongsSyncMutex.tryLock()) {
+                Timber.d("syncLikedSongs: Sync already in progress, skipping")
+                return
+            }
+
+            try {
+                syncLikedSongsInternal(authoritative = false)
+            } finally {
+                likedSongsSyncMutex.unlock()
+            }
+        }
+
+        private suspend fun syncLikedSongsInternal(authoritative: Boolean) =
             coroutineScope {
                 if (!isLoggedIn()) {
                     Timber.w("Skipping syncLikedSongs - user not logged in")
@@ -289,12 +378,21 @@ class SyncUtils
                     .completed()
                     .onSuccess { page ->
                         if (!isSyncStillEnabled(gen)) return@onSuccess
-                        val remoteSongs = page.songs.orEmpty()
-                        if (remoteSongs.isEmpty() && !authoritative) {
+                        val rawRemoteSongs = page.songs.orEmpty().distinctBy { song -> song.id }
+                        if (rawRemoteSongs.isEmpty() && !authoritative) {
                             Timber.w("syncLikedSongs: Remote playlist is empty")
                             return@onSuccess
                         }
+                        val pendingLikes = activePendingSongLikes()
+                        val remoteSongs = rawRemoteSongs.filterNot { pendingLikes[it.id] == false }
                         val remoteIds = remoteSongs.map { it.id }.toSet()
+                        val existingLikedDates =
+                            remoteIds
+                                .chunked(SYNC_DATABASE_BATCH_SIZE)
+                                .flatMap { songIds -> database.getSongsByIds(songIds) }
+                                .mapNotNull { song ->
+                                    song.song.likedDate?.let { likedDate -> song.id to likedDate }
+                                }.toMap()
                         if (authoritative) {
                             val localLikedSongs = database.likedSongsByNameAsc().first()
                             if (!isSyncStillEnabled(gen)) return@onSuccess
@@ -304,18 +402,28 @@ class SyncUtils
                                     .map { it.song }
                                     .filterNot { it.isLocal }
                                     .filterNot { it.id in remoteIds }
+                                    .filterNot { it.id in pendingLikes }
                                     .map { it.copy(liked = false, likedDate = null) }
                                     .toList()
                             if (staleLikedSongs.isNotEmpty()) {
                                 database.withTransaction {
-                                    staleLikedSongs.forEach { update(it) }
+                                    staleLikedSongs.forEach { staleSong ->
+                                        if (pendingSongLike(staleSong.id) == null) {
+                                            update(staleSong)
+                                        }
+                                    }
                                 }
                             }
                         }
-                        val baseTimestamp = LocalDateTime.now()
+                        val likedSongTimestamps =
+                            reconcileLikedSongTimestamps(
+                                songIds = remoteSongs.map { song -> song.id },
+                                existingLikedDates = existingLikedDates,
+                                fallbackTimestamp = LocalDateTime.now(),
+                            )
 
                         remoteSongs.forEachIndexed { index, song ->
-                            val timestamp = likedSongTimestamp(baseTimestamp, index)
+                            val timestamp = likedSongTimestamps[index]
                             launch {
                                 if (!isSyncStillEnabled(gen)) return@launch
                                 dbWriteSemaphore.withPermit {
@@ -324,11 +432,12 @@ class SyncUtils
                                     val mediaMetadata = song.toMediaMetadata()
                                     database.withTransaction {
                                         if (!isSyncStillEnabled(gen)) return@withTransaction
+                                        if (pendingSongLike(song.id) == false) return@withTransaction
                                         if (dbSong == null) {
                                             insert(mediaMetadata) { it.copy(liked = true, likedDate = timestamp) }
                                         } else {
                                             update(dbSong, mediaMetadata)
-                                            if (!dbSong.song.liked || dbSong.song.likedDate == null) {
+                                            if (!dbSong.song.liked || dbSong.song.likedDate != timestamp) {
                                                 getSongByIdBlocking(song.id)?.song?.let { refreshedSong ->
                                                     update(refreshedSong.copy(liked = true, likedDate = timestamp))
                                                 }
@@ -360,11 +469,13 @@ class SyncUtils
                     .completed()
                     .onSuccess { page ->
                         if (!isSyncStillEnabled(gen)) return@onSuccess
-                        val remoteSongs = page.items.filterIsInstance<SongItem>().reversed()
-                        if (remoteSongs.isEmpty() && !authoritative) {
+                        val rawRemoteSongs = page.items.filterIsInstance<SongItem>().reversed()
+                        if (rawRemoteSongs.isEmpty() && !authoritative) {
                             Timber.w("syncLibrarySongs: Remote library is empty")
                             return@onSuccess
                         }
+                        val pendingLikes = activePendingSongLikes()
+                        val remoteSongs = rawRemoteSongs.filterNot { pendingLikes[it.id] == false }
                         val remoteIds = remoteSongs.map { it.id }.toSet()
                         val localSongs = database.songsByNameAsc().first()
 
@@ -374,11 +485,16 @@ class SyncUtils
                                 .asSequence()
                                 .filter { !authoritative || !it.song.isLocal }
                                 .filterNot { it.id in remoteIds }
+                                .filterNot { it.id in pendingLikes }
                                 .map { it.song.copy(inLibrary = null) }
                                 .toList()
                         if (staleLibrarySongs.isNotEmpty()) {
                             database.withTransaction {
-                                staleLibrarySongs.forEach { update(it) }
+                                staleLibrarySongs.forEach { staleSong ->
+                                    if (pendingSongLike(staleSong.id) == null) {
+                                        update(staleSong)
+                                    }
+                                }
                             }
                         }
 
@@ -391,6 +507,7 @@ class SyncUtils
                                     val mediaMetadata = song.toMediaMetadata()
                                     database.withTransaction {
                                         if (!isSyncStillEnabled(gen)) return@withTransaction
+                                        if (pendingSongLike(song.id) == false) return@withTransaction
                                         if (dbSong == null) {
                                             insert(mediaMetadata) { it.toggleLibrary() }
                                         } else {
@@ -530,23 +647,23 @@ class SyncUtils
                             }
                         }
 
-                        remoteArtists.forEachIndexed { index, artist ->
+                        remoteArtists.forEach { artist ->
                             launch {
                                 if (!isSyncStillEnabled(gen)) return@launch
                                 dbWriteSemaphore.withPermit {
                                     if (!isSyncStillEnabled(gen)) return@withPermit
                                     val dbArtist = database.artist(artist.id).firstOrNull()
-                                    val bookmarkedAt = now.minusSeconds(index.toLong())
                                     database.withTransaction {
                                         if (!isSyncStillEnabled(gen)) return@withTransaction
                                         if (dbArtist == null) {
+                                            // Metadata only: a subscription in the remote account must not
+                                            // silently bookmark the artist locally — following stays explicit.
                                             insert(
                                                 ArtistEntity(
                                                     id = artist.id,
                                                     name = artist.title,
                                                     thumbnailUrl = artist.thumbnail,
                                                     channelId = artist.channelId,
-                                                    bookmarkedAt = bookmarkedAt,
                                                 ),
                                             )
                                         } else {
@@ -557,16 +674,14 @@ class SyncUtils
                                                 existing.name != artist.title ||
                                                     existing.thumbnailUrl != syncedThumbnail ||
                                                     existing.channelId != syncedChannelId
-                                            val needsBookmark = existing.bookmarkedAt == null
 
-                                            if (metadataChanged || needsBookmark) {
+                                            if (metadataChanged) {
                                                 update(
                                                     existing.copy(
                                                         name = artist.title,
                                                         thumbnailUrl = syncedThumbnail,
                                                         channelId = syncedChannelId,
                                                         lastUpdateTime = now,
-                                                        bookmarkedAt = existing.bookmarkedAt ?: bookmarkedAt,
                                                     ),
                                                 )
                                             }
@@ -908,7 +1023,46 @@ class SyncUtils
         }
     }
 
-internal fun likedSongTimestamp(
-    baseTimestamp: LocalDateTime,
-    index: Int,
-): LocalDateTime = baseTimestamp.minusSeconds(index.toLong())
+internal fun reconcileLikedSongTimestamps(
+    songIds: List<String>,
+    existingLikedDates: Map<String, LocalDateTime>,
+    fallbackTimestamp: LocalDateTime,
+): List<LocalDateTime> {
+    if (songIds.isEmpty()) return emptyList()
+
+    val timestamps = songIds.map { songId -> existingLikedDates[songId] }.toMutableList()
+    var index = 0
+    while (index < timestamps.size) {
+        if (timestamps[index] != null) {
+            index += 1
+            continue
+        }
+
+        val runStart = index
+        while (index < timestamps.size && timestamps[index] == null) {
+            index += 1
+        }
+        val runEnd = index
+        val previousTimestamp = timestamps.getOrNull(runStart - 1)
+        val nextTimestamp = timestamps.getOrNull(runEnd)
+
+        for (runIndex in runStart until runEnd) {
+            timestamps[runIndex] =
+                if (previousTimestamp != null) {
+                    previousTimestamp.minusNanos(
+                        (runIndex - runStart + 1).toLong() * LIKED_SONG_ORDER_STEP_NANOS,
+                    )
+                } else if (nextTimestamp != null) {
+                    nextTimestamp.plusNanos(
+                        (runEnd - runIndex).toLong() * LIKED_SONG_ORDER_STEP_NANOS,
+                    )
+                } else {
+                    fallbackTimestamp.minusNanos(runIndex.toLong() * LIKED_SONG_ORDER_STEP_NANOS)
+                }
+        }
+    }
+
+    return timestamps.map { timestamp ->
+        checkNotNull(timestamp)
+    }
+}

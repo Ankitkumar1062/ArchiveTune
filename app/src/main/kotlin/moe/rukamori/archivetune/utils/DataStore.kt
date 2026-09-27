@@ -145,6 +145,9 @@ object PreferenceStore {
 
     @Volatile private var started = false
 
+    /** False in a process that never called [start]: the `:crash` process returns before it. */
+    val isStarted: Boolean get() = started
+
     /**
      * Completes when the first snapshot has landed, so a caller that cannot tolerate a default can
      * wait for the real value.
@@ -209,11 +212,7 @@ operator fun <T> DataStore<Preferences>.get(key: Preferences.Key<T>): T? =
         ?: if (Looper.getMainLooper().thread == Thread.currentThread()) {
             null
         } else {
-            runBlocking(Dispatchers.IO) {
-                withTimeoutOrNull(1500) {
-                    data.first()[key]
-                }
-            }
+            blockingRead(key)
         }
 
 fun <T> DataStore<Preferences>.get(
@@ -224,12 +223,27 @@ fun <T> DataStore<Preferences>.get(
         ?: if (Looper.getMainLooper().thread == Thread.currentThread()) {
             defaultValue
         } else {
-            runBlocking(Dispatchers.IO) {
-                withTimeoutOrNull(1500) {
-                    data.first()[key]
-                } ?: defaultValue
+            blockingRead(key) ?: defaultValue
+        }
+
+/**
+ * The off-main-thread fallback both [get] overloads share. It waits on the single shared initial
+ * load instead of enqueuing an independent read per call: on a fresh launch dozens of these fire
+ * before the snapshot lands, and each cold `data.first()` queued behind the others, serialising
+ * callers into multi-second startup jank. A process that never started [PreferenceStore] reads the
+ * store directly, because its snapshot is never coming. Bounded, so a blocking get never hangs.
+ */
+private fun <T> DataStore<Preferences>.blockingRead(key: Preferences.Key<T>): T? =
+    runBlocking(Dispatchers.IO) {
+        withTimeoutOrNull(1500) {
+            if (PreferenceStore.isStarted) {
+                PreferenceStore.awaitFirstLoad()
+                PreferenceStore.get(key)
+            } else {
+                data.first()[key]
             }
         }
+    }
 
 suspend fun <T> DataStore<Preferences>.getAsync(key: Preferences.Key<T>): T? = data.first()[key]
 
