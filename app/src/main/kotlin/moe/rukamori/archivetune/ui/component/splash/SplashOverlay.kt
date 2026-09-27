@@ -41,6 +41,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import moe.rukamori.archivetune.utils.isLowEndDevice
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import moe.rukamori.archivetune.LocalAnimationsDisabled
 import moe.rukamori.archivetune.constants.SplashOverlayEnabledKey

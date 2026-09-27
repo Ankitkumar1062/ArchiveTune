@@ -92,17 +92,9 @@ class LocalSongScanner
     ) {
         suspend fun scanDevice(scanConfig: LocalSongScanConfig = LocalSongScanConfig()): LocalSongScanSummary =
             withContext(Dispatchers.IO) {
-                // Load existing songs FIRST to compare timestamps and skip unchanged files
-                val existingLocalIds = localSongIds()
-                val existingSongsMap = loadSongs(existingLocalIds)
-                val existingFormatsMap =
-                    existingLocalIds
-                        .chunked(SqlBatchSize)
-                        .flatMap { chunk -> database.getFormatsByIds(chunk) }
-                        .associateBy { it.id }
-
-                val snapshot = queryTracks(scanConfig, existingSongsMap, existingFormatsMap)
+                val snapshot = queryTracks(scanConfig)
                 database.withTransaction {
+                    val existingLocalIds = localSongIds()
                     val scannedIds = snapshot.tracks.map(LocalTrackRecord::id)
                     val scannedIdSet = scannedIds.toSet()
                     val removedIds = existingLocalIds.filterNot(scannedIdSet::contains)
@@ -283,11 +275,7 @@ class LocalSongScanner
                 .associateBy { item -> item.id }
 
         @Suppress("DEPRECATION")
-        private fun queryTracks(
-            scanConfig: LocalSongScanConfig,
-            existingSongs: Map<String, SongWithArtists> = emptyMap(),
-            existingFormats: Map<String, FormatEntity> = emptyMap(),
-        ): LocalScanSnapshot {
+        private fun queryTracks(scanConfig: LocalSongScanConfig): LocalScanSnapshot {
             val sanitizedMinimumDurationMs = scanConfig.sanitizedMinimumDurationSeconds.toLong() * 1000L
             val sanitizedIncludedFolders =
                 scanConfig.sanitizedIncludedFolders
@@ -400,20 +388,6 @@ class LocalSongScanner
                             )
                         val dateModifiedSeconds = cursor.getLong(dateModifiedIndex)
                         val sizeBytes = cursor.getLong(sizeIndex).coerceAtLeast(0L)
-                        val trackId = contentUri.toString()
-                        val dateModified =
-                            dateModifiedSeconds
-                                .takeIf { it > 0L }
-                                ?.let { LocalDateTime.ofInstant(Instant.ofEpochSecond(it), ZoneId.systemDefault()) }
-
-                        // Skip expensive lyrics extraction if file hasn't changed since last scan
-                        val existingSong = existingSongs[trackId]?.song
-                        val existingFormat = existingFormats[trackId]
-                        val isFileUnchanged =
-                            existingFormat != null &&
-                                existingFormat.contentLength == sizeBytes &&
-                                (dateModified == null || existingSong?.dateModified == dateModified)
-
                         val thumbnailUrl =
                             resolveTrackThumbnail(
                                 contentUri = contentUri,
@@ -424,20 +398,16 @@ class LocalSongScanner
                                 retainedArtworkFileNames = retainedArtworkFileNames,
                             )
                         val embeddedLyrics =
-                            if (isFileUnchanged) {
-                                null // Lyrics will be preserved from existing database entry
-                            } else {
-                                embeddedLyricsExtractor
-                                    .extract(
-                                        contentUri = contentUri,
-                                        displayName = displayName,
-                                        mimeType = mimeType,
-                                    )?.let(LyricsUtils::lyricsOrNotFound)
-                                    ?.takeIf { lyrics -> lyrics != LyricsEntity.LYRICS_NOT_FOUND }
-                            }
+                            embeddedLyricsExtractor
+                                .extract(
+                                    contentUri = contentUri,
+                                    displayName = displayName,
+                                    mimeType = mimeType,
+                                )?.let(LyricsUtils::lyricsOrNotFound)
+                                ?.takeIf { lyrics -> lyrics != LyricsEntity.LYRICS_NOT_FOUND }
                         tracks +=
                             LocalTrackRecord(
-                                id = trackId,
+                                id = contentUri.toString(),
                                 title = title,
                                 artists = artists,
                                 albumId =
@@ -454,7 +424,10 @@ class LocalSongScanner
                                         .coerceAtMost(Int.MAX_VALUE.toLong())
                                         .toInt(),
                                 year = cursor.getIntOrNull(yearIndex)?.takeIf { it > 0 },
-                                dateModified = dateModified,
+                                dateModified =
+                                    dateModifiedSeconds
+                                        .takeIf { it > 0L }
+                                        ?.let { LocalDateTime.ofInstant(Instant.ofEpochSecond(it), ZoneId.systemDefault()) },
                                 sizeBytes = sizeBytes,
                                 mimeType = mimeType,
                                 thumbnailUrl = thumbnailUrl,

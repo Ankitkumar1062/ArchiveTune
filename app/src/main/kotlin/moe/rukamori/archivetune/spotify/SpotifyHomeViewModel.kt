@@ -17,6 +17,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -102,6 +103,10 @@ sealed interface SpotifyHomeAction {
     // Identity plus the words the catalogue search needs, rather than a whole Spotify model. The
     // callers hold four different shapes for the same album (feed item, recent item, search
     // result), and every one of them was rebuilding a SpotifyAlbum just to be taken apart again.
+    data class AlbumClick(val id: String, val name: String, val artist: String?) : SpotifyHomeAction
+    data class ArtistClick(val id: String, val name: String) : SpotifyHomeAction
+}
+
 @HiltViewModel
 class SpotifyHomeViewModel @Inject constructor(
     private val repository: SpotifyLibraryRepository,
@@ -120,6 +125,7 @@ class SpotifyHomeViewModel @Inject constructor(
     private val _resolvingItemKey = MutableStateFlow<String?>(null)
     val resolvingItemKey = _resolvingItemKey.asStateFlow()
     private var selectionJob: Job? = null
+    @Volatile
     private var loadJob: Job? = null
 
     init {
@@ -227,6 +233,9 @@ class SpotifyHomeViewModel @Inject constructor(
 
     private fun load(force: Boolean = false) {
         loadJob?.cancel()
+        // Cleared before the spinner is re-armed: the cancelled job's catch can run on IO at any
+        // moment from here on, and must not find itself still current and reset the new flag.
+        loadJob = null
         cancelSelection()
         // Sync the spinner to this load's intent first: a cancelled forced load
         // never reaches its reset, so without this a stale true would stick.
@@ -234,8 +243,9 @@ class SpotifyHomeViewModel @Inject constructor(
         if (!force) {
             _screenState.value = SpotifyHomeScreenState.Loading
         }
-        val thisJob = viewModelScope.launch(Dispatchers.IO) {
-            loadJob = thisJob
+        // Started lazily so loadJob is assigned before the body can compare against it.
+        val job = viewModelScope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
+            val thisJob = coroutineContext[Job]
             // Instant home: paint the last good snapshot first so a cold start or
             // an account switch never flashes a bare spinner, then replace it
             // when the network answers below. Bounded to three small lists, so
@@ -404,6 +414,8 @@ class SpotifyHomeViewModel @Inject constructor(
                 if (loadJob === thisJob) _isRefreshing.value = false
             }
         }
+        loadJob = job
+        job.start()
     }
 
     /**

@@ -8983,6 +8983,7 @@ class MusicService :
         // Episodes must not feed song stats: no history event, play-time, count,
         // or remote registration. Matches the maybeRecord guard above.
         if ((mediaItem.localConfiguration?.tag as? moe.rukamori.archivetune.models.MediaMetadata)?.isPodcast == true) return
+        val thresholdMs = historyThresholdMs()
         val pendingSession = popPendingHistoryFinalization(mediaId)
         val alreadyPersistedForSession = pendingSession?.eventId != null || pendingSession?.remoteRegistered == true
         val reachedHistoryThreshold =

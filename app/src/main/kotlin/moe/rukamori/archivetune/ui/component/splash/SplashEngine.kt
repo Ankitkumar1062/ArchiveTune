@@ -68,6 +68,10 @@ class SplashEngine {
         }
 
     var shape: String = SplashSlots.SHAPE_LOGO
+    var width: Float = 0f
+    var height: Float = 0f
+    var density: Float = 1f
+
     /**
      * Particle budget for this launch. Full 64 on capable devices; the overlay
      * drops it to 24 on low-end hardware where 64 sprites + links + shockwave

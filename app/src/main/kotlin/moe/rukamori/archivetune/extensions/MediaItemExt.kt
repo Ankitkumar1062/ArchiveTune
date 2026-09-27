@@ -130,6 +130,7 @@ fun MediaMetadata.toMediaItem() =
                     putBoolean(ExtraIsMusicVideo, isMusicVideo)
                     putBoolean(ExtraIsPodcast, isPodcast)
                 })
+                .build(),
         ).build()
 
 private fun SongItem.isMusicVideo(): Boolean {
