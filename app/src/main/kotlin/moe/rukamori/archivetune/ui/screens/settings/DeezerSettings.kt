@@ -222,6 +222,9 @@ fun DeezerSettings(
                             description = stringResource(R.string.deezer_signed_in_as, accountName),
                             icon = { Icon(painterResource(R.drawable.logout), null) },
                             onClick = {
+                                // Push immediately so playback stops using the account without waiting for
+                                // the App-level collector (mirrors both sign-in paths).
+                                DeezerAudioProvider.setManualArl("", false)
                                 // Clearing the ARL is what actually signs out; App.kt's collector observes it
                                 // and drops the provider's session. Name/premium are display state only.
                                 onArlChange("")

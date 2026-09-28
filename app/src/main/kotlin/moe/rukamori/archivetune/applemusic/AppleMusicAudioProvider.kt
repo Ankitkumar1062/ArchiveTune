@@ -463,8 +463,18 @@ object AppleMusicAudioProvider {
             }
             // Prefer the EXT-X-MAP name; segments reference the same file.
             val name = mediaName ?: dataLines.firstOrNull() ?: return null
+            // A candidate without the 16-byte Widevine KID can never survive
+            // AppleMusicVirtualStream.build (throws kid=absent). Skipping it here
+            // lets resolveWithToken try the next song id instead of letting one
+            // poisoned candidate win the match gate and fail the whole resolve.
+            val kid = keyIdHex
+            val uri = drmUri
+            if (kid == null || uri.isNullOrBlank()) {
+                Log.w(TAG, "playlist has no Widevine KID (kid=${keyIdHex ?: "absent"}); skipping candidate")
+                return null
+            }
             val mediaUrl = playlistUrl.substringBeforeLast('/').trimEnd('/') + "/" + name
-            return ParsedPlaylist(mediaUrl, keyIdHex, drmUri ?: "", null)
+            return ParsedPlaylist(mediaUrl, kid, uri, null)
         }
     }
 }

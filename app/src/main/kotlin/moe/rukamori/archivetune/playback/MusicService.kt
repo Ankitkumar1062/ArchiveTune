@@ -7449,7 +7449,14 @@ class MusicService :
         //   - The source is GLOBALLY ENABLED — the user has explicitly turned the source
         //     on in Settings, so they should be able to pick it per-song even if the
         //     initial resolution hasn't completed (or failed transiently).
-        return AudioSourceConfig.DEFAULT_ORDER.filter {
+        // Opt-in sources (AMAZON, QQ) join the chain only after the user enables them; they are
+        // appended above YouTube so the chooser can surface them once enabled, without changing
+        // the default resolution order for everyone else.
+        val chooserOrder =
+            (AudioSourceConfig.DEFAULT_ORDER.filterNot { it == AudioSourceType.YOUTUBE } +
+                listOf(AudioSourceType.AMAZON, AudioSourceType.QQ) +
+                AudioSourceType.YOUTUBE).distinct()
+        return chooserOrder.filter {
             (it == AudioSourceType.YOUTUBE && isSourceEnabled(AudioSourceType.YOUTUBE)) ||
                 it in resolved ||
                 it == override ||

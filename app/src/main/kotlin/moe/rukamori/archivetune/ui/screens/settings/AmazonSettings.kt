@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import moe.rukamori.archivetune.LocalPlayerAwareWindowInsets
 import moe.rukamori.archivetune.R
+import moe.rukamori.archivetune.audiosource.AudioSourceConfig
 import moe.rukamori.archivetune.constants.AmazonAudioQuality
 import moe.rukamori.archivetune.constants.AmazonAudioQualityKey
 import moe.rukamori.archivetune.constants.AmazonBypassTokenKey
@@ -61,6 +62,8 @@ import moe.rukamori.archivetune.constants.AmazonEnabledKey
 import moe.rukamori.archivetune.constants.AmazonInstancesKey
 import moe.rukamori.archivetune.constants.AmazonTurnstileJwtExpiryMsKey
 import moe.rukamori.archivetune.constants.AmazonTurnstileJwtKey
+import moe.rukamori.archivetune.constants.AudioSourceOrderKey
+import moe.rukamori.archivetune.constants.AudioSourceType
 import moe.rukamori.archivetune.ui.component.EnumListPreference
 import moe.rukamori.archivetune.ui.component.IconButton
 import moe.rukamori.archivetune.ui.component.PreferenceEntry
@@ -82,7 +85,18 @@ fun AmazonSettings(
 ) {
     val context = LocalContext.current
 
-    val (enabled, onEnabledChange) = rememberPreference(AmazonEnabledKey, false)
+    val (enabled, onEnabledChangeRaw) = rememberPreference(AmazonEnabledKey, false)
+    val (orderRaw, onOrderChange) = rememberPreference(AudioSourceOrderKey, "")
+    // Turning the source on has to write it into the order as well. AMAZON is deliberately not a
+    // member of AudioSourceConfig.DEFAULT_ORDER, and the order picker can only reorder what it is
+    // given, so without this the toggle would flip a preference the resolver never reads and
+    // playback would stay on YouTube with no indication why. Mirrors QqMusicSettings.
+    val onEnabledChange: (Boolean) -> Unit = { next ->
+        onEnabledChangeRaw(next)
+        if (next) {
+            onOrderChange(AudioSourceConfig.withSourceAdded(orderRaw, AudioSourceType.AMAZON))
+        }
+    }
     val (audioQuality, onAudioQualityChange) =
         rememberEnumPreference(AmazonAudioQualityKey, AmazonAudioQuality.Default)
     val (storedInstances, onStoredInstancesChange) = rememberPreference(AmazonInstancesKey, "")

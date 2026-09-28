@@ -645,6 +645,58 @@ internal fun PlaybackSourceSections(
         }
     }
 
+    PreferenceGroup(title = stringResource(R.string.source_amazon)) {
+        item {
+            SwitchPreference(
+                modifier = positions.modifierFor("amazon_enable"),
+                title = { Text(stringResource(R.string.source_amazon)) },
+                description = stringResource(R.string.amazon_instances_empty),
+                icon = { Icon(painterResource(R.drawable.ic_music), null) },
+                checked = amazonEnabled,
+                onCheckedChange = onAmazonEnabledChange,
+            )
+        }
+
+        item {
+            PreferenceEntry(
+                title = { Text(stringResource(R.string.source_amazon)) },
+                description = stringResource(R.string.amazon_instances_hint),
+                icon = { Icon(painterResource(R.drawable.ic_music), null) },
+                onClick = { navController.navigate("settings/amazon") },
+            )
+        }
+
+        item {
+            SourceCheckRow(source = AudioSourceType.AMAZON)
+        }
+    }
+
+    PreferenceGroup(title = stringResource(R.string.source_qq_music)) {
+        item {
+            SwitchPreference(
+                modifier = positions.modifierFor("qq_music_enable"),
+                title = { Text(stringResource(R.string.source_qq_music)) },
+                description = stringResource(R.string.qq_music_enabled_desc),
+                icon = { Icon(painterResource(R.drawable.ic_music), null) },
+                checked = qqMusicEnabled,
+                onCheckedChange = onQqMusicEnabledChange,
+            )
+        }
+
+        item {
+            PreferenceEntry(
+                title = { Text(stringResource(R.string.source_qq_music)) },
+                description = stringResource(R.string.qq_music_enabled_desc),
+                icon = { Icon(painterResource(R.drawable.ic_music), null) },
+                onClick = { navController.navigate("settings/qqmusic") },
+            )
+        }
+
+        item {
+            SourceCheckRow(source = AudioSourceType.QQ)
+        }
+    }
+
     PreferenceGroup(title = stringResource(R.string.jiosaavn_specific)) {
         item {
             SwitchPreference(
