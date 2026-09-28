@@ -74,3 +74,4 @@ jobs:
             app/build/outputs/apk/gmsMobileUniversal/debug/*.apk
             app/build/outputs/apk/mobile/universal/debug/*.apk
             app/build/outputs/apk/mobileUniversal/debug/*.apk
+          retention-days: 7

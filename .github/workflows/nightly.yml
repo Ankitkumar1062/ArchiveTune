@@ -133,16 +133,6 @@ jobs:
             distribution: gms
             distributionName: Gms
             deviceName: Mobile
-            abi: x86
-          - device: mobile
-            distribution: gms
-            distributionName: Gms
-            deviceName: Mobile
-            abi: x86_64
-          - device: mobile
-            distribution: gms
-            distributionName: Gms
-            deviceName: Mobile
             abi: universal
           - device: tv
             distribution: gms
@@ -323,6 +313,7 @@ jobs:
         with:
           name: ${{ steps.variant.outputs.artifact_name }}
           path: ${{ steps.release_dir.outputs.release_dir }}/out/${{ steps.variant.outputs.apk_name }}
+          retention-days: 14
 
   create-nightly:
     needs: [check, build]

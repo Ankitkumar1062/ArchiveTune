@@ -62,7 +62,7 @@ object Updater {
     private val client = HttpClient()
     private const val ReleaseCacheCheckIntervalMs: Long = 6 * 60 * 60 * 1000L
     private const val NightlyCacheCheckIntervalMs: Long = 15 * 60 * 1000L
-    private const val OWNER = "vossgraves/ArchiveTune"
+    private const val OWNER = "NatuneGroup/ArchiveTune"
     private const val StableReleaseBaseUrl = "https://github.com/$OWNER/releases"
 
     // Nightly and Canary are both served as GitHub pre-releases on this repo; they differ only by
