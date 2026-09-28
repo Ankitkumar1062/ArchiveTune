@@ -1069,6 +1069,12 @@ class MusicService :
             reportException(e)
         }
 
+        // The sink is fixed for the life of this player, so a default read before the first
+        // settings snapshot lands would silently ignore the switch until the next restart.
+        // Bounded (1.5 s) and only where the feature exists.
+        if (BitPerfectUsbOutput.isPlatformSupported) {
+            moe.rukamori.archivetune.utils.PreferenceStore.blockUntilLoaded()
+        }
         bitPerfectOutputActive =
             BitPerfectUsbOutput.isPlatformSupported &&
             dataStore.get(BitPerfectUsbOutputKey, false) &&

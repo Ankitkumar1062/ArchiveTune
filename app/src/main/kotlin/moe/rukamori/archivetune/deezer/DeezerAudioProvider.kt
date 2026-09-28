@@ -382,6 +382,9 @@ object DeezerAudioProvider {
      */
     private fun resolveViaInstance(query: Query): Resolved? {
         if (!DeezerInstances.hasInstances()) return null
+        // Resolves the pool feed (at most every 30 min) before any catalogue lookup, so a user with
+        // no reachable instance does not pay a public-API round trip on every track.
+        if (DeezerInstances.instances().isEmpty()) return null
         val match: TrackMatching.Candidate?
         val isrc: String?
         val byIsrc =

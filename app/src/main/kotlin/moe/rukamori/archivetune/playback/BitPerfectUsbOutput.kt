@@ -94,6 +94,7 @@ object BitPerfectUsbOutput {
     @Volatile
     private var registeredDeviceId: Int? = null
 
+    @get:androidx.annotation.ChecksSdkIntAtLeast(api = Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
     val isPlatformSupported: Boolean
         get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
 
