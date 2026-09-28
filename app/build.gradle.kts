@@ -383,6 +383,15 @@ android {
         generateLocaleConfig = true
     }
 
+    // Automix's native analysis front end (tempo/key/energy/structure DSP plus the mel and vocal
+    // STFT front ends the ONNX models read), ported from 4nx3b.
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+
     packaging {
         jniLibs {
             // Compress native libs inside the APK and extract only the device's ABI at install.
@@ -449,6 +458,9 @@ ksp {
 // protobuf-java runtime another dependency already ships (same `com.google.protobuf` package).
 
 dependencies {
+    // Automix: the Beat This! beat/downbeat and open-unmix vocal models run through ONNX Runtime.
+    // The full android artifact, not -mobile: mobile only loads .ort sessions.
+    implementation(libs.onnxruntime.android)
     implementation(libs.guava)
     implementation(libs.coroutines.guava)
     implementation(libs.concurrent.futures)

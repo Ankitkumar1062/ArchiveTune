@@ -147,6 +147,10 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import moe.rukamori.archivetune.playback.smart.TrackAnalysisState
+import moe.rukamori.archivetune.playback.smart.SmartFadeRuntimeState
+import moe.rukamori.archivetune.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -484,7 +488,13 @@ fun BitChordPlayerContent(
     val density = LocalDensity.current
     val haptics = rememberHaptics()
     val database = LocalDatabase.current
-    val player = playerConnection.player
+    // No captured `player`: the service swaps its session player on every crossfade/automix
+    // promotion, and a reference taken here kept driving the released one (4nx3b b0250307a
+    // fixed the seekbar; play/pause, the inline queue, shuffle and repeat had the same bug).
+
+    // Automix: the engine's published state, straight from the service (4nx3b 875062efc).
+    val automixOn by SmartFadeRuntimeState.enabled.collectAsStateWithLifecycle()
+    val automixAnalysis by SmartFadeRuntimeState.analysis.collectAsStateWithLifecycle()
 
     val reduceAnimations = LocalAnimationsDisabled.current
 
@@ -792,7 +802,7 @@ fun BitChordPlayerContent(
     val meshColors = rememberMeshPalette(artUrl)
 
     val onPlayPause = {
-        if (player.isPlaying) player.pause() else player.play()
+        if (playerConnection.player.isPlaying) playerConnection.player.pause() else playerConnection.player.play()
     }
     // Read the session player AT CALL TIME: the captured `player` val goes
     // stale the moment the service swaps the session player (automix/crossfade
@@ -1178,6 +1188,28 @@ fun BitChordPlayerContent(
                     // bottom edge it read as a caption floating loose over the artwork, anchored to
                     // nothing the eye could see, and it duplicated LosslessOrStats in the transport
                     // row below, which is a slot that visibly holds that information.
+
+                    // Automix's analysis status is different: it is shown nowhere else and only
+                    // while automix is on. Drawn the way BitChord draws it, bottom-centre and dim,
+                    // and gone once the layout starts collapsing.
+                    if (automixOn && p < 0.5f) {
+                        Text(
+                            text =
+                                stringResource(
+                                    R.string.automix_analysis_status,
+                                    localizedAnalysisState(automixAnalysis.current),
+                                    localizedAnalysisState(automixAnalysis.next),
+                                ),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White.copy(alpha = 0.5f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier =
+                                Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                        )
+                    }
                 }
 
                 // Sits in the gap under the sleeve, clear of its rounded
@@ -1349,17 +1381,17 @@ fun BitChordPlayerContent(
                         InlineQueue(
                             queue = queue,
                             currentIndex = queueIndex,
-                            onJumpTo = { index -> player.seekTo(index, 0) },
-                            onRemove = { index -> player.removeMediaItem(index) },
-                            onMove = { from, to -> player.moveMediaItem(from, to) },
+                            onJumpTo = { index -> playerConnection.player.seekTo(index, 0) },
+                            onRemove = { index -> playerConnection.player.removeMediaItem(index) },
+                            onMove = { from, to -> playerConnection.player.moveMediaItem(from, to) },
                             onClear = {
                                 // Keep the playing track, drop everything else.
-                                val size = player.mediaItemCount
+                                val size = playerConnection.player.mediaItemCount
                                 for (i in (size - 1) downTo (queueIndex + 1)) {
-                                    player.removeMediaItem(i)
+                                    playerConnection.player.removeMediaItem(i)
                                 }
                                 for (i in (queueIndex - 1) downTo 0) {
-                                    player.removeMediaItem(i)
+                                    playerConnection.player.removeMediaItem(i)
                                 }
                             },
                             modifier = Modifier.weight(1f),
@@ -1683,7 +1715,7 @@ fun BitChordPlayerContent(
                         PillSegment(
                             icon = BitChordIcons.Shuffle,
                             contentDescription = if (shuffleEnabled) "Shuffle on" else "Shuffle off",
-                            onClick = { player.shuffleModeEnabled = !shuffleEnabled },
+                            onClick = { playerConnection.player.shuffleModeEnabled = !shuffleEnabled },
                             highlighted = shuffleEnabled,
                             haptic = if (shuffleEnabled) Haptic.ToggleOff else Haptic.ToggleOn,
                         )
@@ -1697,7 +1729,7 @@ fun BitChordPlayerContent(
                                 else -> "Repeat off"
                             },
                             onClick = {
-                                player.repeatMode = when (repeatMode) {
+                                playerConnection.player.repeatMode = when (repeatMode) {
                                     Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
                                     Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
                                     else -> Player.REPEAT_MODE_OFF
@@ -2027,6 +2059,18 @@ private fun Modifier.opensPage(browseId: String?, onOpen: (String) -> Unit): Mod
     } else {
         clip(RoundedCornerShape(6.dp)).clickable { onOpen(browseId) }
     }
+
+@Composable
+private fun localizedAnalysisState(state: TrackAnalysisState): String =
+    stringResource(
+        when (state) {
+            TrackAnalysisState.ANALYSED -> R.string.automix_state_analysed
+            TrackAnalysisState.ANALYSING -> R.string.automix_state_analysing
+            TrackAnalysisState.REFINING -> R.string.automix_state_refining
+            TrackAnalysisState.FAILED -> R.string.automix_state_failed
+            TrackAnalysisState.WAITING -> R.string.automix_state_waiting
+        },
+    )
 
 private fun formatTime(ms: Long): String {
     if (ms <= 0) return "0:00"

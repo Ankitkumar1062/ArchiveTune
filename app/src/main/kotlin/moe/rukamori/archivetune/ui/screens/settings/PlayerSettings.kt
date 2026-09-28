@@ -67,6 +67,9 @@ import moe.rukamori.archivetune.constants.AutoStartOnBluetoothKey
 import moe.rukamori.archivetune.constants.CanvasResolverEndpointsKey
 import moe.rukamori.archivetune.constants.CrossfadeDurationKey
 import moe.rukamori.archivetune.constants.CrossfadeEnabledKey
+import moe.rukamori.archivetune.constants.AutomixEnabledKey
+import moe.rukamori.archivetune.constants.AutomixPerformanceMode
+import moe.rukamori.archivetune.constants.AutomixPerformanceModeKey
 import moe.rukamori.archivetune.constants.CrossfadeGaplessKey
 import moe.rukamori.archivetune.constants.DeviceMutePlaybackRecoveryVolumeKey
 import moe.rukamori.archivetune.constants.EnableVideoPlaybackKey
@@ -213,6 +216,16 @@ fun PlayerSettings(navController: NavController, scrollTo: String? = null) {
         rememberPreference(
             CrossfadeEnabledKey,
             defaultValue = false,
+        )
+    val (automixEnabled, onAutomixEnabledChange) =
+        rememberPreference(
+            AutomixEnabledKey,
+            defaultValue = false,
+        )
+    val (automixPerformanceMode, onAutomixPerformanceModeChange) =
+        rememberEnumPreference(
+            AutomixPerformanceModeKey,
+            defaultValue = AutomixPerformanceMode.BALANCED,
         )
     val (crossfadeDurationSeconds, onCrossfadeDurationSecondsChange) =
         rememberPreference(
@@ -441,10 +454,57 @@ fun PlayerSettings(navController: NavController, scrollTo: String? = null) {
                             onCheckedChange = { enabled ->
                                 if (enabled) {
                                     onAudioOffloadChange(false)
+                                    // Crossfade and automix are mutually exclusive: at most one
+                                    // engine shapes a given track boundary.
+                                    onAutomixEnabledChange(false)
                                 }
                                 onCrossfadeEnabledChange(enabled)
                             },
                         )
+                    }
+                }
+
+                item {
+                    Column(modifier = positions.modifierFor("automix")) {
+                        SwitchPreference(
+                            title = { Text(stringResource(R.string.automix_title)) },
+                            description =
+                                stringResource(
+                                    if (automixEnabled) R.string.automix_enabled_subtitle else R.string.automix_disabled_subtitle,
+                                ),
+                            icon = { Icon(painterResource(R.drawable.auto_awesome), null) },
+                            checked = automixEnabled,
+                            onCheckedChange = { enabled ->
+                                if (enabled) {
+                                    onAudioOffloadChange(false)
+                                    // Automix hands every transition to the analysis engine; the
+                                    // manual crossfade slider stops applying.
+                                    onCrossfadeEnabledChange(false)
+                                }
+                                onAutomixEnabledChange(enabled)
+                            },
+                        )
+                    }
+                }
+
+                if (automixEnabled) {
+                    item {
+                        Column(modifier = positions.modifierFor("automix_performance")) {
+                            EnumListPreference(
+                                title = { Text(stringResource(R.string.automix_performance_title)) },
+                                description = stringResource(R.string.automix_performance_subtitle),
+                                icon = { Icon(painterResource(R.drawable.tune), null) },
+                                selectedValue = automixPerformanceMode,
+                                onValueSelected = onAutomixPerformanceModeChange,
+                                valueText = {
+                                    when (it) {
+                                        AutomixPerformanceMode.EFFICIENT -> stringResource(R.string.automix_performance_efficient)
+                                        AutomixPerformanceMode.BALANCED -> stringResource(R.string.automix_performance_balanced)
+                                        AutomixPerformanceMode.PERFORMANCE -> stringResource(R.string.automix_performance_max)
+                                    }
+                                },
+                            )
+                        }
                     }
                 }
 
@@ -558,6 +618,7 @@ fun PlayerSettings(navController: NavController, scrollTo: String? = null) {
                             if (enabled) {
                                 onSkipSilenceChange(false)
                                 onCrossfadeEnabledChange(false)
+                                onAutomixEnabledChange(false)
                             }
                         },
                     )
