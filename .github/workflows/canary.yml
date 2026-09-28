@@ -39,7 +39,7 @@ concurrency:
 jobs:
   check:
     if: contains(github.ref, 'refs/tags') == false
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
       canary_tag: ${{ steps.decide.outputs.canary_tag }}
@@ -112,7 +112,7 @@ jobs:
     name: Build Canary APKs
     needs: check
     if: needs.check.outputs.should_build == 'true'
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     env:
       VERSION_NAME_OVERRIDE: ${{ needs.check.outputs.version_name }}
       VERSION_CODE_OVERRIDE: ${{ needs.check.outputs.version_code }}
@@ -331,7 +331,7 @@ jobs:
   create-canary:
     needs: [check, build]
     if: needs.check.outputs.should_build == 'true'
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     # The serialisation the run-level group used to provide, narrowed to the job that needs it. Two
     # of these never run at once, so the tag-collision retry below faces one competitor at a time.
     concurrency:
