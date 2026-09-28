@@ -987,4 +987,6 @@
     <string name="media_info_empty">No information available</string>
     <string name="media_info_load_error">Couldn’t load this information</string>
     <string name="media_info_itag" translatable="false">Itag</string>
+    <string name="playing_from">Playing from %1$s</string>
+    <string name="remaining_time" translatable="false">-%1$s</string>
 </resources>

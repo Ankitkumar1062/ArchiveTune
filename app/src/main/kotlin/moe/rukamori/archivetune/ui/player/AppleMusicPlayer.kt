@@ -185,6 +185,7 @@ private val AppleMusicPlayPauseSpinnerSize = 48.dp
 // line, a subhead line and the block's own paddings. The landscape hero's height cap
 // subtracts it, so the artwork cannot spill over the title on a short screen.
 private val AppleMusicLandscapeTitleBlockHeight = 78.dp
+private val AppleMusicLandscapeHeroMargin = 36.dp
 // Bottom action row (lyrics / cast / queue). 26dp icons in 48dp boxes stay
 // comfortably above the 48dp minimum touch target while looking less bulky.
 private val AppleMusicBottomIconSize = 26.dp
@@ -331,7 +332,17 @@ fun AppleMusicPlayerContent(
     // In-place lyrics morph state. Same animation as the queue morph — the
     // artwork shrinks into the mini header and the lyrics composable fades
     // in below. Clicking the mini header artwork restores the COVER state.
-    var lyricsOpen by remember { mutableStateOf(false) }
+    //
+    // Landscape is lyrics-first (4nx3b 998edf62c): the right half opens on the lyric sheet and the
+    // artwork stays beside it. Keyed on [landscape] so rotating back to portrait opens on the
+    // artwork again, as portrait always has.
+    var lyricsOpen by remember(landscape) { mutableStateOf(landscape) }
+    // The in-place queue morph is portrait-only; landscape opens the queue as a sheet. A queue left
+    // open in portrait would otherwise sit invisible under the lyric sheet after rotating, holding
+    // Back and the morph state.
+    LaunchedEffect(landscape) {
+        if (landscape) queueOpen = false
+    }
 
     // Low-RAM / "reduce animations" signal -- also used to gate the karaoke
     // line-blur RenderEffect (see LyricsEnhanced/LyricsV2). Reused below to drop
@@ -392,9 +403,13 @@ fun AppleMusicPlayerContent(
     // Deferred canvas-visible state: when lyrics opens, the canvas TextureView teardown (visible =
     // false) + ExoPlayer pause are delayed so they don't compete with the COVER→LYRICS sharedBounds
     // morph for the main thread on the same frame.
+    //
+    // In landscape the artwork column stays on screen beside the lyric sheet, so the backdrop keeps
+    // its canvas and its cover look instead of handing off to the lyrics backdrop (4nx3b 998edf62c).
+    val lyricsTakesBackdrop = lyricsOpen && !landscape
     var canvasVisibleForLyrics by remember { mutableStateOf(true) }
-    LaunchedEffect(lyricsOpen) {
-        if (lyricsOpen) {
+    LaunchedEffect(lyricsTakesBackdrop) {
+        if (lyricsTakesBackdrop) {
             // Keep canvas visible while the backdrop cross-dissolve runs.
             canvasVisibleForLyrics = true
             delay(AmLyricsBackdropMorphMs.toLong())
@@ -406,9 +421,11 @@ fun AppleMusicPlayerContent(
     // True while the lyrics backdrop (zoom + drift) is on screen OR still
     // animating back out. Gates the wander frame loop so it isn't burning a
     // frame callback every 16ms while the player sits in the COVER state.
+    // Only the lyrics backdrop drifts, so the frame loop stays off in landscape, where it would
+    // run every frame with nothing to move (upstream left it running there).
     var lyricsBackdropActive by remember { mutableStateOf(false) }
-    LaunchedEffect(lyricsOpen) {
-        if (lyricsOpen) {
+    LaunchedEffect(lyricsTakesBackdrop) {
+        if (lyricsTakesBackdrop) {
             lyricsBackdropActive = true
         } else {
             delay(AmLyricsBackdropMorphMs.toLong())
@@ -458,7 +475,7 @@ fun AppleMusicPlayerContent(
     // driven by this one progress value, so the hand-off is a single continuous morph.
     val lyricsBackdropProgress =
         animateFloatAsState(
-            targetValue = if (lyricsOpen) 1f else 0f,
+            targetValue = if (lyricsTakesBackdrop) 1f else 0f,
             animationSpec =
                 tween(
                     durationMillis = AmLyricsBackdropMorphMs,
@@ -916,14 +933,16 @@ fun AppleMusicPlayerContent(
                     // theirs, so it cannot overflow a short landscape screen. The 280dp floor
                     // raises it back up only when that space exists — an unconditional floor
                     // after the clamps would win over them and clip the artwork instead.
-                    val availableWidth = (maxWidth - AppleMusicContentPadding * 2).coerceAtLeast(0.dp)
+                    // 36dp a side (4nx3b 998edf62c) so the hero no longer visually touches the
+                    // screen edge, with a 240dp floor to match.
+                    val availableWidth = (maxWidth - AppleMusicLandscapeHeroMargin * 2).coerceAtLeast(0.dp)
                     val availableHeight =
                         (maxHeight - contentBottomPadding - AppleMusicLandscapeTitleBlockHeight)
                             .coerceAtLeast(0.dp)
                     val landscapeArtworkSize =
                         availableWidth
                             .coerceAtMost(availableHeight)
-                            .coerceAtLeast(minOf(280.dp, availableWidth, availableHeight))
+                            .coerceAtLeast(minOf(240.dp, availableWidth, availableHeight))
 
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -932,12 +951,21 @@ fun AppleMusicPlayerContent(
                                 .fillMaxSize()
                                 .padding(bottom = contentBottomPadding),
                     ) {
+                        // Lyrics-first leaves the controls behind the lyric sheet, and this fork
+                        // never auto-hides or tap-summons them over it (4nx3b does both), so
+                        // tapping the artwork swaps the right half between lyrics and controls.
+                        // The controls' lyrics button and Back keep working as before.
+                        val heroInteraction = remember { MutableInteractionSource() }
                         Box(
                             modifier =
                                 Modifier
                                     .weight(1f)
                                     .fillMaxWidth()
-                                    .padding(horizontal = AppleMusicContentPadding),
+                                    .clickable(
+                                        interactionSource = heroInteraction,
+                                        indication = null,
+                                        onClick = toggleLyrics,
+                                    ).padding(horizontal = AppleMusicContentPadding),
                             contentAlignment = Alignment.Center,
                         ) {
                             AppleMusicSharpArtwork(

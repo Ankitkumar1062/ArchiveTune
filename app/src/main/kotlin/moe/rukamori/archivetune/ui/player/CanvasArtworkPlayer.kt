@@ -10,6 +10,9 @@
 
 package moe.rukamori.archivetune.ui.player
 
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.runtime.key
+import android.graphics.Bitmap
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
@@ -84,7 +87,14 @@ fun CanvasArtworkPlayer(
      * sees. Null keeps whatever the track selector would have picked.
      */
     maxVideoEdgePx: Int? = null,
+    /**
+     * When set, the loop renders through a [CanvasSnapshotView] that hands back one small frame
+     * per URL (rukamori 7c19e3191); the Immersive style blurs that still instead of blurring a live
+     * video surface every frame. Null (every other style) keeps the regular content frame.
+     */
+    onFrameCaptured: ((Bitmap?) -> Unit)? = null,
 ) {
+    val frameCallback by rememberUpdatedState(onFrameCaptured)
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val primary = primaryUrl?.trim()?.takeIf { it.isNotBlank() }
@@ -305,6 +315,7 @@ fun CanvasArtworkPlayer(
                     Timber.tag(CanvasPlaybackLogTag).w(error, "Canvas playback failed")
                     hasPlaybackFailed = true
                     isVideoReady = false
+                    frameCallback?.invoke(null)
                     val next =
                         when (currentUrl) {
                             primary -> fallback?.takeIf { it != currentUrl }
@@ -365,6 +376,7 @@ fun CanvasArtworkPlayer(
         isVideoReady = false
         hasPlaybackFailed = false
         videoDisplayAspectRatio = null
+        frameCallback?.invoke(null)
         val lowercaseUrl = normalized.lowercase(Locale.ROOT)
         val mimeType =
             when {
@@ -406,7 +418,21 @@ fun CanvasArtworkPlayer(
     // of compositing + blurring a video surface that isn't changing. When
     // `visible` flips back to true, a new TextureView is created and the
     // ExoPlayer re-attaches to it, showing the current frame immediately.
-    if (visible) {
+    if (visible && onFrameCaptured != null) {
+        key(exoPlayer, currentUrl) {
+            AndroidView(
+                factory = { viewContext ->
+                    CanvasSnapshotView(viewContext).apply {
+                        bind(exoPlayer) { bitmap ->
+                            if (!hasPlaybackFailed) frameCallback?.invoke(bitmap)
+                        }
+                    }
+                },
+                onRelease = { it.release() },
+                modifier = modifier.alpha(alpha),
+            )
+        }
+    } else if (visible) {
         val aspect = videoDisplayAspectRatio
         if (resizeMode == AspectRatioFrameLayout.RESIZE_MODE_ZOOM && aspect != null && aspect > 0f) {
             // Self-enforced cover: the frame is laid out at the video's aspect, scaled to COVER
