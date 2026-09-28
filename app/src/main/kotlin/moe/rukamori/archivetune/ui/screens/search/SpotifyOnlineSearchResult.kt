@@ -75,7 +75,9 @@ import moe.rukamori.archivetune.extensions.togglePlayPause
 import moe.rukamori.archivetune.playback.queues.YouTubeQueue
 import moe.rukamori.archivetune.spotify.SpotifyPlaybackResolver
 import moe.rukamori.archivetune.spotify.SpotifySearchItem
-import moe.rukamori.archivetune.spotify.resolveSpotifyReleaseAlbumId
+import moe.rukamori.archivetune.models.toMediaMetadata
+import moe.rukamori.archivetune.spotify.SpotifyReleaseTarget
+import moe.rukamori.archivetune.spotify.resolveSpotifyRelease
 import moe.rukamori.archivetune.spotify.searchYouTubeCatalogItem
 import moe.rukamori.archivetune.ui.component.ChipsRow
 import moe.rukamori.archivetune.ui.component.EmptyPlaceholder
@@ -85,6 +87,9 @@ import moe.rukamori.archivetune.utils.reportException
 
 /** How long an album or artist tap may spend finding its YouTube Music page (as on the Spotify home). */
 private const val ResolveTimeoutMs = 20_000L
+
+/** Sentinel route: the tapped release was started as playback, so there is no page to open. */
+private const val SPOTIFY_RELEASE_PLAYED = "__spotify_release_played__"
 
 private enum class SpotifySearchFilter {
     ALL,
@@ -261,7 +266,9 @@ private fun SpotifySearchResultRow(
         coroutineScope.launch {
             try {
                 val route = withTimeoutOrNull(ResolveTimeoutMs) { withContext(Dispatchers.IO) { resolveRoute() } }
-                if (route != null) {
+                if (route == SPOTIFY_RELEASE_PLAYED) {
+                    // Already handled: the release started playing instead of opening a page.
+                } else if (route != null) {
                     navController.navigate(route)
                 } else {
                     Toast.makeText(context, context.getString(R.string.no_results_found), Toast.LENGTH_SHORT).show()
@@ -316,11 +323,24 @@ private fun SpotifySearchResultRow(
                         listOfNotNull(album.name, album.artists.firstOrNull()?.name)
                             .filter(String::isNotBlank)
                             .joinToString(" ")
-                    resolveSpotifyReleaseAlbumId(
-                        query = query,
-                        searchAlbum = { searchYouTubeCatalogItem<AlbumItem>(it, YouTube.SearchFilter.FILTER_ALBUM) },
-                        searchSong = { searchYouTubeCatalogItem<SongItem>(it, YouTube.SearchFilter.FILTER_SONG) },
-                    )?.let { "album/$it" }
+                    when (
+                        val target =
+                            resolveSpotifyRelease(
+                                query = query,
+                                searchAlbum = { searchYouTubeCatalogItem<AlbumItem>(it, YouTube.SearchFilter.FILTER_ALBUM) },
+                                searchSong = { searchYouTubeCatalogItem<SongItem>(it, YouTube.SearchFilter.FILTER_SONG) },
+                            )
+                    ) {
+                        is SpotifyReleaseTarget.AlbumPage -> "album/${target.browseId}"
+                        is SpotifyReleaseTarget.Song -> {
+                            // One-song release with no album page: play it rather than dead-end (#160).
+                            withContext(Dispatchers.Main) {
+                                playerConnection?.playQueue(YouTubeQueue.radio(target.song.toMediaMetadata()))
+                            }
+                            SPOTIFY_RELEASE_PLAYED
+                        }
+                        null -> null
+                    }
                 }
             }
 

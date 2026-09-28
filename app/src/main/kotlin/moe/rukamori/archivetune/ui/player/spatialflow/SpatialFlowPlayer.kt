@@ -974,12 +974,19 @@ fun SpatialFlowPlayerContent(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
+                val (swipeUpToOpenQueue) =
+                    moe.rukamori.archivetune.utils.rememberPreference(
+                        moe.rukamori.archivetune.constants.SwipeUpToOpenQueueKey,
+                        defaultValue = true,
+                    )
                 Box(
                     modifier =
                         Modifier
                             .fillMaxWidth()
                             .height(48.dp)
-                            .pointerInput(Unit) {
+                            .pointerInput(swipeUpToOpenQueue) {
+                                // Off leaves the tap below as the only way into the queue (#171).
+                                if (!swipeUpToOpenQueue) return@pointerInput
                                 detectVerticalDragGestures { _, dragAmount ->
                                     if (dragAmount < -10f && !queueExpanded && !lyricsModeEnabled) {
                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)

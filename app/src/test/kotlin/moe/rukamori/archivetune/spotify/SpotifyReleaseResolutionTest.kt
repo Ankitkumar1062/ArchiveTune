@@ -71,4 +71,32 @@ class SpotifyReleaseResolutionTest {
         assertEquals("MPREb_zj6sl6cWjTN", browseId)
         assertFalse(songIndexAsked)
     }
+    @Test
+    fun singleWithNoAlbumPageAnywherePlaysTheSong() = runTest {
+        val loneSong =
+            SongItem(
+                id = "aB3dE5gH7jK",
+                title = "Lone Single",
+                artists = emptyList(),
+                album = null,
+                thumbnail = "https://lh3.googleusercontent.com/z",
+            )
+
+        val target =
+            resolveSpotifyRelease(
+                query = "Lone Single Someone",
+                searchAlbum = { null },
+                searchSong = { loneSong },
+            )
+
+        assertEquals(SpotifyReleaseTarget.Song(loneSong), target)
+        assertEquals(
+            null,
+            resolveSpotifyReleaseAlbumId(
+                query = "Lone Single Someone",
+                searchAlbum = { null },
+                searchSong = { loneSong },
+            ),
+        )
+    }
 }

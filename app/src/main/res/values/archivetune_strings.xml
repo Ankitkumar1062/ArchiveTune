@@ -1025,5 +1025,9 @@
     <string name="deezer_api_instances_hint">One base URL per line. An instance answers GET /health and streams from /stream/?isrc=… or /stream/{track id}. Your own ARL is never sent to it.</string>
     <string name="deezer_api_pool">Source Pool instances</string>
     <string name="deezer_api_pool_on">On · verified instances from the Source Pool are added after yours</string>
-    <string name="deezer_api_pool_off">Off · turn on "Use pool accounts" to add the Source Pool's instances</string>
+    <string name="deezer_api_pool_off">Off · turn on \"Use pool accounts\" to add the Source Pool\'s instances</string>
+    <string name="swipe_up_to_open_queue">Swipe up to open queue</string>
+    <string name="swipe_up_to_open_queue_desc">When off, only the queue button opens it, so seeking or tapping never opens it by accident</string>
+    <string name="queue_add_after_manual">Keep added songs in order</string>
+    <string name="queue_add_after_manual_desc">Add to queue places songs after the current song and your other added songs, ahead of radio and autoplay songs</string>
 </resources>

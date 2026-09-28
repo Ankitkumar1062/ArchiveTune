@@ -530,6 +530,8 @@ fun BitChordPlayerContent(
     val lyricsMenuViewModel: LyricsMenuViewModel = hiltViewModel()
     val (autoTranslateLyrics) = rememberPreference(AutoTranslateLyricsKey, defaultValue = false)
     val (translatorTargetLang) = rememberPreference(TranslatorTargetLangKey, defaultValue = "")
+    val (swipeUpToOpenQueue) =
+        rememberPreference(moe.rukamori.archivetune.constants.SwipeUpToOpenQueueKey, defaultValue = true)
     val (autoTranslateExcludedLanguages) =
         rememberPreference(AutoTranslateExcludedLanguagesKey, defaultValue = emptySet())
     val translationDismissedMediaIds by lyricsMenuViewModel.translationDismissedMediaIds
@@ -956,7 +958,7 @@ fun BitChordPlayerContent(
                     // Swallow vertical drags before the sheet can read them as "dismiss me".
                     // Children that scroll consume first, so the lists are unaffected.
                     .onGloballyPositioned { dismissBandSpace.value = it }
-                    .pointerInput(Unit) {
+                    .pointerInput(swipeUpToOpenQueue) {
                         awaitEachGesture {
                             // Unconsumed on purpose, as the blanket version was:
                             // the collapsed sleeve's own clickable — the way back
@@ -983,7 +985,9 @@ fun BitChordPlayerContent(
                                 bandBottom = dismissBandBottom
                             }
                             if (y >= bandTop && y <= bandBottom) {
-                                if (!panelUp) {
+                                // Swipe-to-queue off (#171): the band still swallows the drag so
+                                // the sheet does not read it as a dismiss, but nothing opens.
+                                if (!panelUp && swipeUpToOpenQueue) {
                                     dragQueueIn(
                                         down = down,
                                         travel = bandBottom - bandTop -

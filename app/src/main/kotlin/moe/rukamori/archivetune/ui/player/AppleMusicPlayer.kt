@@ -170,6 +170,7 @@ import moe.rukamori.archivetune.utils.isLocalMediaId
 import moe.rukamori.archivetune.utils.makeTimeString
 import moe.rukamori.archivetune.utils.rememberLowDataModeActive
 import moe.rukamori.archivetune.utils.rememberPreference
+import moe.rukamori.archivetune.constants.SwipeUpToOpenQueueKey
 import moe.rukamori.archivetune.viewmodels.LyricsMenuViewModel
 
 private val AppleMusicContentPadding = 28.dp
@@ -1654,6 +1655,7 @@ private fun AppleMusicControlsColumn(
     var swipeUpAccumulated by remember { mutableFloatStateOf(0f) }
     val swipeUpThreshold = 120f
     val swipeActivationThreshold = 72f
+    val (swipeUpToOpenQueue) = rememberPreference(SwipeUpToOpenQueueKey, defaultValue = true)
     val resetSwipeUp = remember {
         {
             if (swipeUpAccumulated != 0f) swipeUpAccumulated = 0f
@@ -1677,7 +1679,9 @@ private fun AppleMusicControlsColumn(
             modifier
                 .fillMaxWidth()
                 .padding(horizontal = AppleMusicContentPadding)
-                .pointerInput(Unit) {
+                .pointerInput(swipeUpToOpenQueue) {
+                    // Off: no swipe tracking at all, so seeks and taps are never taken over (#171).
+                    if (!swipeUpToOpenQueue) return@pointerInput
                     awaitEachGesture {
                         awaitFirstDown(requireUnconsumed = false)
                         var accumulated = 0f

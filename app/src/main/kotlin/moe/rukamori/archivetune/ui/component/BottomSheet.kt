@@ -100,9 +100,15 @@ fun BottomSheet(
     backHandlerEnabled: Boolean = true,
     opaqueBackground: Boolean = false,
     onCollapsedContentClick: (() -> Unit)? = null,
+    /**
+     * When false, a collapsed sheet ignores drags, so it can only be opened by tapping (or by code).
+     * An open sheet stays draggable either way, so it can still be swiped closed.
+     */
+    collapsedDragEnabled: Boolean = true,
     collapsedContent: @Composable BoxScope.() -> Unit,
     content: @Composable BoxScope.() -> Unit,
 ) {
+    val dragEnabled = collapsedDragEnabled || !state.isCollapsed
     Box(
         modifier =
             modifier
@@ -113,7 +119,7 @@ fun BottomSheet(
                             .roundToPx()
                             .coerceAtLeast(0)
                     IntOffset(x = 0, y = y)
-                }.bottomSheetDraggable(state, onDismiss)
+                }.then(if (dragEnabled) Modifier.bottomSheetDraggable(state, onDismiss) else Modifier)
                 .clip(
                     RoundedCornerShape(
                         topStart = if (!state.isExpanded) 16.dp else 0.dp,

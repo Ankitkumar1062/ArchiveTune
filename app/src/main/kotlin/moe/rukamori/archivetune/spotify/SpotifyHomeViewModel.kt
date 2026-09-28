@@ -90,6 +90,9 @@ sealed interface SpotifyHomeNavigationEvent {
     data class OpenAlbum(val browseId: String) : SpotifyHomeNavigationEvent
     data class OpenArtist(val id: String) : SpotifyHomeNavigationEvent
     data class PlayTracks(val queue: SpotifyTracksQueue) : SpotifyHomeNavigationEvent
+
+    /** A one-song release with no album page: start it as a radio (#160). */
+    data class PlaySong(val song: SongItem) : SpotifyHomeNavigationEvent
     data class ShowMessage(val messageResId: Int) : SpotifyHomeNavigationEvent
 }
 
@@ -172,11 +175,18 @@ class SpotifyHomeViewModel @Inject constructor(
                 val query = listOfNotNull(action.name, action.artist)
                     .filter(String::isNotBlank)
                     .joinToString(" ")
-                resolveSpotifyReleaseAlbumId(
-                    query = query,
-                    searchAlbum = { searchYouTubeCatalogItem<AlbumItem>(it, YouTube.SearchFilter.FILTER_ALBUM) },
-                    searchSong = { searchYouTubeCatalogItem<SongItem>(it, YouTube.SearchFilter.FILTER_SONG) },
-                )?.let { SpotifyHomeNavigationEvent.OpenAlbum(it) }
+                when (
+                    val target =
+                        resolveSpotifyRelease(
+                            query = query,
+                            searchAlbum = { searchYouTubeCatalogItem<AlbumItem>(it, YouTube.SearchFilter.FILTER_ALBUM) },
+                            searchSong = { searchYouTubeCatalogItem<SongItem>(it, YouTube.SearchFilter.FILTER_SONG) },
+                        )
+                ) {
+                    is SpotifyReleaseTarget.AlbumPage -> SpotifyHomeNavigationEvent.OpenAlbum(target.browseId)
+                    is SpotifyReleaseTarget.Song -> SpotifyHomeNavigationEvent.PlaySong(target.song)
+                    null -> null
+                }
             }
             is SpotifyHomeAction.ArtistClick -> resolveSelection("artist:${action.id}") {
                 searchYouTubeCatalogItem<ArtistItem>(action.name, YouTube.SearchFilter.FILTER_ARTIST)
@@ -431,9 +441,36 @@ internal suspend fun resolveSpotifyReleaseAlbumId(
     query: String,
     searchAlbum: suspend (String) -> AlbumItem?,
     searchSong: suspend (String) -> SongItem?,
-): String? {
-    searchAlbum(query)?.browseId?.takeIf(String::isNotBlank)?.let { return it }
-    return searchSong(query)?.album?.id?.takeIf(String::isNotBlank)
+): String? =
+    (resolveSpotifyRelease(query, searchAlbum, searchSong) as? SpotifyReleaseTarget.AlbumPage)?.browseId
+
+/** Where a tapped Spotify release lands in the app. */
+internal sealed interface SpotifyReleaseTarget {
+    /** The release's YouTube Music album page. */
+    data class AlbumPage(val browseId: String) : SpotifyReleaseTarget
+
+    /**
+     * The release has no album page at all, but its song is indexed: play that song directly.
+     * Singles pushed as "New releases" often land here, and a page-only lookup told users
+     * "no result found" for a track that plays fine everywhere else (#160).
+     */
+    data class Song(val song: SongItem) : SpotifyReleaseTarget
+}
+
+/**
+ * Resolves a tapped Spotify release: its album page when YouTube Music has one (found through the
+ * album index, or through the song index's album link), otherwise the song itself. The song index
+ * is asked at most once.
+ */
+internal suspend fun resolveSpotifyRelease(
+    query: String,
+    searchAlbum: suspend (String) -> AlbumItem?,
+    searchSong: suspend (String) -> SongItem?,
+): SpotifyReleaseTarget? {
+    searchAlbum(query)?.browseId?.takeIf(String::isNotBlank)?.let { return SpotifyReleaseTarget.AlbumPage(it) }
+    val song = searchSong(query) ?: return null
+    song.album?.id?.takeIf(String::isNotBlank)?.let { return SpotifyReleaseTarget.AlbumPage(it) }
+    return SpotifyReleaseTarget.Song(song)
 }
 
 /**

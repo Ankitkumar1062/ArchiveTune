@@ -585,7 +585,14 @@ fun FloatingNavigationToolbar(
                             // fit, so the floating style's 0.8 default (which is a fraction for a
                             // four-item bar) would squash them. A stored fraction still applies
                             // upwards, so someone who wants it wider gets it.
-                            isAppleMusic -> navBarWidthFraction.coerceIn(0.9f, 1f)
+                            // An untouched slider keeps that wide look; a width the user picked
+                            // is honoured (the old 0.9 floor made the slider do nothing, #169).
+                            isAppleMusic ->
+                                if (navBarWidthFraction == NAVIGATION_BAR_WIDTH_DEFAULT) {
+                                    0.94f
+                                } else {
+                                    navBarWidthFraction.coerceIn(0.6f, 1f)
+                                }
                             isFloating -> navBarWidthFraction.coerceIn(0.5f, 1f)
                             else -> 1f
                         },

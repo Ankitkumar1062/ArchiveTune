@@ -77,6 +77,7 @@ import moe.rukamori.archivetune.R
 import moe.rukamori.archivetune.constants.GridThumbnailCornerRadius
 import moe.rukamori.archivetune.extensions.togglePlayPause
 import moe.rukamori.archivetune.innertube.models.Artist
+import moe.rukamori.archivetune.models.toMediaMetadata
 import moe.rukamori.archivetune.spotify.SPOTIFY_DJ_PLAYLIST_ID
 import moe.rukamori.archivetune.spotify.SpotifyHomeAction
 import moe.rukamori.archivetune.spotify.SpotifyHomeNavigationEvent
@@ -186,6 +187,12 @@ fun SpotifyHomeScreen(
                 is SpotifyHomeNavigationEvent.OpenAlbum -> navController.navigate("album/${event.browseId}")
                 is SpotifyHomeNavigationEvent.OpenArtist -> navController.navigate("artist/${event.id}")
                 is SpotifyHomeNavigationEvent.PlayTracks -> playerConnection.playQueue(event.queue)
+                is SpotifyHomeNavigationEvent.PlaySong ->
+                    playerConnection.playQueue(
+                        moe.rukamori.archivetune.playback.queues.YouTubeQueue.radio(
+                            event.song.toMediaMetadata(),
+                        ),
+                    )
                 is SpotifyHomeNavigationEvent.ShowMessage ->
                     Toast.makeText(context, event.messageResId, Toast.LENGTH_SHORT).show()
             }

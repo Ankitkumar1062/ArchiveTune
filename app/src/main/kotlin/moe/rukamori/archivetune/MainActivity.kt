@@ -2985,6 +2985,7 @@ class MainActivity : ComponentActivity() {
                                                 bottomNavigationBarHeightState,
                                                 navVisibleHeight,
                                                 isFloatingNavBar,
+                                                navigationBarStyle,
                                             ) {
                                                 {
                                                     val navRatio =
@@ -3008,8 +3009,16 @@ class MainActivity : ComponentActivity() {
                                                             }
                                                         }
                                                     val sheetPresence = (1f - (swipeDeviation / morphThreshold)).coerceIn(0f, 1f)
-                                                    // A floating pill never docks with the mini player.
-                                                    if (!showNavigationBarState.value || useRailState.value || isFloatingNavBar) {
+                                                    // A floating pill never docks with the mini player, and neither
+                                                    // does the Apple Music bar: it keeps its own rounded corners on
+                                                    // all four sides, so pinching the mini player's bottom corners
+                                                    // toward a junction left them square against nothing (#169).
+                                                    if (
+                                                        !showNavigationBarState.value ||
+                                                        useRailState.value ||
+                                                        isFloatingNavBar ||
+                                                        navigationBarStyle == NavigationBarStyle.APPLE_MUSIC
+                                                    ) {
                                                         0f
                                                     } else {
                                                         navRatio * sheetPresence

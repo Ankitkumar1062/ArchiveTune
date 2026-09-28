@@ -811,6 +811,15 @@ val LyricsProviderOrderKey = stringPreferencesKey("lyricsProviderOrder")
 val ArtworkProviderOrderKey = stringPreferencesKey("artworkProviderOrder")
 val QueueEditLockKey = booleanPreferencesKey("queueEditLock")
 
+// Whether an upward swipe on the player opens the queue. Default on (existing behaviour); off leaves
+// the queue button as the only way in, for users who trigger it by accident while seeking (#171).
+val SwipeUpToOpenQueueKey = booleanPreferencesKey("swipeUpToOpenQueue")
+
+// "Play next" and "Add to queue" append to a run of user-added songs right after the current one,
+// ahead of radio/autoplay songs, so A then B then C play in that order (#172). Off restores the
+// old behaviour (Play next jumps to position 2, Add to queue goes to the very end).
+val QueueAddAfterManualKey = booleanPreferencesKey("queueAddAfterManual")
+
 // Player HUD: show the resolved codec/bitrate line. Bound by the Developer Options toggle
 // (DebugSettings) and read by the player + queue overlays — a shared constant keeps the three
 // call sites from drifting on the raw string.

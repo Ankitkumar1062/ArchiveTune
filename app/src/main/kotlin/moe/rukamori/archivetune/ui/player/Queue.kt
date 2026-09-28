@@ -126,6 +126,7 @@ import moe.rukamori.archivetune.ui.utils.ShowMediaInfo
 import moe.rukamori.archivetune.utils.oem.SystemMediaControlResolver
 import moe.rukamori.archivetune.utils.rememberEnumPreference
 import moe.rukamori.archivetune.utils.rememberPreference
+import moe.rukamori.archivetune.constants.SwipeUpToOpenQueueKey
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 import java.time.LocalDateTime
@@ -406,11 +407,14 @@ fun Queue(
             }
         }
 
+    val (swipeUpToOpenQueue) = rememberPreference(SwipeUpToOpenQueueKey, defaultValue = true)
+
     BottomSheet(
         state = state,
         backgroundColor = Color.Unspecified,
         modifier = modifier,
         onCollapsedContentClick = openQueue,
+        collapsedDragEnabled = swipeUpToOpenQueue,
         collapsedContent = {
             when (playerDesignStyle) {
                 PlayerDesignStyle.V2 -> {

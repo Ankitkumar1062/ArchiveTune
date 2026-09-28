@@ -143,6 +143,7 @@ import moe.rukamori.archivetune.constants.DefaultMetadataSourceKey
 import moe.rukamori.archivetune.constants.MetadataSource
 import moe.rukamori.archivetune.constants.AudioOffload
 import moe.rukamori.archivetune.constants.BitPerfectUsbOutputKey
+import moe.rukamori.archivetune.constants.QueueAddAfterManualKey
 import moe.rukamori.archivetune.constants.AudioQuality
 import moe.rukamori.archivetune.constants.AudioQualityKey
 import moe.rukamori.archivetune.constants.AutoDownloadOnLikeKey
@@ -4775,6 +4776,9 @@ class MusicService :
         currentIndex: Int,
         insertionIndex: Int,
         insertionCount: Int,
+        // How many of the upcoming (shuffled) items the insertion goes after. 0 = straight after the
+        // current song ("Play next"); >0 keeps earlier user-added songs ahead of it (#172).
+        skipUpcoming: Int = 0,
     ): DefaultShuffleOrder? {
         if (insertionCount <= 0 || player.currentTimeline.isEmpty) return null
 
@@ -4806,17 +4810,50 @@ class MusicService :
             nextIndices += adjustedIndex(traversalIndex)
         }
 
+        val skip = skipUpcoming.coerceIn(0, nextIndices.size)
         val shuffledIndices =
             buildList(player.mediaItemCount + insertionCount) {
                 addAll(previousIndices)
-                add(currentIndex)
+                add(adjustedIndex(currentIndex).takeIf { currentIndex >= insertionIndex } ?: currentIndex)
+                addAll(nextIndices.subList(0, skip))
                 repeat(insertionCount) { offset ->
                     add(insertionIndex + offset)
                 }
-                addAll(nextIndices)
+                addAll(nextIndices.subList(skip, nextIndices.size))
             }.toIntArray()
 
         return DefaultShuffleOrder(shuffledIndices, System.currentTimeMillis())
+    }
+
+    private fun MediaItem.isUserQueued(): Boolean =
+        mediaMetadata.extras?.getBoolean(EXTRA_USER_QUEUED, false) == true
+
+    /** Marks an item as added by the user (Play next / Add to queue), so later adds line up behind it. */
+    private fun MediaItem.markUserQueued(): MediaItem {
+        if (isUserQueued()) return this
+        val extras = android.os.Bundle(mediaMetadata.extras ?: android.os.Bundle.EMPTY)
+        extras.putBoolean(EXTRA_USER_QUEUED, true)
+        return buildUpon()
+            .setMediaMetadata(mediaMetadata.buildUpon().setExtras(extras).build())
+            .build()
+    }
+
+    /**
+     * The number of songs straight after the current one (in play order) that the user added by
+     * hand. "Add to queue" goes after them and ahead of radio/autoplay songs (#172).
+     */
+    private fun countUpcomingUserQueued(currentIndex: Int): Int {
+        val timeline = player.currentTimeline
+        if (timeline.isEmpty || currentIndex == C.INDEX_UNSET) return 0
+        var count = 0
+        var index = currentIndex
+        while (true) {
+            index = timeline.getNextWindowIndex(index, REPEAT_MODE_OFF, player.shuffleModeEnabled)
+            if (index == C.INDEX_UNSET || index >= player.mediaItemCount) break
+            if (!player.getMediaItemAt(index).isUserQueued()) break
+            count++
+        }
+        return count
     }
 
     fun startRadioSeamlessly() {
@@ -5019,19 +5056,22 @@ class MusicService :
                 .filterVideo(hideMusicVideos)
         if (allowedItems.isEmpty()) return
         suppressAutoPlayback = false
+        // Marked as user-added so a later "Add to queue" lines up behind them (#172).
+        val queuedItems =
+            if (dataStore.get(QueueAddAfterManualKey, true)) allowedItems.map { it.markUserQueued() } else allowedItems
         val insertionIndex = if (player.mediaItemCount == 0) 0 else player.currentMediaItemIndex + 1
         val playNextShuffleOrder =
             if (player.shuffleModeEnabled && player.mediaItemCount > 0) {
                 buildPlayNextShuffleOrder(
                     currentIndex = player.currentMediaItemIndex,
                     insertionIndex = insertionIndex,
-                    insertionCount = allowedItems.size,
+                    insertionCount = queuedItems.size,
                 )
             } else {
                 null
             }
 
-        player.addMediaItems(insertionIndex, allowedItems)
+        player.addMediaItems(insertionIndex, queuedItems)
         playNextShuffleOrder?.let(localPlayer::setShuffleOrder)
         player.prepare()
     }
@@ -5079,7 +5119,36 @@ class MusicService :
                 .filterVideo(hideMusicVideos)
         if (allowedItems.isEmpty()) return
         suppressAutoPlayback = false
-        player.addMediaItems(allowedItems)
+        val currentIndex = player.currentMediaItemIndex
+        if (
+            !dataStore.get(QueueAddAfterManualKey, true) ||
+            player.mediaItemCount == 0 ||
+            currentIndex == C.INDEX_UNSET
+        ) {
+            player.addMediaItems(allowedItems)
+            player.prepare()
+            return
+        }
+        // #172: after the current song and any songs the user already added, ahead of radio or
+        // autoplay songs — so A, then B, then C play in the order they were added.
+        val queuedItems = allowedItems.map { it.markUserQueued() }
+        val skip = countUpcomingUserQueued(currentIndex)
+        if (player.shuffleModeEnabled) {
+            // Physical position does not decide play order in shuffle; the shuffle order does.
+            val insertionIndex = player.mediaItemCount
+            val order =
+                buildPlayNextShuffleOrder(
+                    currentIndex = currentIndex,
+                    insertionIndex = insertionIndex,
+                    insertionCount = queuedItems.size,
+                    skipUpcoming = skip,
+                )
+            player.addMediaItems(insertionIndex, queuedItems)
+            order?.let(localPlayer::setShuffleOrder)
+        } else {
+            val insertionIndex = (currentIndex + 1 + skip).coerceAtMost(player.mediaItemCount)
+            player.addMediaItems(insertionIndex, queuedItems)
+        }
         player.prepare()
     }
 
@@ -10479,6 +10548,9 @@ class MusicService :
     }
 
     companion object {
+        /** MediaMetadata extra: the item was added by Play next / Add to queue (#172). */
+        private const val EXTRA_USER_QUEUED = "archivetune.userQueued"
+
         internal fun shouldShowPlaybackNotification(
             startInForegroundRequired: Boolean,
             hasResumablePlayback: Boolean,

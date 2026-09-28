@@ -175,6 +175,7 @@ import moe.rukamori.archivetune.ui.utils.highRes
 import moe.rukamori.archivetune.utils.makeTimeString
 import moe.rukamori.archivetune.utils.rememberLowDataModeActive
 import moe.rukamori.archivetune.utils.rememberPreference
+import moe.rukamori.archivetune.constants.SwipeUpToOpenQueueKey
 
 @Composable
 fun AutoResizeText(
@@ -590,11 +591,13 @@ fun V10PlayerContent(
             Spacer(modifier = Modifier.height(18.dp))
 
             // ========== CHIPS ROW ==========
+            val (swipeUpToOpenQueue) = rememberPreference(SwipeUpToOpenQueueKey, defaultValue = true)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 8.dp)
-                    .pointerInput(Unit) {
+                    .pointerInput(swipeUpToOpenQueue) {
+                        if (!swipeUpToOpenQueue) return@pointerInput
                         detectVerticalDragGestures { change, dragAmount ->
                             if (dragAmount < -15) {
                                 change.consume()

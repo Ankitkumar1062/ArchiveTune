@@ -100,6 +100,8 @@ import moe.rukamori.archivetune.ui.component.ArtistSeparatorsDialog
 import moe.rukamori.archivetune.ui.component.CrossfadeSliderPreference
 import moe.rukamori.archivetune.ui.component.DefaultDialog
 import moe.rukamori.archivetune.constants.BitPerfectUsbOutputKey
+import moe.rukamori.archivetune.constants.QueueAddAfterManualKey
+import moe.rukamori.archivetune.constants.SwipeUpToOpenQueueKey
 import moe.rukamori.archivetune.playback.BitPerfectUsbOutput
 import moe.rukamori.archivetune.ui.component.EnumListPreference
 import moe.rukamori.archivetune.ui.component.IconButton
@@ -164,6 +166,10 @@ fun PlayerSettings(navController: NavController, scrollTo: String? = null) {
             AudioOffload,
             defaultValue = false,
         )
+    val (swipeUpToOpenQueue, onSwipeUpToOpenQueueChange) =
+        rememberPreference(SwipeUpToOpenQueueKey, defaultValue = true)
+    val (queueAddAfterManual, onQueueAddAfterManualChange) =
+        rememberPreference(QueueAddAfterManualKey, defaultValue = true)
     val (bitPerfectUsb, onBitPerfectUsbChange) =
         rememberPreference(
             BitPerfectUsbOutputKey,
@@ -892,6 +898,30 @@ fun PlayerSettings(navController: NavController, scrollTo: String? = null) {
                             icon = { Icon(painterResource(R.drawable.shuffle), null) },
                             checked = permanentShuffle,
                             onCheckedChange = onPermanentShuffleChange,
+                        )
+                    }
+                }
+
+                item {
+                    Column(modifier = positions.modifierFor("swipe_up_queue")) {
+                        SwitchPreference(
+                            title = { Text(stringResource(R.string.swipe_up_to_open_queue)) },
+                            description = stringResource(R.string.swipe_up_to_open_queue_desc),
+                            icon = { Icon(painterResource(R.drawable.queue_music), null) },
+                            checked = swipeUpToOpenQueue,
+                            onCheckedChange = onSwipeUpToOpenQueueChange,
+                        )
+                    }
+                }
+
+                item {
+                    Column(modifier = positions.modifierFor("queue_after_manual")) {
+                        SwitchPreference(
+                            title = { Text(stringResource(R.string.queue_add_after_manual)) },
+                            description = stringResource(R.string.queue_add_after_manual_desc),
+                            icon = { Icon(painterResource(R.drawable.queue_music), null) },
+                            checked = queueAddAfterManual,
+                            onCheckedChange = onQueueAddAfterManualChange,
                         )
                     }
                 }
