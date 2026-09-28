@@ -645,6 +645,10 @@ val PermanentShuffleKey = booleanPreferencesKey("permanentShuffle")
 val SkipSilenceKey = booleanPreferencesKey("skipSilence")
 val AudioNormalizationKey = booleanPreferencesKey("audioNormalization")
 val AudioOffload = booleanPreferencesKey("audioOffload")
+
+// Android 14+ bit-perfect output to USB DACs. Mutually exclusive with offload, crossfade and
+// automix (they need the processing chain or a second player); read once per player build.
+val BitPerfectUsbOutputKey = booleanPreferencesKey("bitPerfectUsbOutput")
 val CrossfadeEnabledKey = booleanPreferencesKey("crossfadeEnabled")
 val CrossfadeDurationKey = floatPreferencesKey("crossfadeDuration")
 val CrossfadeGaplessKey = booleanPreferencesKey("crossfadeGapless")
@@ -1768,6 +1772,10 @@ val DeezerAccountNameKey = stringPreferencesKey("deezerAccountName")
 // Whether the manual account reported a lossless-capable plan. Only orders resolution attempts;
 // the provider still verifies the real tier per track.
 val DeezerAccountPremiumKey = booleanPreferencesKey("deezerAccountPremium")
+
+// The user's own Deezer API instances (self-hosted servers that stream already-decrypted audio),
+// one base URL per line. Tried after accounts; the Source Pool's instance feed is appended to them.
+val DeezerInstancesKey = stringPreferencesKey("deezerInstances")
 
 // ---------------------------------------------------------------------------
 // Amazon Music source

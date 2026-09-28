@@ -52,6 +52,12 @@ object PoolAccountManager {
         poolAccountsEnabled = enabled
     }
 
+    /**
+     * True when a pool is configured and the user has not opted out. Instance tiers that fetch
+     * their own feeds (Deezer's `/api/instances/deezer`) follow the same switch as the accounts.
+     */
+    fun isPoolEnabled(): Boolean = poolAccountsEnabled && isEnabled
+
     private suspend fun syncPoolAccountsEnabled(context: Context) {
         poolAccountsEnabled = context.dataStore.getAsync(UsePoolAccountsKey) ?: true
     }

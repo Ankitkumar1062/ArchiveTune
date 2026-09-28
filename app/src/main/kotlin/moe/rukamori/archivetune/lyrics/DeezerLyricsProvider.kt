@@ -24,7 +24,7 @@ object DeezerLyricsProvider : LyricsProvider {
     override val name = "Deezer"
 
     override fun isEnabled(context: Context): Boolean =
-        (context.dataStore[EnableDeezerLyricsKey] ?: true) && DeezerAudioProvider.hasBackends()
+        (context.dataStore[EnableDeezerLyricsKey] ?: true) && DeezerAudioProvider.hasAccounts()
 
     override suspend fun getLyrics(
         id: String,

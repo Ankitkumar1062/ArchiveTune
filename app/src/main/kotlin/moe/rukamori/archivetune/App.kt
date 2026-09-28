@@ -493,6 +493,16 @@ class App :
                 }
         }
 
+        // Mirrors the user's Deezer API instance list into the instance tier.
+        applicationScope.launch(Dispatchers.IO) {
+            dataStore.data
+                .map { it[moe.rukamori.archivetune.constants.DeezerInstancesKey] ?: "" }
+                .distinctUntilChanged()
+                .collect { raw ->
+                    moe.rukamori.archivetune.deezer.DeezerInstances.setUserInstances(raw)
+                }
+        }
+
         // Observe UsePoolAccountsKey and update PoolAccountManager so it returns empty lists when OFF.
         // Default ON: the pool is enabled by default and the toggle exists to turn it off, not to opt in.
         applicationScope.launch(Dispatchers.IO) {

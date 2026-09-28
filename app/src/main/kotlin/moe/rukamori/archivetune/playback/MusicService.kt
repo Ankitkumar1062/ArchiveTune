@@ -86,6 +86,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.analytics.PlaybackStats
 import androidx.media3.exoplayer.analytics.PlaybackStatsListener
+import androidx.media3.exoplayer.audio.AudioTrackAudioOutputProvider
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder
@@ -141,6 +142,7 @@ import moe.rukamori.archivetune.constants.AudioNormalizationKey
 import moe.rukamori.archivetune.constants.DefaultMetadataSourceKey
 import moe.rukamori.archivetune.constants.MetadataSource
 import moe.rukamori.archivetune.constants.AudioOffload
+import moe.rukamori.archivetune.constants.BitPerfectUsbOutputKey
 import moe.rukamori.archivetune.constants.AudioQuality
 import moe.rukamori.archivetune.constants.AudioQualityKey
 import moe.rukamori.archivetune.constants.AutoDownloadOnLikeKey
@@ -892,6 +894,14 @@ class MusicService :
     private var bassBoost: BassBoost? = null
     private var virtualizer: Virtualizer? = null
     private var loudnessEnhancer: LoudnessEnhancer? = null
+
+    /**
+     * Whether this service's players were built for bit-perfect USB output. Sampled once in
+     * [onCreate]: the audio sink is fixed when a player is built, so flipping the switch takes
+     * effect the next time the service starts.
+     */
+    private var bitPerfectOutputActive: Boolean = false
+    private var bitPerfectDeviceCallback: android.media.AudioDeviceCallback? = null
     private val audioEffectPlayerListener =
         object : Player.Listener {
             override fun onEvents(
@@ -1057,6 +1067,15 @@ class MusicService :
         } catch (e: Exception) {
             reportException(e)
         }
+
+        bitPerfectOutputActive =
+            BitPerfectUsbOutput.isPlatformSupported &&
+            dataStore.get(BitPerfectUsbOutputKey, false) &&
+            !dataStore.get(CrossfadeEnabledKey, false) &&
+            !dataStore.get(AutomixEnabledKey, false)
+        BitPerfectUsbOutput.sinkActive = bitPerfectOutputActive
+        BitPerfectUsbOutput.setEnabled(this, bitPerfectOutputActive)
+        if (bitPerfectOutputActive) registerBitPerfectDeviceCallback()
 
         localPlayer =
             ExoPlayer
@@ -1476,7 +1495,9 @@ class MusicService :
                 .distinctUntilChanged(),
             currentFormat,
             dataStore.data
-                .map { it[AudioNormalizationKey] ?: true }
+                // Bit-perfect output hands volume to the DAC path; a per-track gain there would
+                // just move the user's volume around, so normalization sits out.
+                .map { (it[AudioNormalizationKey] ?: true) && !bitPerfectOutputActive }
                 .distinctUntilChanged(),
         ) { mediaId, format, normalizeAudio ->
             normalizeAudio to resolveAudioNormalizationFactor(mediaId, format, normalizeAudio)
@@ -5316,8 +5337,38 @@ class MusicService :
         releaseAudioEffectInstances()
     }
 
+    /**
+     * Keeps the bit-perfect status current across USB plugs. A DAC attached mid-track engages on the
+     * next AudioTrack (the next song or seek); one removed mid-track falls back to the phone's
+     * normal output through the platform's own rerouting.
+     */
+    private fun registerBitPerfectDeviceCallback() {
+        val manager = getSystemService(AudioManager::class.java) ?: return
+        val callback =
+            object : AudioDeviceCallback() {
+                override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>?) {
+                    BitPerfectUsbOutput.refreshDeviceStatus(this@MusicService)
+                }
+
+                override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>?) {
+                    if (!BitPerfectUsbOutput.hasUsbOutput(this@MusicService)) {
+                        BitPerfectUsbOutput.clear(this@MusicService)
+                    }
+                    BitPerfectUsbOutput.refreshDeviceStatus(this@MusicService)
+                }
+            }
+        manager.registerAudioDeviceCallback(callback, Handler(mainLooper))
+        bitPerfectDeviceCallback = callback
+    }
+
     private fun ensureAudioEffects(sessionId: Int) {
         if (sessionId <= 0) return
+        if (bitPerfectOutputActive && BitPerfectUsbOutput.enabled) {
+            // Session effects (EQ, bass boost, virtualizer, loudness) would either alter the
+            // samples or make the platform refuse the bit-perfect path, so none are attached.
+            releaseAudioEffectInstances()
+            return
+        }
         if (audioEffectsSessionId == sessionId && equalizer != null) return
 
         audioEffectsInitializationJob?.cancel()
@@ -8517,16 +8568,16 @@ class MusicService :
         dataStore.get(QobuzAudioQualityKey, QobuzAudioQuality.FLAC.name).toEnum(QobuzAudioQuality.FLAC)
 
     /**
-     * Resolves a Deezer stream. Unlike Tidal/Qobuz there is no proxy-instance tier, so the pool is the
-     * only credential source and the whole source is a no-op until the pool has accounts.
+     * Resolves a Deezer stream: accounts first (manual ARL, then pooled ARLs), then Deezer API
+     * instances (user-added, then the pool's instance feed). A no-op until one of those exists.
      */
     private fun resolveDeezerStream(query: SourceQuery): DirectStream? {
         // DeezerAudioProvider.accounts() merges the manually signed-in account (setManualArl) with
         // PoolAccountManager.deezerAccounts(), so the guard has to go through it: asking the pool
         // directly misses a user who signed in on the Deezer login screen, and every track then
         // silently produces null.
-        if (!DeezerAudioProvider.hasAccounts()) {
-            Timber.tag("MusicService").d("Deezer skip: no manual or pooled accounts available")
+        if (!DeezerAudioProvider.hasBackends()) {
+            Timber.tag("MusicService").d("Deezer skip: no accounts and no API instances available")
             return null
         }
         val quality = parseDeezerAudioQuality()
@@ -9707,6 +9758,29 @@ class MusicService :
                 context: Context,
                 enableFloatOutput: Boolean,
                 enableAudioTrackPlaybackParams: Boolean,
+            ): DefaultAudioSink {
+                if (bitPerfectOutputActive) {
+                    // Bit-perfect USB: decoders hand over float (exact for 16/24-bit sources),
+                    // the float path skips every processor in the chain, and the provider
+                    // negotiates the DAC's native container per AudioTrack. No speed, silence
+                    // skipping, haptics or transition filtering can touch the samples here.
+                    return DefaultAudioSink
+                        .Builder(context)
+                        .setEnableFloatOutput(true)
+                        .setEnableAudioTrackPlaybackParams(false)
+                        .setAudioOutputProvider(
+                            BitPerfectAudioOutputProvider(
+                                context,
+                                AudioTrackAudioOutputProvider.Builder(context).build(),
+                            ),
+                        ).build()
+                }
+                return buildStandardAudioSink(context, enableAudioTrackPlaybackParams)
+            }
+
+            private fun buildStandardAudioSink(
+                context: Context,
+                enableAudioTrackPlaybackParams: Boolean,
             ) = DefaultAudioSink
                 .Builder(context)
                 .setEnableFloatOutput(false)
@@ -10183,6 +10257,13 @@ class MusicService :
             audioManager.unregisterAudioDeviceCallback(audioDeviceCallback)
             audioDeviceCallbackRegistered = false
         }
+        bitPerfectDeviceCallback?.let { callback ->
+            runCatching { getSystemService(AudioManager::class.java)?.unregisterAudioDeviceCallback(callback) }
+        }
+        bitPerfectDeviceCallback = null
+        // Hands the DAC back to the shared mixer; the preference would otherwise outlive the app.
+        BitPerfectUsbOutput.clear(this)
+        BitPerfectUsbOutput.sinkActive = false
         unregisterBluetoothReceiver()
         unregisterMuteRecoveryObserver()
         try {

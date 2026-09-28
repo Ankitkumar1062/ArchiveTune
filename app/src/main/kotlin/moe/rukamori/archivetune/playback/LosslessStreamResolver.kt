@@ -316,8 +316,8 @@ object LosslessStreamResolver {
         durationMs: Long?,
         format: String,
     ): DirectStream? {
-        if (!DeezerAudioProvider.hasAccounts()) {
-            Timber.tag("LosslessResolver").d("Deezer skip: no manual or pooled accounts available")
+        if (!DeezerAudioProvider.hasBackends()) {
+            Timber.tag("LosslessResolver").d("Deezer skip: no accounts and no API instances available")
             return null
         }
         return runCatching {

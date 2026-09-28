@@ -407,10 +407,28 @@ object SourceCheckService {
         // playback was in fact resolving. Same defect 7ede13689 fixed in MusicService's resolver.
         val availability = DeezerAudioProvider.accountAvailability()
         if (availability.total == 0) {
+            // No account at all: the API-instance tier is the only thing left to check.
+            val health =
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    moe.rukamori.archivetune.deezer.DeezerInstances.checkFirst()
+                }
+            if (health != null) {
+                return SourceCheckResult(
+                    healthy = health.ok,
+                    summary =
+                        if (health.ok) {
+                            "No Deezer account, but API instance ${health.instance} is live. Deezer source is READY " +
+                                "through the instance."
+                        } else {
+                            "No Deezer account, and API instance ${health.instance} is not serving (${health.detail}). " +
+                                "Sign in via Integration → Deezer, add another instance, or refresh the source pool."
+                        },
+                )
+            }
             return SourceCheckResult(
                 healthy = false,
-                summary = "No Deezer credentials available. Sign in with your own Deezer account via " +
-                    "Integration → Deezer, or tap 'Refresh source pool' at the top to pick up shared accounts.",
+                summary = "No Deezer credentials available. Sign in via Integration → Deezer (browser sign-in or " +
+                    "paste an ARL), add a Deezer API instance there, or tap 'Refresh source pool' at the top.",
             )
         }
 

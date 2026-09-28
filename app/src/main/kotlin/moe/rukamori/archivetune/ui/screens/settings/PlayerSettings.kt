@@ -37,6 +37,7 @@ import androidx.compose.material3.TextButton
 import moe.rukamori.archivetune.ui.component.SettingsTopAppBar
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -98,6 +99,8 @@ import moe.rukamori.archivetune.constants.WakelockKey
 import moe.rukamori.archivetune.ui.component.ArtistSeparatorsDialog
 import moe.rukamori.archivetune.ui.component.CrossfadeSliderPreference
 import moe.rukamori.archivetune.ui.component.DefaultDialog
+import moe.rukamori.archivetune.constants.BitPerfectUsbOutputKey
+import moe.rukamori.archivetune.playback.BitPerfectUsbOutput
 import moe.rukamori.archivetune.ui.component.EnumListPreference
 import moe.rukamori.archivetune.ui.component.IconButton
 import moe.rukamori.archivetune.ui.component.NumberPickerPreference
@@ -161,6 +164,13 @@ fun PlayerSettings(navController: NavController, scrollTo: String? = null) {
             AudioOffload,
             defaultValue = false,
         )
+    val (bitPerfectUsb, onBitPerfectUsbChange) =
+        rememberPreference(
+            BitPerfectUsbOutputKey,
+            defaultValue = false,
+        )
+    val bitPerfectStatus by BitPerfectUsbOutput.status.collectAsState()
+    val bitPerfectContext = LocalContext.current
 
     val (seekExtraSeconds, onSeekExtraSeconds) =
         rememberPreference(
@@ -457,6 +467,9 @@ fun PlayerSettings(navController: NavController, scrollTo: String? = null) {
                                     // Crossfade and automix are mutually exclusive: at most one
                                     // engine shapes a given track boundary.
                                     onAutomixEnabledChange(false)
+                                    // A fade needs a second player and gain changes, neither of
+                                    // which a bit-perfect path allows.
+                                    onBitPerfectUsbChange(false)
                                 }
                                 onCrossfadeEnabledChange(enabled)
                             },
@@ -480,6 +493,7 @@ fun PlayerSettings(navController: NavController, scrollTo: String? = null) {
                                     // Automix hands every transition to the analysis engine; the
                                     // manual crossfade slider stops applying.
                                     onCrossfadeEnabledChange(false)
+                                    onBitPerfectUsbChange(false)
                                 }
                                 onAutomixEnabledChange(enabled)
                             },
@@ -619,9 +633,61 @@ fun PlayerSettings(navController: NavController, scrollTo: String? = null) {
                                 onSkipSilenceChange(false)
                                 onCrossfadeEnabledChange(false)
                                 onAutomixEnabledChange(false)
+                                onBitPerfectUsbChange(false)
                             }
                         },
                     )
+                }
+
+                item {
+                    Column(modifier = positions.modifierFor("bit_perfect_usb")) {
+                        val bitPerfectDescription =
+                            when {
+                                !BitPerfectUsbOutput.isPlatformSupported ->
+                                    stringResource(R.string.bit_perfect_usb_unsupported)
+                                !bitPerfectUsb -> stringResource(R.string.bit_perfect_usb_desc)
+                                !BitPerfectUsbOutput.sinkActive ->
+                                    stringResource(R.string.bit_perfect_usb_restart)
+                                else ->
+                                    when (val status = bitPerfectStatus) {
+                                        is BitPerfectUsbOutput.Status.Active ->
+                                            stringResource(
+                                                R.string.bit_perfect_usb_active,
+                                                status.deviceName.ifBlank { "USB DAC" },
+                                                status.format,
+                                            )
+                                        is BitPerfectUsbOutput.Status.Fallback ->
+                                            stringResource(R.string.bit_perfect_usb_fallback, status.reason)
+                                        is BitPerfectUsbOutput.Status.Ready ->
+                                            stringResource(
+                                                R.string.bit_perfect_usb_ready,
+                                                status.deviceName.ifBlank { "USB DAC" },
+                                            )
+                                        BitPerfectUsbOutput.Status.NoDevice ->
+                                            stringResource(R.string.bit_perfect_usb_no_device)
+                                        else -> stringResource(R.string.bit_perfect_usb_desc)
+                                    }
+                            }
+                        SwitchPreference(
+                            title = { Text(stringResource(R.string.bit_perfect_usb_title)) },
+                            description = bitPerfectDescription,
+                            icon = { Icon(painterResource(R.drawable.graphic_eq), null) },
+                            checked = bitPerfectUsb && BitPerfectUsbOutput.isPlatformSupported,
+                            isEnabled = BitPerfectUsbOutput.isPlatformSupported,
+                            onCheckedChange = { enabled ->
+                                onBitPerfectUsbChange(enabled)
+                                if (enabled) {
+                                    onAudioOffloadChange(false)
+                                    onCrossfadeEnabledChange(false)
+                                    onAutomixEnabledChange(false)
+                                } else if (BitPerfectUsbOutput.sinkActive) {
+                                    // Release the DAC now; the players keep their float sink until
+                                    // the service restarts, which plays normally without a preference.
+                                    BitPerfectUsbOutput.setEnabled(bitPerfectContext, false)
+                                }
+                            },
+                        )
+                    }
                 }
 
                 item {

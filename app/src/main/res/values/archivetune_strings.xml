@@ -1003,4 +1003,27 @@
     <string name="automix_state_refining">analysed, refining…</string>
     <string name="automix_state_waiting">waiting</string>
     <string name="automix_state_failed">failed</string>
+    <string name="bit_perfect_usb_title">Bit-perfect USB output</string>
+    <string name="bit_perfect_usb_desc">Android 14+. Sends each song to a USB DAC in its own format with nothing mixed or processed. Turns off crossfade, automix, offload, normalization and the equalizer.</string>
+    <string name="bit_perfect_usb_unsupported">Needs Android 14 or newer</string>
+    <string name="bit_perfect_usb_restart">Takes effect the next time the app starts</string>
+    <string name="bit_perfect_usb_no_device">On · plug in a USB DAC</string>
+    <string name="bit_perfect_usb_ready">On · %1$s connected, engages on the next song</string>
+    <string name="bit_perfect_usb_active">Bit-perfect to %1$s · %2$s</string>
+    <string name="bit_perfect_usb_fallback">Normal output · %1$s</string>
+    <string name="deezer_arl_login">Sign in with ARL</string>
+    <string name="deezer_arl_login_description">Paste the arl cookie from a signed-in deezer.com browser session</string>
+    <string name="deezer_arl_placeholder">arl cookie value</string>
+    <string name="deezer_arl_invalid">Deezer did not accept that ARL. It may be expired, or it belongs to a signed-out session.</string>
+    <string name="deezer_api_group">Deezer API</string>
+    <string name="deezer_api_instances">API instances</string>
+    <string name="deezer_api_instances_none">None added. Add a self-hosted Deezer instance URL, one per line</string>
+    <plurals name="deezer_api_instances_count">
+        <item quantity="one">%d instance, tried after accounts</item>
+        <item quantity="other">%d instances, tried after accounts</item>
+    </plurals>
+    <string name="deezer_api_instances_hint">One base URL per line. An instance answers GET /health and streams from /stream/?isrc=… or /stream/{track id}. Your own ARL is never sent to it.</string>
+    <string name="deezer_api_pool">Source Pool instances</string>
+    <string name="deezer_api_pool_on">On · verified instances from the Source Pool are added after yours</string>
+    <string name="deezer_api_pool_off">Off · turn on "Use pool accounts" to add the Source Pool's instances</string>
 </resources>
