@@ -106,6 +106,7 @@ class ListenTogetherManager @Inject constructor(
     }
 
     private var playerConnection: PlayerConnection? = null
+    private var playerFollowJob: Job? = null
     private var eventCollectorJob: Job? = null
     private var queueObserverJob: Job? = null
     private var volumeObserverJob: Job? = null
@@ -349,6 +350,7 @@ class ListenTogetherManager @Inject constructor(
             }
 
             playerConnection = connection
+            followPlayerPromotions(connection)
 
             // PORT-NOTE: vivi registered `connection.shouldBlockPlaybackChanges = { isInRoom && !isHost }`
             // here so PlayerConnection could drop guest-initiated playback changes, plus
@@ -1595,6 +1597,36 @@ class ListenTogetherManager @Inject constructor(
      */
     fun onMusicServiceDestroyed(service: moe.rukamori.archivetune.playback.MusicService) {
         if (playerConnection?.service === service) setPlayerConnection(null)
+    }
+
+    /**
+     * Keeps [playerListener] on the service's live player. A crossfade or automix promotion
+     * replaces the session player and releases the old one; the listener used to stay on the
+     * released player, so after the first blend a host stopped broadcasting play/pause/seek/track
+     * changes and a guest stopped suggesting songs, with nothing in the UI to show it.
+     * [PlayerConnection] already follows promotions the same way for its own listener.
+     */
+    private fun followPlayerPromotions(connection: PlayerConnection?) {
+        playerFollowJob?.cancel()
+        playerFollowJob = null
+        if (connection == null) return
+        playerFollowJob =
+            scope.launch {
+                var previous: Player = connection.player
+                connection.service.playerFlow.collect { newPlayer ->
+                    if (newPlayer == null || newPlayer === previous) return@collect
+                    if (playerListenerRegistered) {
+                        runCatching { previous.removeListener(playerListener) }
+                        runCatching {
+                            // Remove first so a listener an event handler already put on the
+                            // new player is never registered twice.
+                            newPlayer.removeListener(playerListener)
+                            newPlayer.addListener(playerListener)
+                        }.onFailure { Timber.tag(TAG).e(it, "Failed to move player listener after promotion") }
+                    }
+                    previous = newPlayer
+                }
+            }
     }
 
     fun disconnect() {
