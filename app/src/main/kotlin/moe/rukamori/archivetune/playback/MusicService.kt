@@ -2796,6 +2796,13 @@ class MusicService :
 
                     var elapsedMs = 0L
                     var lastTickMs = android.os.SystemClock.elapsedRealtime()
+                    // Set once the outgoing song has run out underneath the blend (ported from
+                    // 4nx3b 998edf62c). From then on there is nothing left to mix out of, so the
+                    // rest of the ramp is compressed into CROSSFADE_EARLY_FINISH_MS instead of
+                    // leaving the incoming song crawling up at low volume over dead air. 4nx3b
+                    // snaps straight to full volume; a short ramp avoids the audible jump.
+                    var earlyFinishElapsedMs = -1L
+                    var earlyFinishFromProgress = 0f
                     while (isActive && elapsedMs < durationMs) {
                         if (player.currentMediaItem?.mediaId != outgoingMediaId) {
                             cancelCrossfade(resetVolume = true, resetPauseAtEnd = true)
@@ -2803,6 +2810,52 @@ class MusicService :
                         }
 
                         val nowMs = android.os.SystemClock.elapsedRealtime()
+                        if (earlyFinishElapsedMs < 0L && crossfadePlaybackRequested) {
+                            // onPlayWhenReadyChanged keeps crossfadePlaybackRequested true across
+                            // the outgoing player's own end-of-item pause, so a pause by the user
+                            // (which clears it) can never be mistaken for the song ending.
+                            val outgoingDuration = player.duration
+                            val outgoingRanOut =
+                                player.playbackState == Player.STATE_ENDED ||
+                                    (
+                                        !player.playWhenReady &&
+                                            player.playbackState == Player.STATE_READY &&
+                                            outgoingDuration != C.TIME_UNSET &&
+                                            player.currentPosition >= outgoingDuration - CROSSFADE_END_GUARD_MS - 100L
+                                        )
+                            if (outgoingRanOut) {
+                                earlyFinishElapsedMs = 0L
+                                earlyFinishFromProgress = crossfadeProgress
+                                Timber.tag(TAG).d(
+                                    "crossfade[%d] outgoing ended mid-blend at %.0f%%; finishing early",
+                                    generation,
+                                    crossfadeProgress * 100f,
+                                )
+                            }
+                        }
+                        if (earlyFinishElapsedMs >= 0L) {
+                            if (crossfadePlaybackRequested) {
+                                incomingPlayer.playWhenReady = true
+                                earlyFinishElapsedMs =
+                                    (earlyFinishElapsedMs + (nowMs - lastTickMs)).coerceAtMost(CROSSFADE_EARLY_FINISH_MS)
+                                val t = earlyFinishElapsedMs.toFloat() / CROSSFADE_EARLY_FINISH_MS.toFloat()
+                                crossfadeProgress =
+                                    (earlyFinishFromProgress + (1f - earlyFinishFromProgress) * t).coerceIn(0f, 1f)
+                                applyCrossfadeVolumes(
+                                    crossfadeProgress,
+                                    crossfadeBaseVolume,
+                                    crossfadeIncomingBaseVolume,
+                                    localPlayer,
+                                    incomingPlayer,
+                                )
+                                if (earlyFinishElapsedMs >= CROSSFADE_EARLY_FINISH_MS) break
+                            } else {
+                                incomingPlayer.pause()
+                            }
+                            lastTickMs = nowMs
+                            delay(CROSSFADE_FRAME_MS)
+                            continue
+                        }
                         if (crossfadePlaybackRequested) {
                             incomingPlayer.playWhenReady = true
                             elapsedMs = (elapsedMs + (nowMs - lastTickMs)).coerceAtMost(durationMs)
@@ -9444,6 +9497,7 @@ class MusicService :
         // Released before anything else is torn down: once destruction has started no bound client
         // may obtain this service again (and the binder must stop pinning it).
         binder.release()
+        runCatching { listenTogetherManager.onMusicServiceDestroyed(this) }
         equalizerPlaybackController.detach(this)
         sponsorBlockPlaybackController.detach()
         musicHapticsEngine?.release()
@@ -9760,6 +9814,7 @@ class MusicService :
         const val EFFECTIVE_VOLUME_RAMP_MIN_DELTA = 0.015f
         const val MIN_CROSSFADE_DURATION_MS = 500L
         const val CROSSFADE_END_GUARD_MS = 150L
+        const val CROSSFADE_EARLY_FINISH_MS = 350L
         const val CROSSFADE_PREPARE_AHEAD_MS = 30_000L
         const val CROSSFADE_READY_TIMEOUT_MS = 5_000L
         const val CROSSFADE_HANDOFF_BUFFER_MS = 5_000L

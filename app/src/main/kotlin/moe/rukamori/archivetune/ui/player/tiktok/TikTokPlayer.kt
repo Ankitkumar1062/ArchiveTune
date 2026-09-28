@@ -119,7 +119,8 @@ import moe.rukamori.archivetune.ui.component.MenuState
 import moe.rukamori.archivetune.ui.component.PlatformBackdrop
 import moe.rukamori.archivetune.ui.component.layerBackdrop
 import moe.rukamori.archivetune.ui.component.rememberBackdrop
-import moe.rukamori.archivetune.ui.menu.LyricsMenu
+import moe.rukamori.archivetune.ui.menu.AnchoredLyricsOverflowMenu
+import moe.rukamori.archivetune.ui.component.rememberLiquidGlassEnabled
 import moe.rukamori.archivetune.ui.player.AppleMusicQueueSheet
 import moe.rukamori.archivetune.ui.player.LocalVideoArtworkState
 import moe.rukamori.archivetune.ui.player.LocalVideoFullscreenState
@@ -432,8 +433,9 @@ fun TikTokPlayerContent(
     // overflow menu from Apple music style"). Below Android S there is no
     // RuntimeShader and the popup falls back to its plain dark-glass card —
     // the same fallback the Apple Music style shows on those devices.
+    // Gated like the Apple Music player's own popup (4nx3b): only with Liquid Glass on.
     val popupBackdrop: PlatformBackdrop? =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        if (rememberLiquidGlassEnabled() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             rememberBackdrop(Color.Transparent)
         } else {
             null
@@ -508,7 +510,9 @@ fun TikTokPlayerContent(
                         if (feedBlur > 0.dp) base.blur(feedBlur) else base
                     }
                     .let { base ->
-                        if (popupBackdrop != null) {
+                        // Recording the backdrop layer costs a full-screen layer every frame, so
+                        // the pager only records it while the popup is on screen (4nx3b).
+                        if (popupBackdrop != null && lyricsOpen && showLyricsMenu) {
                             base.layerBackdrop(popupBackdrop)
                         } else {
                             base
@@ -692,18 +696,18 @@ fun TikTokPlayerContent(
 
         // ── Lyrics overflow (the anchored Apple Music popup) ── Rendered as a SIBLING of the pager
         // (the backdrop-capturing layer) at the player's root.
-        LaunchedEffect(showLyricsMenu) {
-            if (!showLyricsMenu) return@LaunchedEffect
-            showLyricsMenu = false
-            menuState.show {
-                LyricsMenu(
-                    lyricsProvider = { currentLyrics },
-                    mediaMetadataProvider = { mediaMetadata },
-                    lyricsSyncOffset = lyricsSyncOffset,
-                    onLyricsSyncOffsetChange = onLyricsSyncOffsetChange,
-                    onDismiss = menuState::dismiss,
-                )
-            }
+        // Canary had swapped this for the plain bottom sheet, believing AnchoredLyricsOverflowMenu
+        // was missing from this tree; it is in LyricsMenu.kt, so 4nx3b's popup is restored.
+        if (lyricsOpen && showLyricsMenu) {
+            AnchoredLyricsOverflowMenu(
+                iconBoundsInRoot = lyricsPopupAnchor,
+                lyricsProvider = { currentLyrics },
+                mediaMetadataProvider = { mediaMetadata },
+                lyricsSyncOffset = lyricsSyncOffset,
+                onLyricsSyncOffsetChange = onLyricsSyncOffsetChange,
+                onDismiss = { showLyricsMenu = false },
+                backdrop = popupBackdrop,
+            )
         }
     }
 

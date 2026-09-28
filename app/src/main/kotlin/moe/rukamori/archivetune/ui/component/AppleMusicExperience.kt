@@ -15,7 +15,12 @@
 package moe.rukamori.archivetune.ui.component
 
 import androidx.compose.runtime.Composable
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.edit
 import moe.rukamori.archivetune.constants.AppleMusicExperienceKey
+import moe.rukamori.archivetune.constants.LaunchCountKey
+import moe.rukamori.archivetune.constants.OnboardingCompletedKey
 import moe.rukamori.archivetune.constants.LibraryStyle
 import moe.rukamori.archivetune.constants.LibraryStyleKey
 import moe.rukamori.archivetune.constants.PlayerDesignStyle
@@ -86,5 +91,29 @@ fun rememberAppleMusicExperienceToggle(): (Boolean) -> Unit {
         } else if (playerStyle == PlayerDesignStyle.APPLE_MUSIC) {
             setPlayerStyle(styleBefore.toEnum(PlayerDesignStyle.Default))
         }
+    }
+}
+
+/**
+ * Turns the Apple Music Experience on for a fresh install, once.
+ *
+ * Changing the switch's default value alone would not do it: the player design style only moves
+ * when the switch is flipped, so a fresh install would get the Apple Music tab bar and headers
+ * around the V4 player. This writes the same three values the switch writes, and records V4 as the
+ * style to give back when it is turned off.
+ *
+ * Runs in a single atomic edit and only when the switch has never been written and the install has
+ * never finished a launch or onboarding, so an existing install — including one whose user never
+ * touched the switch — keeps exactly the presentation it had.
+ */
+internal suspend fun seedAppleMusicExperienceForFreshInstall(dataStore: DataStore<Preferences>) {
+    dataStore.edit { prefs ->
+        if (prefs[AppleMusicExperienceKey] != null) return@edit
+        val isFreshInstall = (prefs[LaunchCountKey] ?: 0) <= 0 && prefs[OnboardingCompletedKey] != true
+        if (!isFreshInstall) return@edit
+        prefs[AppleMusicExperienceKey] = true
+        prefs[LibraryStyleKey] = LibraryStyle.APPLE_MUSIC.name
+        prefs[StyleBeforeAppleMusicKey] = PlayerDesignStyle.Default.name
+        prefs[PlayerDesignStyleKey] = PlayerDesignStyle.APPLE_MUSIC.name
     }
 }

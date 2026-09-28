@@ -25,6 +25,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -81,6 +83,20 @@ class PlayerConnection(
     val service = binder.service
 
     /**
+     * Everything this connection launches runs here, a child of the caller's scope that [dispose]
+     * cancels. MainActivity hands in its lifecycleScope and builds a new connection on every
+     * onStart, so work launched straight into that scope outlived the disposed connection until
+     * the activity itself was destroyed: each background/foreground cycle left one more
+     * playerFlow collector behind, pinning the old connection and the service, and re-adding the
+     * disposed connection as a player listener on the next crossfade promotion.
+     */
+    private val connectionScope =
+        CoroutineScope(scope.coroutineContext + SupervisorJob(scope.coroutineContext[Job]))
+
+    @Volatile
+    private var isDisposed = false
+
+    /**
      * Always the CURRENT active player. The service may promote a new player instance
      * (crossfade promotion), so this must be a live getter, not a captured reference.
      */
@@ -98,7 +114,7 @@ class PlayerConnection(
         combine(playbackState, playWhenReady) { playbackState, playWhenReady ->
             playWhenReady && playbackState != STATE_ENDED
         }.stateIn(
-            scope,
+            connectionScope,
             SharingStarted.Lazily,
             player.playWhenReady && player.playbackState != STATE_ENDED,
         )
@@ -154,16 +170,16 @@ class PlayerConnection(
         }
 
         // Follow player promotions (e.g. crossfade) and re-attach to the new active player.
-        scope.launch {
+        connectionScope.launch {
             service.playerFlow.collect { newPlayer ->
-                if (newPlayer != null && newPlayer !== attachedPlayer) {
+                if (!isDisposed && newPlayer != null && newPlayer !== attachedPlayer) {
                     attachToPlayer(newPlayer)
                 }
             }
         }
 
         metadataExtractionJob =
-            scope.launch(Dispatchers.IO) {
+            connectionScope.launch(Dispatchers.IO) {
                 mediaMetadata
                     .distinctUntilChangedBy { it?.id }
                     .collectLatest { metadata ->
@@ -561,10 +577,12 @@ class PlayerConnection(
     }
 
     fun dispose() {
+        isDisposed = true
         attachedPlayer?.removeListener(this)
         attachedPlayer = null
         metadataExtractionJob?.cancel()
         metadataExtractionJob = null
+        connectionScope.cancel()
     }
 
     private companion object {

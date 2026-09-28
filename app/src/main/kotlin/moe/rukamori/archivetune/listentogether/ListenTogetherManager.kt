@@ -1587,6 +1587,16 @@ class ListenTogetherManager @Inject constructor(
     /**
      * Disconnect from the server
      */
+    /**
+     * Drops the held connection when its service is destroyed. This singleton deliberately keeps
+     * the connection across MainActivity's onStop (its player getter follows the live service, so
+     * room sync keeps working in the background), but once the service itself is gone the
+     * connection only pins the destroyed service and its released players until the next launch.
+     */
+    fun onMusicServiceDestroyed(service: moe.rukamori.archivetune.playback.MusicService) {
+        if (playerConnection?.service === service) setPlayerConnection(null)
+    }
+
     fun disconnect() {
         Timber.tag(TAG).d("Disconnecting from server")
         cleanup()

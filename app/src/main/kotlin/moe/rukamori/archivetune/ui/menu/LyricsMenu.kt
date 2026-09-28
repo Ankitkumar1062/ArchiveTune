@@ -87,6 +87,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.material3.ripple
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
@@ -161,6 +165,7 @@ fun LyricsMenu(
     onLyricsSyncOffsetChange: (Int) -> Unit,
     onDismiss: () -> Unit,
     viewModel: LyricsMenuViewModel = hiltViewModel(),
+    transparentSurface: Boolean = false,
 ) {
     val context = LocalContext.current
 
@@ -726,6 +731,66 @@ fun LyricsMenu(
         }
     }
 
+    val menuActions: List<AppleMusicLyricsMenuItem> =
+        listOf(
+            AppleMusicLyricsMenuItem(
+                label = stringResource(R.string.edit),
+                iconRes = R.drawable.edit,
+                onClick = { showEditDialog = true },
+            ),
+            AppleMusicLyricsMenuItem(
+                label = stringResource(R.string.refetch),
+                iconRes = R.drawable.cached,
+                onClick = {
+                    viewModel.refetchLyrics(mediaMetadataProvider())
+                },
+            ),
+            AppleMusicLyricsMenuItem(
+                label = stringResource(R.string.translate),
+                iconRes = R.drawable.translate,
+                enabled = isTranslateEnabled,
+                onClick = { showTranslateDialog = true },
+            ),
+            AppleMusicLyricsMenuItem(
+                label = stringResource(R.string.ai_romanize_now),
+                iconRes = R.drawable.language,
+                enabled = isAiRomanizationEnabled,
+                onClick = {
+                    val lyricsText = lyricsProvider()?.lyrics.orEmpty()
+                    AiLyricsRomanization.request(
+                        sessionKey =
+                            AiLyricsRomanization.sessionKey(
+                                mediaId = mediaMetadataProvider().id,
+                                lyrics = lyricsText,
+                            ),
+                        lines = AiLyricsRomanization.linesOf(lyricsText, mediaMetadataProvider().duration),
+                        settings = aiRomanizationSettings,
+                    )
+                    Toast
+                        .makeText(context, context.getString(R.string.ai_romanize_started), Toast.LENGTH_SHORT)
+                        .show()
+                },
+            ),
+            AppleMusicLyricsMenuItem(
+                label = stringResource(R.string.undo_translation),
+                iconRes = R.drawable.restore,
+                // Apple Music marks the action that throws work away in red.
+                isDestructive = true,
+                enabled = canUndoTranslation,
+                onClick = { viewModel.undoTranslation(mediaMetadataProvider().id) },
+            ),
+            AppleMusicLyricsMenuItem(
+                label = stringResource(R.string.lyrics_sync_offset),
+                iconRes = R.drawable.speed,
+                onClick = { showLyricsSyncOffsetDialog = true },
+            ),
+            AppleMusicLyricsMenuItem(
+                label = stringResource(R.string.search),
+                iconRes = R.drawable.search,
+                onClick = { showSearchDialog = true },
+            ),
+        )
+
     LazyColumn(
         userScrollEnabled = true,
         contentPadding =
@@ -733,135 +798,123 @@ fun LyricsMenu(
                 start = 0.dp,
                 top = 0.dp,
                 end = 0.dp,
-                bottom = 8.dp + WindowInsets.systemBars.asPaddingValues().calculateBottomPadding(),
+                // The anchored popup floats above the content; only the bottom sheet reaches the
+                // navigation bar and needs to clear it.
+                bottom =
+                    if (transparentSurface) {
+                        8.dp
+                    } else {
+                        8.dp + WindowInsets.systemBars.asPaddingValues().calculateBottomPadding()
+                    },
             ),
     ) {
-        // Says which track the lyrics actions are about, the way every other menu does. It is also
-        // what the Apple Music Experience restyles: MenuHeaderCard drops the raised card for a
-        // hairline under the header, and with no header here there was nothing for it to act on.
-        item {
-            MenuHeaderCard {
-                MediaMetadataListItem(
-                    mediaMetadata = mediaMetadataProvider(),
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                )
+        if (transparentSurface) {
+            // The Apple Music action list (4nx3b's lyrics popup): plain rows on the glass with
+            // hairlines between them, no header card and no icon grid. A 220dp popup cannot hold
+            // the sheet's header and seven-tile grid without clipping it.
+            item {
+                Column(modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                    menuActions.forEachIndexed { index, item ->
+                        AppleMusicLyricsMenuRow(item = item)
+                        if (index < menuActions.lastIndex) {
+                            HorizontalDivider(
+                                color = Color.White.copy(alpha = 0.12f),
+                                thickness = 0.5.dp,
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                            )
+                        }
+                    }
+                }
             }
-            Spacer(Modifier.height(16.dp))
-        }
+        } else {
+            // Says which track the lyrics actions are about, the way every other menu does. It is
+            // also what the Apple Music Experience restyles: MenuHeaderCard drops the raised card
+            // for a hairline under the header, and with no header here there was nothing for it
+            // to act on.
+            item {
+                MenuHeaderCard {
+                    MediaMetadataListItem(
+                        mediaMetadata = mediaMetadataProvider(),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+            }
 
-        item {
-            MenuSurfaceSection(modifier = Modifier.padding(vertical = 6.dp)) {
-                NewActionGrid(
-                    actions =
-                        listOf(
-                            NewAction(
-                                icon = {
-                                    Icon(
-                                        painter = painterResource(R.drawable.edit),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(28.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                },
-                                text = stringResource(R.string.edit),
-                                onClick = { showEditDialog = true },
-                            ),
-                            NewAction(
-                                icon = {
-                                    Icon(
-                                        painter = painterResource(R.drawable.cached),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(28.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                },
-                                text = stringResource(R.string.refetch),
-                                onClick = {
-                                    viewModel.refetchLyrics(mediaMetadataProvider())
-                                },
-                            ),
-                            NewAction(
-                                icon = {
-                                    Icon(
-                                        painter = painterResource(R.drawable.translate),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(28.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                },
-                                text = stringResource(R.string.translate),
-                                onClick = { showTranslateDialog = true },
-                                enabled = isTranslateEnabled,
-                            ),
-                            NewAction(
-                                icon = {
-                                    Icon(
-                                        painter = painterResource(R.drawable.language),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(28.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                },
-                                text = stringResource(R.string.ai_romanize_now),
-                                onClick = {
-                                    val lyricsText = lyricsProvider()?.lyrics.orEmpty()
-                                    AiLyricsRomanization.request(
-                                        sessionKey =
-                                            AiLyricsRomanization.sessionKey(
-                                                mediaId = mediaMetadataProvider().id,
-                                                lyrics = lyricsText,
-                                            ),
-                                        lines = AiLyricsRomanization.linesOf(lyricsText, mediaMetadataProvider().duration),
-                                        settings = aiRomanizationSettings,
-                                    )
-                                    Toast
-                                        .makeText(context, context.getString(R.string.ai_romanize_started), Toast.LENGTH_SHORT)
-                                        .show()
-                                },
-                                enabled = isAiRomanizationEnabled,
-                            ),
-                            NewAction(
-                                icon = {
-                                    Icon(
-                                        painter = painterResource(R.drawable.restore),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(28.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                },
-                                text = stringResource(R.string.undo_translation),
-                                onClick = { viewModel.undoTranslation(mediaMetadataProvider().id) },
-                                enabled = canUndoTranslation,
-                            ),
-                            NewAction(
-                                icon = {
-                                    Icon(
-                                        painter = painterResource(R.drawable.speed),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(28.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                },
-                                text = stringResource(R.string.lyrics_sync_offset),
-                                onClick = { showLyricsSyncOffsetDialog = true },
-                            ),
-                            NewAction(
-                                icon = {
-                                    Icon(
-                                        painter = painterResource(R.drawable.search),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(28.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                },
-                                text = stringResource(R.string.search),
-                                onClick = { showSearchDialog = true },
-                            ),
-                        ),
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
-                )
+            item {
+                MenuSurfaceSection(modifier = Modifier.padding(vertical = 6.dp)) {
+                    NewActionGrid(
+                        actions =
+                            menuActions.map { item ->
+                                NewAction(
+                                    icon = {
+                                        Icon(
+                                            painter = painterResource(item.iconRes),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(28.dp),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    },
+                                    text = item.label,
+                                    onClick = item.onClick,
+                                    enabled = item.enabled,
+                                )
+                            },
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
+                    )
+                }
             }
         }
+    }
+}
+
+/** One action of the lyrics menu, rendered either as a sheet grid tile or an Apple Music row. */
+private data class AppleMusicLyricsMenuItem(
+    val label: String,
+    val iconRes: Int,
+    val isDestructive: Boolean = false,
+    val enabled: Boolean = true,
+    val onClick: () -> Unit,
+)
+
+@Composable
+private fun AppleMusicLyricsMenuRow(
+    item: AppleMusicLyricsMenuItem,
+    modifier: Modifier = Modifier,
+) {
+    val baseColor = if (item.isDestructive) Color(0xFFFF453A) else Color.White
+    val contentColor = if (item.enabled) baseColor else baseColor.copy(alpha = 0.38f)
+    val interactionSource = remember { MutableInteractionSource() }
+    Row(
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .heightIn(min = 44.dp)
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = ripple(),
+                    enabled = item.enabled,
+                    onClick = item.onClick,
+                )
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = item.label,
+            color = contentColor,
+            fontWeight = if (item.isDestructive) FontWeight.SemiBold else FontWeight.Medium,
+            fontSize = 16.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false).padding(end = 12.dp),
+        )
+        Icon(
+            painter = painterResource(item.iconRes),
+            contentDescription = null,
+            modifier = Modifier.size(20.dp),
+            tint = contentColor,
+        )
     }
 }
 
@@ -1830,8 +1883,16 @@ fun AnchoredLyricsOverflowMenu(
                         this.scaleX = scale
                         this.scaleY = scale
 
+                        // Grow out of the three-dot itself rather than the popup's corner, so the
+                        // menu reads as coming from the button that opened it.
+                        val popupLeftPx =
+                            (iconBoundsInRoot.right - popupWidthPx).coerceAtLeast(horizontalMarginPx.toFloat())
+                        val iconCenterX = (iconBoundsInRoot.left + iconBoundsInRoot.right) / 2f
+                        val pivotX =
+                            ((iconCenterX - popupLeftPx) / popupWidthPx.coerceAtLeast(1).toFloat())
+                                .coerceIn(0.02f, 0.98f)
                         this.transformOrigin =
-                            TransformOrigin(1f, if (opensAboveAnchor()) 1f else 0f)
+                            TransformOrigin(pivotX, if (opensAboveAnchor()) 1f else 0f)
 
                         this.shadowElevation = with(density) { 16.dp.toPx() }
                         this.shape = RoundedCornerShape(16.dp)
@@ -1863,6 +1924,7 @@ fun AnchoredLyricsOverflowMenu(
                     if (!dismissed) dismissed = true
                 },
                 viewModel = viewModel,
+                transparentSurface = true,
             )
         }
     }

@@ -139,6 +139,7 @@ import moe.rukamori.archivetune.ui.component.LocalMenuState
 import moe.rukamori.archivetune.ui.component.PlatformBackdrop
 import moe.rukamori.archivetune.ui.component.layerBackdrop
 import moe.rukamori.archivetune.ui.component.rememberBackdrop
+import moe.rukamori.archivetune.ui.component.rememberLiquidGlassEnabled
 import moe.rukamori.archivetune.ui.menu.AnchoredLyricsOverflowMenu
 import moe.rukamori.archivetune.ui.utils.ShowMediaInfo
 import android.os.Build
@@ -170,8 +171,10 @@ internal fun SimpMusicFullscreenLyricsSheet(
         mutableStateOf(androidx.compose.ui.geometry.Rect.Zero)
     }
 
+    // Gated on Liquid Glass like 4nx3b and every other style's popup, so the glass goes away with
+    // the toggle off instead of staying on in this one style.
     val popupBackdrop: PlatformBackdrop? =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        if (rememberLiquidGlassEnabled() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             rememberBackdrop(Color.Transparent)
         } else {
             null

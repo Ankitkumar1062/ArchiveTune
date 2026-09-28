@@ -151,6 +151,14 @@ import moe.rukamori.archivetune.ui.component.LyricsEnhanced
 import moe.rukamori.archivetune.ui.component.LyricsV2
 import moe.rukamori.archivetune.ui.component.PlayerSliderTrack
 import moe.rukamori.archivetune.ui.menu.LyricsMenu
+import moe.rukamori.archivetune.ui.menu.AnchoredLyricsOverflowMenu
+import moe.rukamori.archivetune.ui.component.rememberLiquidGlassEnabled
+import moe.rukamori.archivetune.ui.component.rememberBackdrop
+import moe.rukamori.archivetune.ui.component.layerBackdrop
+import moe.rukamori.archivetune.ui.component.PlatformBackdrop
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.geometry.Rect
 import moe.rukamori.archivetune.ui.theme.PlayerColorExtractor
 import moe.rukamori.archivetune.ui.theme.PlayerPaletteCache
 import moe.rukamori.archivetune.playback.artwork.PlayerPaletteCacheKey
@@ -539,17 +547,24 @@ fun LyricsScreen(
         }
     }
 
-    val showLyricsMenu = {
-        menuState.show {
-            LyricsMenu(
-                lyricsProvider = { currentLyrics },
-                mediaMetadataProvider = { mediaMetadata },
-                lyricsSyncOffset = lyricsSyncOffset,
-                onLyricsSyncOffsetChange = onLyricsSyncOffsetChange,
-                onDismiss = menuState::dismiss,
-            )
+    // The lyric actions open as 4nx3b's Apple Music popup, anchored to whichever three-dot was
+    // tapped. It belongs to this screen's design, not to the Apple Music Experience switch.
+    var showAnchoredLyricsMenu by remember { mutableStateOf(false) }
+    var lyricsMenuAnchor by remember { mutableStateOf(Rect.Zero) }
+    var headerMoreBounds by remember { mutableStateOf(Rect.Zero) }
+    var controlsMoreBounds by remember { mutableStateOf(Rect.Zero) }
+    val popupBackdrop: PlatformBackdrop? =
+        if (rememberLiquidGlassEnabled() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            rememberBackdrop(Color.Transparent)
+        } else {
+            null
         }
+    val openLyricsMenu: (Rect) -> Unit = { anchor ->
+        lyricsMenuAnchor = anchor
+        showAnchoredLyricsMenu = true
     }
+    val openLyricsMenuFromHeader = { openLyricsMenu(headerMoreBounds) }
+    val openLyricsMenuFromControls = { openLyricsMenu(controlsMoreBounds) }
 
     // Feeds the quality badge in the controls bar, the same source the players read.
     val currentFormat by playerConnection.currentFormat.collectAsStateWithLifecycle(initialValue = null)
@@ -624,6 +639,7 @@ fun LyricsScreen(
                 },
     ) {
         LyricsScreenBackground(
+            modifier = if (popupBackdrop != null) Modifier.layerBackdrop(popupBackdrop) else Modifier,
             style = lyricsBackground,
             mediaMetadata = mediaMetadata,
             gradientColors = gradientColors,
@@ -657,7 +673,8 @@ fun LyricsScreen(
                 AppleMusicTrackHeader(
                     mediaMetadata = mediaMetadata,
                     foregroundColor = foregroundColor,
-                    onMoreClick = showLyricsMenu,
+                    onMoreClick = openLyricsMenuFromHeader,
+                    onMorePositioned = { headerMoreBounds = it },
                     onDismissClick = onBackClick,
                     isLiked = currentSongLiked,
                     onToggleLike = playerConnection::toggleLike,
@@ -725,7 +742,8 @@ fun LyricsScreen(
                                     currentFormat = currentFormat,
                                     lyricsProviderName = currentLyrics?.providerName.orEmpty(),
                                     hasLyrics = currentLyrics != null,
-                                    onOverflowClick = showLyricsMenu,
+                                    onOverflowClick = openLyricsMenuFromControls,
+                                    onOverflowPositioned = { controlsMoreBounds = it },
                                     onCloseClick = onBackClick,
                                     modifier = Modifier.fillMaxWidth(),
                                 )
@@ -785,7 +803,8 @@ fun LyricsScreen(
                         currentFormat = currentFormat,
                         lyricsProviderName = currentLyrics?.providerName.orEmpty(),
                         hasLyrics = currentLyrics != null,
-                        onOverflowClick = showLyricsMenu,
+                        onOverflowClick = openLyricsMenuFromControls,
+                        onOverflowPositioned = { controlsMoreBounds = it },
                         onCloseClick = onBackClick,
                         modifier =
                             Modifier
@@ -795,6 +814,18 @@ fun LyricsScreen(
                 }
             }
             }
+        }
+
+        if (showAnchoredLyricsMenu) {
+            AnchoredLyricsOverflowMenu(
+                iconBoundsInRoot = lyricsMenuAnchor,
+                lyricsProvider = { currentLyrics },
+                mediaMetadataProvider = { mediaMetadata },
+                lyricsSyncOffset = lyricsSyncOffset,
+                onLyricsSyncOffsetChange = onLyricsSyncOffsetChange,
+                onDismiss = { showAnchoredLyricsMenu = false },
+                backdrop = popupBackdrop,
+            )
         }
     }
 }
@@ -1189,6 +1220,7 @@ private fun AppleMusicTrackHeader(
     modifier: Modifier = Modifier,
     isLiked: Boolean = false,
     onToggleLike: () -> Unit = {},
+    onMorePositioned: ((Rect) -> Unit)? = null,
 ) {
     val artistText =
         remember(mediaMetadata.id, mediaMetadata.artists) {
@@ -1279,6 +1311,7 @@ private fun AppleMusicTrackHeader(
             contentDescription = stringResource(R.string.more_options),
             foregroundColor = foregroundColor,
             onClick = onMoreClick,
+            onPositioned = onMorePositioned,
         )
     }
 }
@@ -1289,11 +1322,19 @@ private fun AppleMusicHeaderIconButton(
     contentDescription: String,
     foregroundColor: Color,
     onClick: () -> Unit,
+    onPositioned: ((Rect) -> Unit)? = null,
 ) {
     Box(
         modifier =
             Modifier
                 .size(48.dp)
+                .let { base ->
+                    if (onPositioned != null) {
+                        base.onGloballyPositioned { coords -> onPositioned(coords.boundsInRoot()) }
+                    } else {
+                        base
+                    }
+                }
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = ripple(bounded = false, radius = 24.dp),
@@ -1363,6 +1404,7 @@ private fun AppleMusicControls(
     onOverflowClick: () -> Unit,
     onCloseClick: () -> Unit,
     modifier: Modifier = Modifier,
+    onOverflowPositioned: ((Rect) -> Unit)? = null,
 ) {
     val position = positionProvider()
     val duration = durationProvider()
@@ -1556,6 +1598,12 @@ private fun AppleMusicControls(
                         touchSize = 40.dp,
                         foregroundColor = foregroundColor.copy(alpha = 0.75f),
                         onClick = onOverflowClick,
+                        modifier =
+                            if (onOverflowPositioned != null) {
+                                Modifier.onGloballyPositioned { coords -> onOverflowPositioned(coords.boundsInRoot()) }
+                            } else {
+                                Modifier
+                            },
                     )
                     AppleMusicTransportButton(
                         iconRes = R.drawable.close,

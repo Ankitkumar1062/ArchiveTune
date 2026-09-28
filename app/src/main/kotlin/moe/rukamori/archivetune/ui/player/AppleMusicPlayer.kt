@@ -153,6 +153,14 @@ import moe.rukamori.archivetune.constants.LyricsMode
 import moe.rukamori.archivetune.constants.LyricsModeKey
 import moe.rukamori.archivetune.utils.rememberEnumPreference
 import moe.rukamori.archivetune.ui.menu.LyricsMenu
+import moe.rukamori.archivetune.ui.menu.AnchoredLyricsOverflowMenu
+import moe.rukamori.archivetune.ui.component.rememberLiquidGlassEnabled
+import moe.rukamori.archivetune.ui.component.rememberBackdrop
+import moe.rukamori.archivetune.ui.component.layerBackdrop
+import moe.rukamori.archivetune.ui.component.PlatformBackdrop
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.geometry.Rect
 import moe.rukamori.archivetune.ui.menu.PlayerMenu
 import moe.rukamori.archivetune.ui.menu.rememberCastPlayerMenuAction
 import moe.rukamori.archivetune.ui.utils.ShowMediaInfo
@@ -566,18 +574,25 @@ fun AppleMusicPlayerContent(
             playerConnection.player.togglePlayPause()
         }
     }
+    // With lyrics open the three-dot opens 4nx3b's Apple Music popup, anchored to the dot that was
+    // tapped. It is part of the player's own design, not of the Apple Music Experience switch.
+    var showAnchoredLyricsMenu by remember { mutableStateOf(false) }
+    var moreIconBounds by remember { mutableStateOf(Rect.Zero) }
+    val onMorePositioned: (Rect) -> Unit = remember { { bounds -> moreIconBounds = bounds } }
+    // A live glass backdrop records a layer every frame, so it only exists while the popup can
+    // actually be shown on top of it.
+    val popupBackdrop: PlatformBackdrop? =
+        if (rememberLiquidGlassEnabled() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            rememberBackdrop(Color.Transparent)
+        } else {
+            null
+        }
+    LaunchedEffect(lyricsOpen) {
+        if (!lyricsOpen) showAnchoredLyricsMenu = false
+    }
     val onMoreClick = {
         if (lyricsOpen) {
-            // When lyrics is open, the overflow menu shows lyric actions.
-            menuState.show {
-                LyricsMenu(
-                    lyricsProvider = { currentLyrics },
-                    mediaMetadataProvider = { mediaMetadata },
-                    lyricsSyncOffset = lyricsSyncOffset,
-                    onLyricsSyncOffsetChange = onLyricsSyncOffsetChange,
-                    onDismiss = menuState::dismiss,
-                )
-            }
+            showAnchoredLyricsMenu = true
         } else {
             menuState.show {
                 PlayerMenu(
@@ -607,7 +622,13 @@ fun AppleMusicPlayerContent(
         }
     }
 
-    BoxWithConstraints(modifier = modifier) {
+    Box(modifier = modifier) {
+    BoxWithConstraints(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .let { base -> if (popupBackdrop != null) base.layerBackdrop(popupBackdrop) else base },
+    ) {
         val sharpArtworkHeight = if (landscape) maxHeight else maxHeight * 0.55f
         // The FULL player height — used as the artwork sizing reference so the
         // artwork stays a constant size whether the system navigation bar is
@@ -942,6 +963,7 @@ fun AppleMusicPlayerContent(
                             titleActions = titleActions,
                             onToggleLike = playerConnection::toggleLike,
                             onMoreClick = onMoreClick,
+                            onMorePositioned = onMorePositioned,
                             contentWidth = landscapeArtworkSize,
                         )
                     }
@@ -1004,6 +1026,7 @@ fun AppleMusicPlayerContent(
                             titleActions = titleActions,
                             onPlayPauseClick = onPlayPauseClick,
                             onMoreClick = onMoreClick,
+                            onMorePositioned = onMorePositioned,
                             onOutputClick = onOutputClick,
                             onQueueClick = onQueueClick,
                             // Inline lyrics, as in portrait (and as upstream's landscape
@@ -1146,6 +1169,7 @@ fun AppleMusicPlayerContent(
                                         titleActions = titleActions,
                                         onToggleLike = playerConnection::toggleLike,
                                         onMoreClick = onMoreClick,
+                                        onMorePositioned = onMorePositioned,
                                         onArtworkClick = restoreCover,
                                         onCloseClick = if (targetState == AppleMusicPlayerState.LYRICS) restoreCover else null,
                                         animatedVisibilityScope = this@AnimatedContent,
@@ -1288,6 +1312,7 @@ fun AppleMusicPlayerContent(
                         titleActions = titleActions,
                         onPlayPauseClick = onPlayPauseClick,
                         onMoreClick = onMoreClick,
+                        onMorePositioned = onMorePositioned,
                         onOutputClick = onOutputClick,
                         onQueueClick = toggleQueue,
                         onLyricsClick = toggleLyrics,
@@ -1312,6 +1337,19 @@ fun AppleMusicPlayerContent(
                     )
                 }
             } // end Column (morph area + controls)
+        }
+    }
+
+        if (showAnchoredLyricsMenu) {
+            AnchoredLyricsOverflowMenu(
+                iconBoundsInRoot = moreIconBounds,
+                lyricsProvider = { currentLyrics },
+                mediaMetadataProvider = { mediaMetadata },
+                lyricsSyncOffset = lyricsSyncOffset,
+                onLyricsSyncOffsetChange = onLyricsSyncOffsetChange,
+                onDismiss = { showAnchoredLyricsMenu = false },
+                backdrop = popupBackdrop,
+            )
         }
     }
 }
@@ -1582,6 +1620,7 @@ private fun AppleMusicControlsColumn(
     isQueueActive: Boolean = false,
     // Whether the in-place lyrics view is currently open. Highlights the lyrics button.
     isLyricsActive: Boolean = false,
+    onMorePositioned: ((Rect) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     var swipeUpAccumulated by remember { mutableFloatStateOf(0f) }
@@ -1692,6 +1731,7 @@ private fun AppleMusicControlsColumn(
                 tint = Color.White,
                 contentDescription = null,
                 onClick = onMoreClick,
+                onPositioned = onMorePositioned,
             )
         }
     }
@@ -1905,6 +1945,7 @@ private fun AppleMusicLandscapeTitleBlock(
     onToggleLike: () -> Unit,
     onMoreClick: () -> Unit,
     contentWidth: Dp,
+    onMorePositioned: ((Rect) -> Unit)? = null,
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -1949,6 +1990,7 @@ private fun AppleMusicLandscapeTitleBlock(
             tint = Color.White,
             contentDescription = null,
             onClick = onMoreClick,
+            onPositioned = onMorePositioned,
         )
     }
 }
@@ -1959,12 +2001,20 @@ private fun AppleMusicChip(
     tint: Color,
     contentDescription: String?,
     onClick: () -> Unit,
+    onPositioned: ((Rect) -> Unit)? = null,
 ) {
     Box(
         contentAlignment = Alignment.Center,
         modifier =
             Modifier
                 .size(AppleMusicChipSize)
+                .let { base ->
+                    if (onPositioned != null) {
+                        base.onGloballyPositioned { coords -> onPositioned(coords.boundsInRoot()) }
+                    } else {
+                        base
+                    }
+                }
                 .clip(CircleShape)
                 .background(Color.White.copy(alpha = 0.14f))
                 .clickable(onClick = onClick),
@@ -2097,6 +2147,7 @@ private fun SharedTransitionScope.AppleMusicMiniHeader(
     onToggleLike: () -> Unit,
     onMoreClick: () -> Unit,
     animatedVisibilityScope: AnimatedVisibilityScope,
+    onMorePositioned: ((Rect) -> Unit)? = null,
     onArtworkClick: () -> Unit = {},
     onCloseClick: (() -> Unit)? = null,
     // The COVER artwork's corner radius, used for the OverlayClip during
@@ -2192,6 +2243,7 @@ private fun SharedTransitionScope.AppleMusicMiniHeader(
             tint = Color.White,
             contentDescription = null,
             onClick = onMoreClick,
+            onPositioned = onMorePositioned,
         )
         onCloseClick?.let { closeClick ->
             Spacer(Modifier.width(8.dp))
