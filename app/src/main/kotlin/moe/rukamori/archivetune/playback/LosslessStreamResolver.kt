@@ -169,7 +169,23 @@ object LosslessStreamResolver {
             // 2) Shared premium Tidal accounts from the community Source Pool. These are real
             // subscriber tokens, so they resolve full-quality FLAC directly via the official API —
             // no proxy instance needed.
-            val poolAccounts = PoolAccountManager.tidalAccounts()
+            var poolAccounts = PoolAccountManager.tidalAccounts()
+            // Pooled Tidal access tokens live about an hour, but the app's pool cache is held for
+            // hours, so the cached copies are usually already stale. Using one anyway guarantees a
+            // 401 — and the handler below then reports a healthy account dead, which is how good
+            // accounts used to get disabled. Check the token's own expiry and re-lease first.
+            if (poolAccounts.any { TidalAccountManager.isAccessTokenExpired(it.token) }) {
+                runCatching {
+                    runBlocking(Dispatchers.IO) { PoolAccountManager.refresh(context, force = true) }
+                }.onFailure {
+                    Timber.tag("LosslessResolver").w(it, "Tidal pool re-lease failed; using cached accounts")
+                }
+                val refreshed = PoolAccountManager.tidalAccounts()
+                if (refreshed.isNotEmpty()) {
+                    poolAccounts = refreshed
+                    Timber.tag("LosslessResolver").d("Re-leased %d fresh Tidal pool account(s)", refreshed.size)
+                }
+            }
             if (poolAccounts.isNotEmpty()) {
                 // Race all pool accounts in parallel: the first hit wins and the rest are
                 // cancelled. With N pool accounts this reduces the worst-case wall time from

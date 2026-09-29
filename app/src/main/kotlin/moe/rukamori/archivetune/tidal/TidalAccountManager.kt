@@ -599,5 +599,34 @@ object TidalAccountManager {
             t.suppressed.forEach { stack.addLast(it) }
         }
         return false
+
+    }
+
+    /**
+     * True when a Tidal access JWT is expired, or expires within [marginSecs].
+     *
+     * Tidal access tokens live about an hour while the app's Source Pool cache is held for hours,
+     * so a cached pooled token is usually stale before it is ever used. Reading `exp` lets the
+     * resolver notice that and re-lease a fresh one, instead of firing the token, taking a 401,
+     * and reporting a perfectly healthy account dead.
+     *
+     * The signature is deliberately not verified — it only decides whether to re-fetch.
+     */
+    fun isAccessTokenExpired(token: String, marginSecs: Long = 300L): Boolean {
+        val payload = token.split('.')[1] ?: return true
+        return try {
+            val json =
+                JSONObject(
+                    android.util.Base64.decode(
+                        payload.replace('-', '+').replace('_', '/'),
+                        android.util.Base64.DEFAULT,
+                    ).toString(Charsets.UTF_8),
+                )
+            val exp = json.optLong("exp", 0L)
+            exp > 0 && exp - marginSecs <= System.currentTimeMillis() / 1000L
+        } catch (e: Exception) {
+            // An unparseable token is not proof of expiry; let the request itself decide.
+            false
+        }
     }
 }
