@@ -434,15 +434,27 @@ object AppleMusicAudioProvider {
                 val line = rawLine.trim()
                 when {
                     line.startsWith("#EXT-X-KEY") && keyIdHex == null -> {
-                        // A playlist carries one #EXT-X-KEY per DRM system: FairPlay
-                        // (KEYFORMAT="com.apple.streamingkeydelivery", an skd:// URI), PlayReady,
-                        // and Widevine. Only the Widevine line is usable here — its data: URI
-                        // payload is the 16-byte tenc KID, and its raw URI is what Apple's licence
-                        // exchange expects as `uri`. Taking "the first line with a data: URI"
-                        // instead could latch onto PlayReady, whose payload is a WRM header rather
-                        // than a KID, or leave `drmUri` pointing at FairPlay's skd:// URI. Both
-                        // yielded a challenge Apple rejects, i.e. silent playback.
-                        if (line.contains(WIDEVINE_KEYFORMAT, ignoreCase = true)) {
+                        // A playlist carries one #EXT-X-KEY per DRM system: FairPlay (an skd://
+                        // URI), PlayReady, and Common Encryption (Widevine).
+                        //
+                        // Apple no longer emits KEYFORMAT on the ctrp playlists it serves. Verified
+                        // 2026-09-29 against a live playlist: its only key line is
+                        //   #EXT-X-KEY:METHOD=ISO-23001-7,URI="data:;base64,<16 bytes>"
+                        // with no KEYFORMAT attribute whatsoever. Gating on the Widevine URN
+                        // therefore matched nothing, every candidate looked keyless, and no Apple
+                        // track could ever play. The URN is still accepted when present.
+                        //
+                        // The KID is identified by shape instead. That payload is exactly the
+                        // 16-byte tenc default_KID — confirmed by parsing the same track's fMP4
+                        // init segment, whose tenc box carries the identical bytes — while
+                        // FairPlay's skd:// URI has no data: payload and PlayReady's is a WRM
+                        // header rather than 16 bytes, so both fall out at the size check below.
+                        val keyFormat =
+                            Regex("KEYFORMAT=\"?([^\",]+)?").find(line)?.groupValues?.get(1)
+                        val isOtherDrm =
+                            keyFormat != null &&
+                                !keyFormat.contains(WIDEVINE_KEYFORMAT, ignoreCase = true)
+                        if (!isOtherDrm) {
                             // The RAW data: URI is what Apple's license exchange expects as `uri`.
                             Regex("URI=\"([^\"]+)\"").find(line)?.let { match -> drmUri = match.groupValues[1] }
                             Regex("URI=\"data:[^\"]*base64,([^\"]+)\"").find(line)?.let { match ->
