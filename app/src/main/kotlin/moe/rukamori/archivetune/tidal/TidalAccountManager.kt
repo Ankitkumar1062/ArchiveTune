@@ -52,7 +52,7 @@ object TidalAccountManager {
     // #932). This is the client streamrip v2.2.0 ships, so a session established through this
     // path can still renew itself.
     private const val CLIENT_ID = "fX2JxdmntZWK0ixT"
-    private const val CLIENT_SECRET = "1Nm5AfDAjxrgJFJbKNWLeAyKGVGmINuXPPLHVXAvxAg="
+    private const val CLIENT_SECRET = "1Nn9AfDAjxrgJFJbKNWLeAyKGVGmINuXPPLHVXAvxAg="
 
     // PKCE web-login client (used by open-source Tidal tooling for the authorization-code + PKCE
     // flow). Unlike the device client, this yields a durable refresh token and can unlock HiRes.
