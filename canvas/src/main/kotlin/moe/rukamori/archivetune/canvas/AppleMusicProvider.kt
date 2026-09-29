@@ -137,6 +137,8 @@ object AppleMusicProvider {
         return webToken.get()
     }
 
+    fun cachedScrapedDevToken(): String? = webToken.cachedToken()
+
     private const val STOREFRONT_TTL_MS = 1000L * 60 * 60 * 24 // 24 hours
     @Volatile
     private var cachedStorefront: String? = null

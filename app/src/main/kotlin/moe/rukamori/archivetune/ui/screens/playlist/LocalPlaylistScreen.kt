@@ -188,7 +188,11 @@ fun LocalPlaylistScreen(
     val viewCounts by viewModel.viewCounts.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     val coverState by viewModel.coverState.collectAsStateWithLifecycle()
-    val mutableSongs = remember { mutableStateListOf<PlaylistSong>() }
+    // Seeded from the ViewModel's current value, not empty: when the activity is recreated (some
+    // devices do this on screen-off/lock), an empty first frame clamped the restored scroll
+    // position to the top before the songs arrived (#169).
+    val mutableSongs =
+        remember { mutableStateListOf<PlaylistSong>().apply { addAll(viewModel.playlistSongs.value) } }
     val playlistLength =
         remember(songs) {
             songs.fastSumBy { it.song.song.duration }
@@ -412,9 +416,11 @@ fun LocalPlaylistScreen(
             !isReorderingEnabled
 
     LaunchedEffect(songs) {
-        mutableSongs.apply {
-            clear()
-            addAll(songs)
+        if (mutableSongs.toList() != songs) {
+            mutableSongs.apply {
+                clear()
+                addAll(songs)
+            }
         }
         val songIds = songs.map { it.song.id }
         downloadUtil.downloads.collect { currentDownloads ->

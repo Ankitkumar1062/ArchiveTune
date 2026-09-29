@@ -170,8 +170,11 @@ object DeezerAudioProvider {
         manualAccount = next
         // Sessions are keyed by ARL, so a changed or removed credential must not keep serving from a
         // session established under the old one.
-        if (previous != null && previous.arl != next?.arl) {
-            sessions.remove(previous.arl)
+        if (previous?.arl != next?.arl) {
+            previous?.let { sessions.remove(it.arl) }
+            // Failures were recorded under the old credential: a new sign-in (or sign-out) must not
+            // inherit another credential's 'unresolvable' verdict for up to FAILURE_CACHE_MS.
+            failureCache.clear()
         }
     }
 

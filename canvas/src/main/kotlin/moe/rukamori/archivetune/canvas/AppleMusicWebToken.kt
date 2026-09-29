@@ -30,6 +30,9 @@ internal class AppleMusicWebToken(private val client: HttpClient) {
     private val tokenPattern = Regex("eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+")
     private val scriptPattern = Regex("""<script\b[^>]*\bsrc=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
 
+    fun cachedToken(): String? =
+        cached?.takeIf { it.expiresAtSeconds > System.currentTimeMillis() / 1_000 }?.value
+
     suspend fun get(rejectedToken: String? = null): String = mutex.withLock {
         cached?.takeIf {
             it.value != rejectedToken && it.expiresAtSeconds > System.currentTimeMillis() / 1_000 + 300

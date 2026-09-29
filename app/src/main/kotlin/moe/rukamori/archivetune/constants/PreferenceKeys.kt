@@ -93,6 +93,7 @@ val AlbumCanvasEnabledKey = booleanPreferencesKey("albumCanvasEnabled")
 val CanvasResolverEndpointsKey = stringPreferencesKey("canvasResolverEndpoints")
 val ThumbnailCornerRadiusKey = floatPreferencesKey("thumbnailCornerRadius")
 val CropThumbnailToSquareKey = booleanPreferencesKey("cropThumbnailToSquare")
+val SwipeUpToOpenQueueKey = booleanPreferencesKey("swipeUpToOpenQueue")
 
 val AodThumbnailShapeKey = stringPreferencesKey("aodThumbnailShape")
 val AodThumbnailSizeKey = floatPreferencesKey("aodThumbnailSize")

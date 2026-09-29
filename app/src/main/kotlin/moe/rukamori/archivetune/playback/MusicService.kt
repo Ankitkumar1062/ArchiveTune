@@ -3551,8 +3551,18 @@ class MusicService :
             }
 
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-                hasAudioFocus = false
-                pauseForAudioFocusLoss(resumeWhenFocusReturns = true)
+                // Duck instead of pausing. CAN_DUCK losses arrive for route changes (Bluetooth
+                // reconnects, assistant beeps, navigation prompts) where stopping playback
+                // mid-song — and then racing a crossfade promotion that force-resumes — reads as
+                // "the app muted itself". The stream stays alive at MIN_AUDIO_FOCUS_VOLUME_FACTOR;
+                // AUDIOFOCUS_GAIN restores the factor to 1f.
+                //
+                // Focus itself is still held (the system only asked us to lower the volume), so
+                // hasAudioFocus stays true: a re-request during the duck must not read as a
+                // re-gain and cancel it, and playback paused mid-crossfade must not be forced
+                // back on the assumption that focus was lost.
+                hasAudioFocus = true
+                audioFocusVolumeFactor.value = MIN_AUDIO_FOCUS_VOLUME_FACTOR
 
                 lastAudioFocusState = focusChange
             }
@@ -3580,7 +3590,12 @@ class MusicService :
 
     private fun requestAudioFocus(): Boolean {
         if (hasAudioFocus) {
-            if (audioFocusVolumeFactor.value != 1f || lastAudioFocusState == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
+            // A CAN_DUCK loss is still in effect while the factor is lowered: re-requesting focus
+            // (every playback-state event funnels through ensureAudioFocusForActivePlayback) must
+            // not restore full volume behind the duck. Only the real re-gain paths clear it.
+            if (audioFocusVolumeFactor.value != 1f &&
+                lastAudioFocusState != AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK
+            ) {
                 restoreAudioFocusVolume()
             }
             return true
@@ -10232,7 +10247,7 @@ class MusicService :
         query: SourceQuery,
         trusted: Boolean = false,
     ): DirectStream? {
-        if (AppleMusicAudioProvider.mediaUserToken() == null || AppleMusicAudioProvider.devToken() == null) {
+        if (AppleMusicAudioProvider.mediaUserToken() == null || AppleMusicAudioProvider.usableDevToken() == null) {
             Timber
                 .tag("MusicService")
                 .d("Apple Music source: missing tokens (sign in via Settings → Apple Music)")
@@ -11635,7 +11650,7 @@ class MusicService :
 
     private fun buildAppleDrmSessionManager(track: AppleTrackDrmInfo): DrmSessionManager? {
         val mediaToken = AppleMusicAudioProvider.mediaUserToken() ?: return null
-        val devToken = AppleMusicAudioProvider.devToken()
+        val devToken = AppleMusicAudioProvider.usableDevToken()
         val callback = AppleLicenseCallback(track, devToken, mediaToken)
         return DefaultDrmSessionManager
             .Builder()

@@ -53,6 +53,10 @@ class CanvasArtworkRepository @Inject constructor(
             request.title to request.artist,
         ).filter { (song, artist) -> song.isNotBlank() && artist.isNotBlank() }
         val providers = policy.configuration.sourceOrder.ifEmpty { defaultCanvasSourceOrder }
+        val sourceKey = providers.filter { source.accepts(it) }.joinToString("") { it.name.take(1) }
+        if (!forceRefresh && CanvasResolutionMissCache.isRecentlyMissed(request.mediaId, request.requireVertical, sourceKey)) {
+            return@withContext null
+        }
         val fetched = providers.firstNotNullOfOrNull { provider ->
             if (!source.accepts(provider) || (provider == CanvasSource.TIDAL && request.requireVertical)) {
                 return@firstNotNullOfOrNull null
@@ -82,7 +86,11 @@ class CanvasArtworkRepository @Inject constructor(
                 Timber.w(error, "Canvas lookup failed: %s", provider)
                 null
             }
-        } ?: return@withContext null
+        } ?: run {
+            CanvasResolutionMissCache.markMissed(request.mediaId, request.requireVertical, sourceKey)
+            return@withContext null
+        }
+        CanvasResolutionMissCache.clear(request.mediaId)
         CanvasNetworkAccess.check(fetched.source)
         val artwork = if (forceRefresh) {
             CanvasArtworkPlaybackCache.replace(request.mediaId, fetched)
@@ -91,6 +99,31 @@ class CanvasArtworkRepository @Inject constructor(
         }
         if (forceRefresh) mutableRevision.update { it + 1 }
         artwork
+    }
+}
+
+private object CanvasResolutionMissCache {
+    private const val TTL_MS = 10 * 60 * 1000L
+    private val misses = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    private fun key(mediaId: String, requireVertical: Boolean, sources: String): String =
+        "$mediaId|v$requireVertical|$sources"
+
+    fun isRecentlyMissed(mediaId: String, requireVertical: Boolean, sources: String): Boolean {
+        val cacheKey = key(mediaId, requireVertical, sources)
+        val markedAtMs = misses[cacheKey] ?: return false
+        if (System.currentTimeMillis() - markedAtMs < TTL_MS) return true
+        misses.remove(cacheKey)
+        return false
+    }
+
+    fun markMissed(mediaId: String, requireVertical: Boolean, sources: String) {
+        misses[key(mediaId, requireVertical, sources)] = System.currentTimeMillis()
+    }
+
+    fun clear(mediaId: String) {
+        val prefix = "$mediaId|"
+        misses.keys.removeAll { it.startsWith(prefix) }
     }
 }
 

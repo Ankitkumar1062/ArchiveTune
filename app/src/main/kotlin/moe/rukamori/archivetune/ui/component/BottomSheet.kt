@@ -124,11 +124,17 @@ fun BottomSheet(
     backHandlerEnabled: Boolean = true,
     opaqueBackground: Boolean = false,
     onCollapsedContentClick: (() -> Unit)? = null,
+    /**
+     * When false, a collapsed sheet ignores drags, so it can only be opened by tapping (or by code).
+     * An open sheet stays draggable either way, so it can still be swiped closed.
+     */
+    collapsedDragEnabled: Boolean = true,
     navbarHiddenOffset: (() -> Float)? = null,
     sharedLayer: (@Composable BoxScope.() -> Unit)? = null,
     collapsedContent: @Composable BoxScope.() -> Unit,
     content: @Composable BoxScope.() -> Unit,
 ) {
+    val dragEnabled = collapsedDragEnabled || !state.isCollapsed
     val morphShape =
         if (morphMode) {
             remember(state) {
@@ -157,7 +163,7 @@ fun BottomSheet(
                         (navbarHiddenOffset?.invoke()?.coerceAtLeast(0f) ?: 0f) *
                             (1f - state.progress.coerceIn(0f, 1f))
                     IntOffset(x = 0, y = (y + takeOver).roundToInt())
-                }.bottomSheetDraggable(state, onDismiss)
+                }.then(if (dragEnabled) Modifier.bottomSheetDraggable(state, onDismiss) else Modifier)
                 .clip(
                     morphShape
                         ?: RoundedCornerShape(

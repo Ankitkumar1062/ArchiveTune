@@ -19,6 +19,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import moe.rukamori.archivetune.canvas.AppleMusicProvider
+import moe.rukamori.archivetune.canvas.AppleWebPlayToken
 import moe.rukamori.archivetune.constants.AppleMusicQuality
 import moe.rukamori.archivetune.utils.PoolAccountManager
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -71,7 +72,7 @@ object AppleMusicAudioProvider {
             val stillFresh = cachedStorefront?.takeIf { now - cachedStorefrontAtMs < STOREFRONT_TTL_MS }
             if (stillFresh != null) return@withLock stillFresh
             val media = mediaUserToken()?.takeIf { it.isNotBlank() } ?: return@withLock cachedStorefront ?: "us"
-            val dev = devToken() ?: return@withLock cachedStorefront ?: "us"
+            val dev = usableDevToken() ?: return@withLock cachedStorefront ?: "us"
             fetchedStorefront(media, dev)?.let { fetched ->
                 cachedStorefront = fetched
                 cachedStorefrontAtMs = System.currentTimeMillis()
@@ -108,10 +109,28 @@ object AppleMusicAudioProvider {
 
     fun devToken(): String? = AppleMusicProvider.devTokenProvider?.invoke()?.trim()?.takeIf { it.isNotBlank() }
 
+    /**
+     * A dev token that is actually usable: the user's stored token while unexpired,
+     * otherwise the last scraped web token. An expired user token used to flow into the
+     * search, the stream build and the Widevine licence callback — every call 401'd and
+     * the source fell back to YouTube opus even with a logged-in account and pool accounts.
+     * expSec returns 0 for a malformed token, which counts as usable-unknown rather than
+     * expired, so it still wins here instead of crashing.
+     */
+    fun usableDevToken(): String? {
+        val userToken = devToken()
+        if (userToken != null) {
+            val expSec = AppleWebPlayToken.expSec(userToken)
+            if (expSec == 0L || expSec > System.currentTimeMillis() / 1000L) return userToken
+        }
+        AppleMusicProvider.cachedScrapedDevToken()?.let { return it }
+        return userToken
+    }
+
     fun mediaUserToken(): String? = AppleMusicProvider.mediaUserTokenProvider?.invoke()?.trim()?.takeIf { it.isNotBlank() }
 
     /** True when both tokens are present — the source cannot resolve anything otherwise. */
-    fun isAvailable(): Boolean = devToken() != null && mediaUserToken() != null
+    fun isAvailable(): Boolean = usableDevToken() != null && mediaUserToken() != null
 
     /** Thrown by [searchSongIds]/[webPlayback] on 401/403 — the media-user-token is dead. */
     private class AuthException : Exception("apple media-user-token rejected (401/403)")
@@ -181,7 +200,7 @@ object AppleMusicAudioProvider {
         quality: AppleMusicQuality = AppleMusicQuality.LOSSLESS,
     ): List<AppleMusicStream> =
         withContext(Dispatchers.IO) {
-            val devToken = devToken() ?: return@withContext emptyList()
+            val devToken = usableDevToken() ?: return@withContext emptyList()
             val ringEntries = accountRing()
             if (ringEntries.isEmpty()) return@withContext emptyList()
 
@@ -404,15 +423,27 @@ object AppleMusicAudioProvider {
                 val line = rawLine.trim()
                 when {
                     line.startsWith("#EXT-X-KEY") && keyIdHex == null -> {
-                        // A playlist carries one #EXT-X-KEY per DRM system: FairPlay
-                        // (KEYFORMAT="com.apple.streamingkeydelivery", an skd:// URI), PlayReady,
-                        // and Widevine. Only the Widevine line is usable here — its data: URI
-                        // payload is the 16-byte tenc KID, and its raw URI is what Apple's licence
-                        // exchange expects as `uri`. Taking "the first line with a data: URI"
-                        // instead could latch onto PlayReady, whose payload is a WRM header rather
-                        // than a KID, or leave `drmUri` pointing at FairPlay's skd:// URI. Both
-                        // yielded a challenge Apple rejects, i.e. silent playback.
-                        if (line.contains(WIDEVINE_KEYFORMAT, ignoreCase = true)) {
+                        // A playlist carries one #EXT-X-KEY per DRM system: FairPlay (an skd://
+                        // URI), PlayReady, and Common Encryption (Widevine).
+                        //
+                        // Apple no longer emits KEYFORMAT on the ctrp playlists it serves. Verified
+                        // 2026-09-29 against a live playlist: its only key line is
+                        //   #EXT-X-KEY:METHOD=ISO-23001-7,URI="data:;base64,<16 bytes>"
+                        // with no KEYFORMAT attribute whatsoever. Gating on the Widevine URN
+                        // therefore matched nothing, every candidate looked keyless, and no Apple
+                        // track could ever play. The URN is still accepted when present.
+                        //
+                        // The KID is identified by shape instead. That payload is exactly the
+                        // 16-byte tenc default_KID — confirmed by parsing the same track's fMP4
+                        // init segment, whose tenc box carries the identical bytes — while
+                        // FairPlay's skd:// URI has no data: payload and PlayReady's is a WRM
+                        // header rather than 16 bytes, so both fall out at the size check below.
+                        val keyFormat =
+                            Regex("KEYFORMAT=\"?([^\",]+)?").find(line)?.groupValues?.get(1)
+                        val isOtherDrm =
+                            keyFormat != null &&
+                                !keyFormat.contains(WIDEVINE_KEYFORMAT, ignoreCase = true)
+                        if (!isOtherDrm) {
                             // The RAW data: URI is what Apple's license exchange expects as `uri`.
                             Regex("URI=\"([^\"]+)\"").find(line)?.let { match -> drmUri = match.groupValues[1] }
                             Regex("URI=\"data:[^\"]*base64,([^\"]+)\"").find(line)?.let { match ->
@@ -433,8 +464,18 @@ object AppleMusicAudioProvider {
             }
             // Prefer the EXT-X-MAP name; segments reference the same file.
             val name = mediaName ?: dataLines.firstOrNull() ?: return null
+            // A candidate without the 16-byte Widevine KID can never survive
+            // AppleMusicVirtualStream.build (throws kid=absent). Skipping it here
+            // lets resolveWithToken try the next song id instead of letting one
+            // poisoned candidate win the match gate and fail the whole resolve.
+            val kid = keyIdHex
+            val uri = drmUri
+            if (kid == null || uri.isNullOrBlank()) {
+                Log.w(TAG, "playlist has no Widevine KID (kid=${keyIdHex ?: "absent"}); skipping candidate")
+                return null
+            }
             val mediaUrl = playlistUrl.substringBeforeLast('/').trimEnd('/') + "/" + name
-            return ParsedPlaylist(mediaUrl, keyIdHex, drmUri ?: "", null)
+            return ParsedPlaylist(mediaUrl, kid, uri, null)
         }
     }
 }

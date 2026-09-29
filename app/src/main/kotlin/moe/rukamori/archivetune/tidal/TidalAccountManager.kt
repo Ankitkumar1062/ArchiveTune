@@ -38,8 +38,14 @@ object TidalAccountManager {
 
     // Well-known public Tidal "TV/device" OAuth client used by open-source Tidal tooling for the
     // device authorization grant. These are not secret user credentials.
-    private const val CLIENT_ID = "zU4XHVVkc2tDPo4t"
-    private const val CLIENT_SECRET = "VJKhDFqJPqvsPVNBV6ukXTJmwlvbttP7wlMlrc72se4="
+    //
+    // The previous registration (zU4XHVVkc2tDPo4t) was retired by Tidal: device authorization
+    // still answers, but every token it mints carries internal cid 3235 and the refresh grant
+    // then rejects them with "Client id 3235 not found" (natom/streamrip#897, #901, fixed by
+    // #932). This is the client streamrip v2.2.0 ships, so a session established through this
+    // path can still renew itself.
+    private const val CLIENT_ID = "fX2JxdmntZWK0ixT"
+    private const val CLIENT_SECRET = "1Nn9AfDAjxrgJFJbKNWLeAyKGVGmINuXPPLHVXAvxAg="
 
     // PKCE web-login client (used by open-source Tidal tooling for the authorization-code + PKCE
     // flow). Unlike the device client, this yields a durable refresh token and can unlock HiRes.

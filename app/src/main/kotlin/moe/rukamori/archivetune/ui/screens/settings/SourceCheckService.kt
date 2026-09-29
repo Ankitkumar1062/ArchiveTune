@@ -203,7 +203,9 @@ object SourceCheckService {
         // The Qobuz backup is a two-step resolver: GET the resolver endpoint to
         // get the actual stream URL on the CDN, then range-probe the CDN URL.
         // NOTE: server addresses are intentionally hidden from the summary text.
-        val resolverUrl = "https://mlc-ytify.kouzu.in/api/stream?id=$KOZU_PROBE_YT_ID"
+        // The retired mlc-ytify mirror stopped resolving; mls.kouzu.in serves the same API
+        // (see QobuzBackupProvider, which funnels every endpoint through normalizeEndpoint).
+        val resolverUrl = "https://mls.kouzu.in/api/stream?id=$KOZU_PROBE_YT_ID"
         return runCatching {
             val resolverRequest = Request.Builder()
                 .url(resolverUrl)
