@@ -174,6 +174,25 @@ fun NavGraphBuilder.navigationBuilder(
     ) {
         LibraryScreen(navController)
     }
+    composable(Screens.Discover.route) {
+        DiscoverScreen(navController)
+    }
+    composable("generate") {
+        GenerateScreen(navController)
+    }
+    composable(
+        route = "generate?tag={tag}",
+        arguments = listOf(
+            androidx.navigation.navArgument("tag") {
+                type = androidx.navigation.NavType.StringType
+                nullable = true
+                defaultValue = null
+            },
+        ),
+    ) { backStackEntry ->
+        val tag = backStackEntry.arguments?.getString("tag")
+        GenerateScreen(navController, initialTag = tag)
+    }
     composable(Screens.Search.route) {
         SearchScreen(
             navController = navController,

@@ -49,6 +49,11 @@ class PlaylistCreationRepository
                 )
             }
 
+        suspend fun getExistingPlaylistNames(): List<String> =
+            withContext(Dispatchers.IO) {
+                database.getAllPlaylistNames()
+            }
+
         suspend fun createRemotePlaylist(name: String): Result<String> =
             withContext(Dispatchers.IO) {
                 YouTube.createPlaylist(name)

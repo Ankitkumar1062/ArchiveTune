@@ -24,6 +24,8 @@ import kotlinx.coroutines.launch
 import moe.rukamori.archivetune.R
 import moe.rukamori.archivetune.playlist.CreatePlaylistUseCase
 import moe.rukamori.archivetune.playlist.GetCreatePlaylistOptionsUseCase
+import moe.rukamori.archivetune.repository.PlaylistCreationRepository
+import moe.rukamori.archivetune.utils.PlaylistNamer
 import javax.inject.Inject
 
 sealed interface CreatePlaylistScreenState {
@@ -66,6 +68,7 @@ class CreatePlaylistViewModel
     constructor(
         private val getOptions: GetCreatePlaylistOptionsUseCase,
         private val createPlaylist: CreatePlaylistUseCase,
+        private val repository: PlaylistCreationRepository,
     ) : ViewModel() {
         private val mutableScreenState =
             MutableStateFlow<CreatePlaylistScreenState>(CreatePlaylistScreenState.Loading)
@@ -86,9 +89,15 @@ class CreatePlaylistViewModel
             mutableScreenState.value = CreatePlaylistScreenState.Loading
             loadJob =
                 viewModelScope.launch {
+                    val resolvedName = if (initialName.isBlank()) {
+                        val existing = try { repository.getExistingPlaylistNames() } catch (_: Exception) { emptyList() }
+                        PlaylistNamer.generateUniqueName(existing)
+                    } else {
+                        initialName
+                    }
                     val initialData =
                         CreatePlaylistUiData(
-                            name = initialName,
+                            name = resolvedName,
                             allowSyncing = allowSyncing,
                             isSignedIn = false,
                             isSyncEnabled = false,

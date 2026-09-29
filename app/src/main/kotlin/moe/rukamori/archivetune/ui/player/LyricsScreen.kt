@@ -162,6 +162,7 @@ import moe.rukamori.archivetune.utils.makeTimeString
 import moe.rukamori.archivetune.utils.rememberEnumPreference
 import moe.rukamori.archivetune.utils.rememberPreference
 import moe.rukamori.archivetune.viewmodels.LyricsMenuViewModel
+import moe.rukamori.archivetune.constants.WavySeekbarEnabledKey
 import moe.rukamori.archivetune.db.entities.FormatEntity
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.abs
@@ -1386,6 +1387,8 @@ private fun AppleMusicControls(
     val currentPosition = (sliderPosition ?: position).coerceIn(0L, safeDuration)
     val remainingPosition = (safeDuration - currentPosition).coerceAtLeast(0L)
 
+    val wavySeekbarEnabled by rememberPreference(WavySeekbarEnabledKey, defaultValue = true)
+
     Column(
         modifier =
             modifier
@@ -1399,16 +1402,31 @@ private fun AppleMusicControls(
                 },
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        AppleMusicSlider(
-            value = currentPosition.toFloat(),
-            valueRange = 0f..safeDuration.toFloat(),
-            activeColor = foregroundColor.copy(alpha = 0.94f),
-            inactiveColor = foregroundColor.copy(alpha = 0.28f),
-            trackHeight = 8.dp,
-            onValueChange = { onPositionChange(it.toLong()) },
-            onValueChangeFinished = onPositionChangeFinished,
-            modifier = Modifier.fillMaxWidth(),
-        )
+        if (wavySeekbarEnabled) {
+            WavySeekBar(
+                positionMs = currentPosition,
+                durationMs = duration,
+                isPlaying = isPlaying,
+                onSeek = { seekMs ->
+                    onPositionChange(seekMs)
+                    onPositionChangeFinished()
+                },
+                modifier = Modifier.fillMaxWidth(),
+                isTranslucent = true,
+                showTimeLabels = false,
+            )
+        } else {
+            AppleMusicSlider(
+                value = currentPosition.toFloat(),
+                valueRange = 0f..safeDuration.toFloat(),
+                activeColor = foregroundColor.copy(alpha = 0.94f),
+                inactiveColor = foregroundColor.copy(alpha = 0.28f),
+                trackHeight = 8.dp,
+                onValueChange = { onPositionChange(it.toLong()) },
+                onValueChangeFinished = onPositionChangeFinished,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
 
         Box(modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
             Row(

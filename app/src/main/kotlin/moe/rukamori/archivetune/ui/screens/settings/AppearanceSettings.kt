@@ -1359,6 +1359,7 @@ fun AppearanceSectionSettings(
                             valueText = {
                                 when (it) {
                                     NavigationTab.HOME -> stringResource(R.string.home)
+                                    NavigationTab.DISCOVER -> stringResource(R.string.discover)
                                     NavigationTab.SEARCH -> stringResource(R.string.search)
                                     NavigationTab.LIBRARY -> stringResource(R.string.filter_library)
                                 }
@@ -1593,6 +1594,7 @@ enum class DarkMode {
 
 enum class NavigationTab {
     HOME,
+    DISCOVER,
     SEARCH,
     LIBRARY,
 }

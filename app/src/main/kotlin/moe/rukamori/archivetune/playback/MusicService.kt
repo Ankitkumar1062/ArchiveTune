@@ -151,6 +151,8 @@ import moe.rukamori.archivetune.constants.AudioQualityKey
 import moe.rukamori.archivetune.constants.AutoDownloadOnLikeKey
 import moe.rukamori.archivetune.constants.AutoChoosePlaybackClientKey
 import moe.rukamori.archivetune.constants.AutoLoadMoreKey
+import moe.rukamori.archivetune.constants.AutoPlayMode
+import moe.rukamori.archivetune.constants.AutoPlayModeKey
 import moe.rukamori.archivetune.constants.AutoSkipNextOnErrorKey
 import moe.rukamori.archivetune.constants.AutoStartOnBluetoothKey
 import moe.rukamori.archivetune.constants.CrossfadeDurationKey
@@ -7939,6 +7941,7 @@ class MusicService :
         if (!suppressAutoPlayback &&
             !timelineEmpty &&
             dataStore.get(AutoLoadMoreKey, true) &&
+            dataStore.get(AutoPlayModeKey, AutoPlayMode.SIMILAR.name) != AutoPlayMode.OFF.name &&
             reason != Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT &&
             player.mediaItemCount - player.currentMediaItemIndex <= 5 &&
             currentQueue.hasNextPage() &&
@@ -7978,6 +7981,7 @@ class MusicService :
             !initialQueueLoadInProgress &&
             !timelineEmpty &&
             dataStore.get(AutoLoadMoreKey, true) &&
+            dataStore.get(AutoPlayModeKey, AutoPlayMode.SIMILAR.name) != AutoPlayMode.OFF.name &&
             reason != Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT &&
             player.repeatMode == REPEAT_MODE_OFF &&
             player.mediaItemCount - player.currentMediaItemIndex <= 3 &&
@@ -8172,6 +8176,7 @@ class MusicService :
             if (playbackState == Player.STATE_ENDED &&
                 !suppressAutoPlayback &&
                 dataStore.get(AutoLoadMoreKey, true) &&
+                dataStore.get(AutoPlayModeKey, AutoPlayMode.SIMILAR.name) != AutoPlayMode.OFF.name &&
                 player.repeatMode == REPEAT_MODE_OFF &&
                 player.currentMediaItem != null &&
                 currentQueue.shouldBootstrapInfiniteQueue()

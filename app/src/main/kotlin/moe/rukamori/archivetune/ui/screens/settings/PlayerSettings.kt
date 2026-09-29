@@ -95,7 +95,10 @@ import moe.rukamori.archivetune.constants.SwipeThumbnailKey
 import moe.rukamori.archivetune.constants.deserializeArtworkProviderOrder
 import moe.rukamori.archivetune.constants.TidalArtworkFallbackEnabledKey
 import moe.rukamori.archivetune.constants.TidalEnabledKey
+import moe.rukamori.archivetune.constants.AutoPlayMode
+import moe.rukamori.archivetune.constants.AutoPlayModeKey
 import moe.rukamori.archivetune.constants.WakelockKey
+import moe.rukamori.archivetune.constants.WavySeekbarEnabledKey
 import moe.rukamori.archivetune.ui.component.ArtistSeparatorsDialog
 import moe.rukamori.archivetune.ui.component.CrossfadeSliderPreference
 import moe.rukamori.archivetune.ui.component.DefaultDialog
@@ -238,6 +241,16 @@ fun PlayerSettings(navController: NavController, scrollTo: String? = null) {
         rememberPreference(
             HistoryDuration,
             defaultValue = HISTORY_DURATION_DEFAULT,
+        )
+    val (wavySeekbarEnabled, onWavySeekbarEnabledChange) =
+        rememberPreference(
+            WavySeekbarEnabledKey,
+            defaultValue = true,
+        )
+    val (autoPlayMode, onAutoPlayModeChange) =
+        rememberEnumPreference(
+            AutoPlayModeKey,
+            defaultValue = AutoPlayMode.SIMILAR,
         )
 
     val (crossfadeEnabled, onCrossfadeEnabledChange) =
@@ -504,6 +517,33 @@ fun PlayerSettings(navController: NavController, scrollTo: String? = null) {
                             onCheckedChange = onAudioNormalizationChange,
                         )
                     }
+                }
+
+                item {
+                    SwitchPreference(
+                        title = { Text(stringResource(R.string.wavy_seekbar)) },
+                        description = stringResource(if (wavySeekbarEnabled) R.string.wavy_seekbar_enabled_desc else R.string.wavy_seekbar_disabled_desc),
+                        icon = { Icon(painterResource(R.drawable.sliders), null) },
+                        checked = wavySeekbarEnabled,
+                        onCheckedChange = onWavySeekbarEnabledChange,
+                    )
+                }
+
+                item {
+                    EnumListPreference(
+                        title = { Text(stringResource(R.string.auto_play_mode)) },
+                        icon = { Icon(painterResource(R.drawable.mix), null) },
+                        description = stringResource(R.string.auto_play_mode_desc),
+                        selectedValue = autoPlayMode,
+                        onValueSelected = onAutoPlayModeChange,
+                        valueText = {
+                            when (it) {
+                                AutoPlayMode.SIMILAR -> "Similar Tracks"
+                                AutoPlayMode.TASTE -> "My Taste Profile"
+                                AutoPlayMode.OFF -> "Off"
+                            }
+                        },
+                    )
                 }
 
                 item {

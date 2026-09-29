@@ -158,6 +158,7 @@ import moe.rukamori.archivetune.ui.component.LyricsEnhanced
 import moe.rukamori.archivetune.ui.component.LyricsV2
 import moe.rukamori.archivetune.constants.LyricsMode
 import moe.rukamori.archivetune.constants.LyricsModeKey
+import moe.rukamori.archivetune.constants.WavySeekbarEnabledKey
 import moe.rukamori.archivetune.utils.rememberEnumPreference
 import moe.rukamori.archivetune.ui.menu.LyricsMenu
 import moe.rukamori.archivetune.ui.menu.PlayerMenu
@@ -2021,15 +2022,31 @@ private fun AppleMusicControlsColumn(
     // are auto-hidden, this composable is not composed at all, so the state
     // read never fires and no recomposition happens.
     val currentPosition = positionProvider()
+    val wavySeekbarEnabled by rememberPreference(WavySeekbarEnabledKey, defaultValue = true)
 
     // Thin scrubber + elapsed / -remaining.
     Column {
-        AppleMusicSeekBar(
-            position = sliderPosition ?: currentPosition,
-            duration = duration,
-            onScrub = onSliderValueChange,
-            onScrubFinished = onSliderValueChangeFinished,
-        )
+        if (wavySeekbarEnabled) {
+            WavySeekBar(
+                positionMs = sliderPosition ?: currentPosition,
+                durationMs = duration,
+                isPlaying = isPlaying,
+                onSeek = { seekMs ->
+                    onSliderValueChange(seekMs)
+                    onSliderValueChangeFinished()
+                },
+                modifier = Modifier.fillMaxWidth(),
+                isTranslucent = true,
+                showTimeLabels = false,
+            )
+        } else {
+            AppleMusicSeekBar(
+                position = sliderPosition ?: currentPosition,
+                duration = duration,
+                onScrub = onSliderValueChange,
+                onScrubFinished = onSliderValueChangeFinished,
+            )
+        }
         Spacer(Modifier.height(6.dp))
         // Mirror the Immersive V8 layout: elapsed time on the left, quality
         // chip (Lossless / AAC / OPUS) centered, -remaining on the right.

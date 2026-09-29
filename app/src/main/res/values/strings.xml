@@ -1889,4 +1889,18 @@
 
     <!-- Generic error string used by multiple screens -->
     <string name="error">An error occurred</string>
+
+    <!-- Wavy Seekbar -->
+    <string name="wavy_seekbar">Wavy seekbar</string>
+    <string name="wavy_seekbar_enabled_desc">Multi-layer fluid wavy progress bar</string>
+    <string name="wavy_seekbar_disabled_desc">Standard flat bar</string>
+
+    <!-- Discover & Playlist Generator -->
+    <string name="discover">Discover</string>
+    <string name="generate">Generate</string>
+    <string name="taste_profile">Taste Profile</string>
+    <string name="auto_play_mode">Auto-play mode</string>
+    <string name="auto_play_mode_desc">When queue ends, keep music playing with</string>
+    <string name="suggest_songs">Suggest songs</string>
+    <string name="made_for_you_taste">Made for you from your taste</string>
 </resources>

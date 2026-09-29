@@ -1315,6 +1315,9 @@ interface DatabaseDao {
     @Query("SELECT * FROM playlist WHERE browseId = :browseId LIMIT 1")
     fun playlistEntityByBrowseId(browseId: String): PlaylistEntity?
 
+    @Query("SELECT name FROM playlist")
+    suspend fun getAllPlaylistNames(): List<String>
+
     @Transaction
     @Query("SELECT COUNT(*) from playlist_song_map WHERE playlistId = :playlistId AND songId = :songId LIMIT 1")
     fun checkInPlaylist(

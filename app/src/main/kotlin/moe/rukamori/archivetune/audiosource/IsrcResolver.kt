@@ -270,7 +270,6 @@ object IsrcResolver {
                 val root = JSONObject(body)
                 val results = root.optJSONObject("results") ?: return@runCatching null
                 val songs = results.optJSONObject("songs")?.optJSONArray("data") ?: return@runCatching null
-
                 for (i in 0 until songs.length()) {
                     val song = songs.optJSONObject(i) ?: continue
                     val attributes = song.optJSONObject("attributes") ?: continue
