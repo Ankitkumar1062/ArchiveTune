@@ -366,11 +366,15 @@ object AppleMusicAudioProvider {
                     val kbps = Regex("(\\d+)$").find(flavor)?.groupValues?.last()?.toIntOrNull() ?: 0
                     Asset(flavor, url, kbps)
                 }.sortedByDescending { it.kbps }
+            // `candidates` is sorted best-first, so a missing tier must fall back to the BEST asset
+            // Apple offered, never the worst: `lastOrNull()`/`minByOrNull` picked the lowest
+            // bitrate, so a lossless request against a lossy-only account silently played 64 kbps
+            // when 256 kbps was sitting right there.
             val asset = when (quality) {
                 AppleMusicQuality.AAC ->
-                    candidates.firstOrNull { it.kbps <= 320 } ?: candidates.minByOrNull { it.kbps }
+                    candidates.firstOrNull { it.kbps <= 320 } ?: candidates.firstOrNull()
                 AppleMusicQuality.LOSSLESS ->
-                    candidates.firstOrNull { it.kbps in 321..1411 } ?: candidates.lastOrNull()
+                    candidates.firstOrNull { it.kbps in 321..1411 } ?: candidates.firstOrNull()
                 AppleMusicQuality.HI_RES_LOSSLESS -> candidates.firstOrNull()
             } ?: return null
 
