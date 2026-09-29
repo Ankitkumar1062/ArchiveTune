@@ -112,7 +112,7 @@ jobs:
     name: Build Canary APKs
     needs: check
     if: needs.check.outputs.should_build == 'true'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-8vcpu-ubuntu-2404
     env:
       VERSION_NAME_OVERRIDE: ${{ needs.check.outputs.version_name }}
       VERSION_CODE_OVERRIDE: ${{ needs.check.outputs.version_code }}
