@@ -52,8 +52,8 @@ if (localPropertiesFile.exists()) {
 // A pre-release build is named after its release tag instead — "C<yyyyMMddHHmm>" for Canary,
 // "N<yyyyMMddHHmm>" for Nightly, the way rukamori names his nightlies "N<yyyyMMdd>" — so the tag,
 // the release title and the version the app reports are all one string.
-val baseVersionName = "14.5.0"
-val baseVersionCode = 1450
+val baseVersionName = "15.0.0"
+val baseVersionCode = 1500
 
 val discordApplicationId =
     (
