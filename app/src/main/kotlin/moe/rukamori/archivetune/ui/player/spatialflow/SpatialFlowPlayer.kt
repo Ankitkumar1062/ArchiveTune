@@ -866,8 +866,16 @@ fun SpatialFlowPlayerContent(
                 Spacer(modifier = Modifier.height(24.dp))
 
                 if (wavySeekbarEnabled) {
+                    // Read position into isolated state so only WavySeekBar recomposes
+                    // on each 100ms poll tick — NOT the full SpatialFlowPlayerContent.
+                    val positionMs by androidx.compose.runtime.produceState(positionProvider(), isPlaying) {
+                        while (true) {
+                            value = positionProvider()
+                            kotlinx.coroutines.delay(100)
+                        }
+                    }
                     WavySeekBar(
-                        positionMs = positionProvider(),
+                        positionMs = positionMs,
                         durationMs = duration,
                         isPlaying = isPlaying,
                         onSeek = { seekMs ->

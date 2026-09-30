@@ -2036,7 +2036,7 @@ private fun AppleMusicControlsColumn(
                     onSliderValueChangeFinished()
                 },
                 modifier = Modifier.fillMaxWidth(),
-                isTranslucent = true,
+                isTranslucent = false,
                 showTimeLabels = false,
             )
         } else {

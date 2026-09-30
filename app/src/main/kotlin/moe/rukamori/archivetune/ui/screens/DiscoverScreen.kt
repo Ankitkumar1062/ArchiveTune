@@ -45,6 +45,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -72,11 +73,13 @@ import coil3.request.crossfade
 import moe.rukamori.archivetune.LocalPlayerAwareWindowInsets
 import moe.rukamori.archivetune.LocalPlayerConnection
 import moe.rukamori.archivetune.R
+import moe.rukamori.archivetune.extensions.toMediaItem
 import moe.rukamori.archivetune.extensions.togglePlayPause
 import moe.rukamori.archivetune.generate.GeneratedTrack
 import moe.rukamori.archivetune.generate.youtubeVideoIdOrNull
 import moe.rukamori.archivetune.innertube.models.WatchEndpoint
 import moe.rukamori.archivetune.models.MediaMetadata
+import moe.rukamori.archivetune.playback.queues.ListQueue
 import moe.rukamori.archivetune.playback.queues.YouTubeQueue
 import moe.rukamori.archivetune.viewmodels.DiscoverViewModel
 
@@ -160,6 +163,7 @@ fun DiscoverScreen(
 
     val listState = rememberLazyListState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
 
     LaunchedEffect(uiState.saveResultMessage) {
         uiState.saveResultMessage?.let { msg ->
@@ -221,11 +225,14 @@ fun DiscoverScreen(
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
+                    scrolledContainerColor = MaterialTheme.colorScheme.surface,
                 ),
+                scrollBehavior = scrollBehavior,
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
         contentWindowInsets = LocalPlayerAwareWindowInsets.current,
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
     ) { paddingValues ->
         Box(
             modifier = Modifier
@@ -250,7 +257,7 @@ fun DiscoverScreen(
                     itemsIndexed(
                         items = uiState.tracks,
                         key = { index, track -> "${track.key}_$index" },
-                    ) { _, track ->
+                    ) { index, track ->
                         val videoId = track.videoId ?: track.youtubeVideoIdOrNull()
                         val isActive = videoId != null && currentMetadata?.id == videoId
 
@@ -263,20 +270,50 @@ fun DiscoverScreen(
                                     if (isActive) {
                                         playerConnection.player.togglePlayPause()
                                     } else {
-                                        val metadata = MediaMetadata(
-                                            id = videoId,
-                                            title = track.name,
-                                            artists = listOf(MediaMetadata.Artist(id = null, name = track.artist)),
-                                            duration = 0,
-                                            thumbnailUrl = track.artworkUrl,
-                                            album = track.album?.let { MediaMetadata.Album(id = "", title = it) },
-                                        )
-                                        playerConnection.playQueue(
-                                            YouTubeQueue(
-                                                WatchEndpoint(videoId = videoId),
-                                                metadata,
-                                            ),
-                                        )
+                                        // Build a ListQueue from all tracks that have a videoId,
+                                        // starting playback at the tapped track's index so the
+                                        // queue reflects the entire Discover feed.
+                                        val tracksWithId = uiState.tracks
+                                            .mapIndexedNotNull { i, t ->
+                                                val id = t.videoId ?: t.youtubeVideoIdOrNull()
+                                                if (id != null) i to id else null
+                                            }
+                                        val startIndex = tracksWithId.indexOfFirst { (_, id) -> id == videoId }
+                                        val mediaItems = tracksWithId.map { (i, id) ->
+                                            val t = uiState.tracks[i]
+                                            MediaMetadata(
+                                                id = id,
+                                                title = t.name,
+                                                artists = listOf(MediaMetadata.Artist(id = null, name = t.artist)),
+                                                duration = 0,
+                                                thumbnailUrl = t.artworkUrl,
+                                                album = t.album?.let { MediaMetadata.Album(id = "", title = it) },
+                                            ).toMediaItem()
+                                        }
+                                        if (mediaItems.isNotEmpty()) {
+                                            playerConnection.playQueue(
+                                                ListQueue(
+                                                    title = "Discover",
+                                                    items = mediaItems,
+                                                    startIndex = startIndex.coerceAtLeast(0),
+                                                ),
+                                            )
+                                        } else {
+                                            // Fallback: single-song YouTube queue
+                                            playerConnection.playQueue(
+                                                YouTubeQueue(
+                                                    WatchEndpoint(videoId = videoId),
+                                                    MediaMetadata(
+                                                        id = videoId,
+                                                        title = track.name,
+                                                        artists = listOf(MediaMetadata.Artist(id = null, name = track.artist)),
+                                                        duration = 0,
+                                                        thumbnailUrl = track.artworkUrl,
+                                                        album = track.album?.let { MediaMetadata.Album(id = "", title = it) },
+                                                    ),
+                                                ),
+                                            )
+                                        }
                                     }
                                 }
                             },

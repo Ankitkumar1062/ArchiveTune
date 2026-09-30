@@ -1405,14 +1405,14 @@ private fun AppleMusicControls(
         if (wavySeekbarEnabled) {
             WavySeekBar(
                 positionMs = currentPosition,
-                durationMs = duration,
+                durationMs = safeDuration,
                 isPlaying = isPlaying,
                 onSeek = { seekMs ->
                     onPositionChange(seekMs)
                     onPositionChangeFinished()
                 },
                 modifier = Modifier.fillMaxWidth(),
-                isTranslucent = true,
+                isTranslucent = false,
                 showTimeLabels = false,
             )
         } else {

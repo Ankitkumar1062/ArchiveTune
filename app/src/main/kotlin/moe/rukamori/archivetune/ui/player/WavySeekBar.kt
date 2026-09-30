@@ -249,8 +249,8 @@ fun WavySeekBar(
                         cap = StrokeCap.Round,
                     )
 
-                    // 2. Active 3-Layer Waves
-                    if (thumbX > 0f) {
+                    // 2. Active 3-Layer Waves (always render, even at position 0)
+                    if (thumbX >= 0f) {
                         clipPathBounds.reset()
                         clipPathBounds.addRoundRect(
                             RoundRect(
