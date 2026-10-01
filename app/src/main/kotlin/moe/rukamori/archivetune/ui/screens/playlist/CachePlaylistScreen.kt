@@ -94,7 +94,7 @@ import moe.rukamori.archivetune.constants.SongSortTypeKey
 import moe.rukamori.archivetune.extensions.toMediaItem
 import moe.rukamori.archivetune.extensions.togglePlayPause
 import moe.rukamori.archivetune.playback.queues.ListQueue
-import moe.rukamori.archivetune.ui.component.AppleMusicPlaylistHero
+import moe.rukamori.archivetune.ui.component.MediaDetailHero
 import moe.rukamori.archivetune.ui.component.DraggableScrollbar
 import moe.rukamori.archivetune.ui.component.EmptyPlaceholder
 import moe.rukamori.archivetune.ui.component.MediaDetailAction
@@ -433,23 +433,20 @@ fun CachePlaylistScreen(
                 if (filteredSongs.isNotEmpty() && !isSearching) {
                     // Hero Header Item — iOS-inspired Apple Music style.
                     item(key = "header") {
-                        AppleMusicPlaylistHero(
-                            sectionLabel = cachedLabel,
+                        MediaDetailHero(
                             title = cachedLabel,
-                            subtitle =
+                            thumbnailUrl = filteredSongs.firstOrNull()?.item?.thumbnailUrl,
+                            fallbackIcon = R.drawable.music_note,
+                            systemBarsTopPadding = systemBarsTopPadding,
+                            metadata =
                                 pluralStringResource(
                                     R.plurals.n_song,
                                     filteredSongs.size,
                                     filteredSongs.size,
                                 ),
-                            onPlay = {
-                                playerConnection.playQueue(
-                                    ListQueue(
-                                        title = "Cache Songs",
-                                        items = filteredSongs.map { it.item.toMediaItem() },
-                                    ),
-                                )
-                            },
+                            isAdded = false,
+                            addContentDescription = R.string.add_to_queue,
+                            removeContentDescription = R.string.remove_from_queue,
                             onShuffle = {
                                 playerConnection.playQueue(
                                     ListQueue(
@@ -458,15 +455,19 @@ fun CachePlaylistScreen(
                                     ),
                                 )
                             },
-                            additionalActions = {
-                                // Export-all pill integrated into the hero row,
-                                // matching the iOS redesign pill aesthetic (rounded
-                                // capsule + pink accent) instead of a separate
-                                // FilledTonalButton below the hero that broke the
-                                // visual rhythm of the redesigned page.
+                            onPlay = {
+                                playerConnection.playQueue(
+                                    ListQueue(
+                                        title = "Cache Songs",
+                                        items = filteredSongs.map { it.item.toMediaItem() },
+                                    ),
+                                )
+                            },
+                            onToggleAdd = null,
+                            additionalPrimaryActions = { contentColor ->
                                 MediaDetailAction(
                                     contentDescription = R.string.export_all_songs,
-                                    contentColor = Color.White,
+                                    contentColor = contentColor,
                                     onClick = { exportAllLauncher.launch(null) },
                                 ) {
                                     Icon(
@@ -476,12 +477,6 @@ fun CachePlaylistScreen(
                                     )
                                 }
                             },
-                            modifier =
-                                Modifier
-                                    .fillMaxWidth()
-                                    .padding(
-                                        top = systemBarsTopPadding + AppBarHeight + 8.dp,
-                                    ),
                         )
                     }
                 }

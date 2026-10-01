@@ -124,6 +124,7 @@ import moe.rukamori.archivetune.constants.PlayerBackgroundStyle
 import moe.rukamori.archivetune.constants.PlayerDesignStyle
 import moe.rukamori.archivetune.constants.PlayerHorizontalPadding
 import moe.rukamori.archivetune.constants.SliderStyle
+import moe.rukamori.archivetune.constants.WavySeekbarEnabledKey
 import moe.rukamori.archivetune.db.entities.FormatEntity
 import moe.rukamori.archivetune.db.entities.codecLabel
 import moe.rukamori.archivetune.extensions.togglePlayPause
@@ -781,11 +782,17 @@ fun PlayerSlider(
     onValueChange: (Long) -> Unit,
     onValueChangeFinished: () -> Unit,
 ) {
+    val wavySeekbarEnabled by rememberPreference(WavySeekbarEnabledKey, defaultValue = true)
+    val effectiveSliderStyle = if (wavySeekbarEnabled && sliderStyle == SliderStyle.Standard) {
+        SliderStyle.Wavy
+    } else {
+        sliderStyle
+    }
     val safeDuration = if (duration <= 0L) 0f else duration.toFloat()
     val safeValue = (sliderPosition ?: position).toFloat().coerceIn(0f, maxOf(0f, safeDuration))
 
     StyledPlaybackSlider(
-        sliderStyle = sliderStyle,
+        sliderStyle = effectiveSliderStyle,
         value = safeValue,
         valueRange = 0f..maxOf(1f, safeDuration),
         onValueChange = { onValueChange(it.toLong()) },

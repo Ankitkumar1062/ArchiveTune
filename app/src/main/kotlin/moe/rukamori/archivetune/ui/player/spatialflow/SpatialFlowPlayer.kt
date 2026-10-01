@@ -102,8 +102,6 @@ import moe.rukamori.archivetune.ui.player.LocalVideoPreferredHeight
 import moe.rukamori.archivetune.ui.player.LocalVideoPlaybackFailed
 import moe.rukamori.archivetune.ui.player.LocalVideoArtworkState
 import moe.rukamori.archivetune.ui.player.InlineVideoPlayer
-import moe.rukamori.archivetune.ui.player.WavySeekBar
-import moe.rukamori.archivetune.constants.WavySeekbarEnabledKey
 import moe.rukamori.archivetune.utils.rememberPreference
 import androidx.media3.exoplayer.offline.DownloadRequest
 import androidx.media3.exoplayer.offline.DownloadService
@@ -202,7 +200,6 @@ fun SpatialFlowPlayerContent(
     val currentLyricsEntity by playerConnection.currentLyrics.collectAsStateWithLifecycle(initialValue = null)
     val shuffleModeEnabled by playerConnection.shuffleModeEnabled.collectAsStateWithLifecycle()
     val repeatMode by playerConnection.repeatMode.collectAsStateWithLifecycle()
-    val wavySeekbarEnabled by rememberPreference(WavySeekbarEnabledKey, defaultValue = true)
     val downloadUtil = LocalDownloadUtil.current
     val download by downloadUtil
         .getDownload(mediaMetadata.id)
@@ -865,43 +862,20 @@ fun SpatialFlowPlayerContent(
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                if (wavySeekbarEnabled) {
-                    // Read position into isolated state so only WavySeekBar recomposes
-                    // on each 100ms poll tick — NOT the full SpatialFlowPlayerContent.
-                    val positionMs by androidx.compose.runtime.produceState(positionProvider(), isPlaying) {
-                        while (true) {
-                            value = positionProvider()
-                            kotlinx.coroutines.delay(100)
-                        }
-                    }
-                    WavySeekBar(
-                        positionMs = positionMs,
-                        durationMs = duration,
-                        isPlaying = isPlaying,
-                        onSeek = { seekMs ->
-                            onSeek(seekMs)
-                            onSeekFinished()
-                        },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                        isTranslucent = false,
-                        showTimeLabels = true,
-                    )
-                } else {
-                    WavySliderWithLabels(
-                        currentPositionProvider = positionProvider,
-                        duration = duration,
-                        isPlaying = isPlaying,
-                        onSeekTo = { seekMs ->
-                            onSeek(seekMs)
-                            onSeekFinished()
-                        },
-                        dynamicAccentColor = dynamicAccentColor,
-                        contentColor = contentColor,
-                        contentSecondary = contentSecondary,
-                        isDark = surfaceIsDark,
-                        currentFormat = currentFormat,
-                    )
-                }
+                WavySliderWithLabels(
+                    currentPositionProvider = positionProvider,
+                    duration = duration,
+                    isPlaying = isPlaying,
+                    onSeekTo = { seekMs ->
+                        onSeek(seekMs)
+                        onSeekFinished()
+                    },
+                    dynamicAccentColor = dynamicAccentColor,
+                    contentColor = contentColor,
+                    contentSecondary = contentSecondary,
+                    isDark = surfaceIsDark,
+                    currentFormat = currentFormat,
+                )
 
                 Spacer(modifier = Modifier.height(16.dp))
 

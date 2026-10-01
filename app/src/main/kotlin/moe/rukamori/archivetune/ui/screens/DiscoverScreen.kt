@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -163,7 +164,6 @@ fun DiscoverScreen(
 
     val listState = rememberLazyListState()
     val snackbarHostState = remember { SnackbarHostState() }
-    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
 
     LaunchedEffect(uiState.saveResultMessage) {
         uiState.saveResultMessage?.let { msg ->
@@ -186,74 +186,38 @@ fun DiscoverScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = stringResource(R.string.discover),
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
+    val playerAwareInsets = LocalPlayerAwareWindowInsets.current
+
+    Box(
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        if (uiState.isLoading && uiState.tracks.isEmpty()) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = playerAwareInsets.asPaddingValues(),
+            ) {
+                item(key = "discover_header_shimmer") {
+                    DiscoverHeader(
+                        navController = navController,
+                        viewModel = viewModel,
                     )
-                },
-                actions = {
-                    IconButton(
-                        onClick = { navController.navigate("generate") },
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.mix),
-                            contentDescription = stringResource(R.string.generate),
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                    IconButton(
-                        onClick = { viewModel.surpriseMe() },
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.auto_awesome),
-                            contentDescription = "Surprise Me",
-                        )
-                    }
-                    IconButton(
-                        onClick = { viewModel.saveAsPlaylist() },
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.bookmark_filled),
-                            contentDescription = "Save As Playlist",
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    scrolledContainerColor = MaterialTheme.colorScheme.surface,
-                ),
-                scrollBehavior = scrollBehavior,
-            )
-        },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        contentWindowInsets = LocalPlayerAwareWindowInsets.current,
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-    ) { paddingValues ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues),
-        ) {
-            if (uiState.isLoading && uiState.tracks.isEmpty()) {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(vertical = 12.dp),
-                ) {
-                    items(8) {
-                        ShimmerDiscoverItem()
-                    }
                 }
-            } else {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
-                ) {
+                items(8) {
+                    ShimmerDiscoverItem()
+                }
+            }
+        } else {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = playerAwareInsets.asPaddingValues(),
+            ) {
+                item(key = "discover_header") {
+                    DiscoverHeader(
+                        navController = navController,
+                        viewModel = viewModel,
+                    )
+                }
                     itemsIndexed(
                         items = uiState.tracks,
                         key = { index, track -> "${track.key}_$index" },
@@ -336,7 +300,67 @@ fun DiscoverScreen(
                             }
                         }
                     }
-                }
+            }
+        }
+
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .windowInsetsPadding(playerAwareInsets.only(WindowInsetsSides.Bottom)),
+        )
+    }
+}
+
+@Composable
+private fun DiscoverHeader(
+    navController: NavController,
+    viewModel: DiscoverViewModel,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = stringResource(R.string.discover),
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            IconButton(
+                onClick = { navController.navigate("generate") },
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.tune),
+                    contentDescription = stringResource(R.string.generate),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+            IconButton(
+                onClick = { viewModel.surpriseMe() },
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.shuffle),
+                    contentDescription = "Surprise Me",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            IconButton(
+                onClick = { viewModel.saveAsPlaylist() },
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.bookmark_filled),
+                    contentDescription = "Save As Playlist",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }

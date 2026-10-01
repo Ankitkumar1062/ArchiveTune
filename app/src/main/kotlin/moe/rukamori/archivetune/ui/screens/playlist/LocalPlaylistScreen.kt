@@ -124,7 +124,7 @@ import moe.rukamori.archivetune.ui.component.EmptyPlaceholder
 import moe.rukamori.archivetune.ui.component.ExpressivePullToRefreshBox
 import moe.rukamori.archivetune.ui.component.FrostedHeaderPill
 import moe.rukamori.archivetune.ui.component.IconButton
-import moe.rukamori.archivetune.ui.component.AppleMusicPlaylistHero
+import moe.rukamori.archivetune.ui.component.MediaDetailHero
 import moe.rukamori.archivetune.ui.component.LiquidGlassActionPill
 import moe.rukamori.archivetune.ui.component.GlassPillTitleText
 import moe.rukamori.archivetune.ui.component.LiquidGlassIconButton
@@ -748,6 +748,7 @@ fun LocalPlaylistScreen(
                                         .takeIf { it > 0 }
                                         ?.let { makeTimeString(it * 1000L) },
                                 ).joinToString(MediaDetailMetadataSeparator)
+                            val isBookmarked = playlist.playlist.bookmarkedAt != null
 
                             // SimpMusic-style liquid glass backdrop source: the
                             // LazyColumn itself carries the layerBackdrop modifier
@@ -759,30 +760,20 @@ fun LocalPlaylistScreen(
                             // so they sample the backdrop without being recorded into
                             // it. They are PERSISTENT — they stay at the top of the
                             // screen no matter how far the user scrolls.
-                            //
-                            // The hero item now renders the iOS-inspired
-                            // AppleMusicPlaylistHero: small pink accent label,
-                            // large bold white title, metadata line, rounded
-                            // Play/Shuffle/Download pill controls. No large
-                            // artwork backdrop — matches the user's reference
-                            // screenshots (plain dark page with confident title).
-                            AppleMusicPlaylistHero(
-                                sectionLabel = stringResource(R.string.playlist),
+                            // The hero item renders MediaDetailHero (large artwork banner,
+                            // centered title, play pill, circular actions) matching
+                            // the user's preferred rukamori / vossgraves design.
+                            MediaDetailHero(
                                 title = playlist.playlist.name,
-                                subtitle = metadata,
-                                onPlay =
-                                    if (songs.isEmpty()) {
-                                        null
-                                    } else {
-                                        {
-                                            playerConnection.playQueue(
-                                                ListQueue(
-                                                    title = playlist.playlist.name,
-                                                    items = songs.map { it.song.toMediaItem() },
-                                                ),
-                                            )
-                                        }
-                                    },
+                                thumbnailUrl =
+                                    playlist.playlist.thumbnailUrl
+                                        ?: playlist.thumbnails.firstOrNull(),
+                                fallbackIcon = R.drawable.queue_music,
+                                systemBarsTopPadding = systemBarsTopPadding,
+                                metadata = metadata,
+                                isAdded = isBookmarked,
+                                addContentDescription = R.string.add_to_library,
+                                removeContentDescription = R.string.remove_from_library,
                                 onShuffle =
                                     if (songs.isEmpty()) {
                                         null
@@ -799,96 +790,101 @@ fun LocalPlaylistScreen(
                                             )
                                         }
                                     },
-                                additionalActions =
-                                    if (songs.isNotEmpty()) {
+                                onPlay =
+                                    if (songs.isEmpty()) {
+                                        null
+                                    } else {
                                         {
-                                            val isCompleted =
-                                                downloadState == HeaderDownloadState.Completed
-                                            MediaDetailAction(
-                                                contentDescription =
-                                                    if (isCompleted) {
-                                                        R.string.remove_download
-                                                    } else {
-                                                        R.string.download
-                                                    },
-                                                contentColor = Color.White,
-                                                onClick = {
-                                                    val headerState = downloadState
-                                                    when (headerState) {
-                                                        HeaderDownloadState.Completed -> {
-                                                            showRemoveDownloadDialog = true
-                                                        }
-                                                        is HeaderDownloadState.Partial -> {
-                                                            // Pause/Resume (2026-09-05): the icon used to
-                                                            // REMOVE every download of the playlist here —
-                                                            // the 90 already-downloaded songs included,
-                                                            // which is exactly what was reported. Now it
-                                                            // only pauses the pending downloads; resuming
-                                                            // picks them back up; nothing is removed.
-                                                            if (headerState.paused) {
-                                                                sendResumePausedDownloads(
-                                                                    context = context,
-                                                                    songIds = songs.map { it.song.id },
-                                                                    downloads = downloads,
-                                                                )
-                                                            } else {
-                                                                sendPauseRunningDownloads(
-                                                                    context = context,
-                                                                    songIds = songs.map { it.song.id },
-                                                                    downloads = downloads,
-                                                                )
-                                                            }
-                                                        }
-                                                        HeaderDownloadState.None -> {
-                                                            sendAddMissingDownloads(
+                                            playerConnection.playQueue(
+                                                ListQueue(
+                                                    title = playlist.playlist.name,
+                                                    items = songs.map { it.song.toMediaItem() },
+                                                ),
+                                            )
+                                        }
+                                    },
+                                onToggleAdd = null,
+                                additionalPrimaryActions = { contentColor ->
+                                    if (songs.isNotEmpty()) {
+                                        val isCompleted =
+                                            downloadState == HeaderDownloadState.Completed
+                                        MediaDetailAction(
+                                            contentDescription =
+                                                if (isCompleted) {
+                                                    R.string.remove_download
+                                                } else {
+                                                    R.string.download
+                                                },
+                                            contentColor = contentColor,
+                                            onClick = {
+                                                val headerState = downloadState
+                                                when (headerState) {
+                                                    HeaderDownloadState.Completed -> {
+                                                        showRemoveDownloadDialog = true
+                                                    }
+                                                    is HeaderDownloadState.Partial -> {
+                                                        // Pause/Resume (2026-09-05): the icon used to
+                                                        // REMOVE every download of the playlist here —
+                                                        // the 90 already-downloaded songs included,
+                                                        // which is exactly what was reported. Now it
+                                                        // only pauses the pending downloads; resuming
+                                                        // picks them back up; nothing is removed.
+                                                        if (headerState.paused) {
+                                                            sendResumePausedDownloads(
                                                                 context = context,
-                                                                songs =
-                                                                    songs.map {
-                                                                        HeaderDownloadItem(
-                                                                            id = it.song.id,
-                                                                            title = it.song.song.title,
-                                                                        )
-                                                                    },
+                                                                songIds = songs.map { it.song.id },
+                                                                downloads = downloads,
+                                                            )
+                                                        } else {
+                                                            sendPauseRunningDownloads(
+                                                                context = context,
+                                                                songIds = songs.map { it.song.id },
                                                                 downloads = downloads,
                                                             )
                                                         }
                                                     }
-                                                },
-                                            ) {
-                                                when (val state = downloadState) {
-                                                    HeaderDownloadState.Completed -> {
-                                                        Icon(
-                                                            painter = painterResource(R.drawable.offline),
-                                                            contentDescription = null,
-                                                            modifier = Modifier.size(22.dp),
-                                                        )
-                                                    }
-                                                    is HeaderDownloadState.Partial -> {
-                                                        HeaderDownloadProgressIndicator(
-                                                            progress = state.progress,
-                                                            paused = state.paused,
-                                                            icon = R.drawable.download,
-                                                        )
-                                                    }
                                                     HeaderDownloadState.None -> {
-                                                        Icon(
-                                                            painter = painterResource(R.drawable.download),
-                                                            contentDescription = null,
-                                                            modifier = Modifier.size(22.dp),
+                                                        sendAddMissingDownloads(
+                                                            context = context,
+                                                            songs =
+                                                                songs.map {
+                                                                    HeaderDownloadItem(
+                                                                        id = it.song.id,
+                                                                        title = it.song.song.title,
+                                                                    )
+                                                                },
+                                                            downloads = downloads,
                                                         )
                                                     }
                                                 }
+                                            },
+                                        ) {
+                                            when (val state = downloadState) {
+                                                HeaderDownloadState.Completed -> {
+                                                    Icon(
+                                                        painter = painterResource(R.drawable.offline),
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(22.dp),
+                                                    )
+                                                }
+                                                is HeaderDownloadState.Partial -> {
+                                                    HeaderDownloadProgressIndicator(
+                                                        progress = state.progress,
+                                                        paused = state.paused,
+                                                        icon = R.drawable.download,
+                                                    )
+                                                }
+                                                HeaderDownloadState.None -> {
+                                                    Icon(
+                                                        painter = painterResource(R.drawable.download),
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(22.dp),
+                                                    )
+                                                }
                                             }
                                         }
-                                    } else {
-                                        null
-                                    },
-                                modifier =
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .padding(
-                                            top = systemBarsTopPadding + AppBarHeight + 8.dp,
-                                        ),
+                                    }
+                                },
                             )
                         }
                     }

@@ -427,17 +427,6 @@ private fun HomeContent(
                         }
                     }
 
-                    if (!minimalMode) {
-                        item(
-                            key = "home_taste_strip",
-                            contentType = "taste_strip",
-                        ) {
-                            HomeTasteStripSection(
-                                navController = navController,
-                                modifier = Modifier.animateItem(),
-                            )
-                        }
-                    }
 
                     if (!minimalMode) {
                         if (remoteQuickPicks?.items?.isNotEmpty() == true) {
@@ -854,54 +843,3 @@ private fun HomeSkeletonFeed(modifier: Modifier = Modifier) {
     }
 }
 
-@Composable
-private fun HomeTasteStripSection(
-    navController: NavController,
-    modifier: Modifier = Modifier,
-) {
-    val quickGenres = remember {
-        listOf("Pop", "Rock", "Indie", "Electronic", "R&B", "Hip-Hop", "Ambient", "Jazz", "Lo-Fi")
-    }
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
-        ) {
-            Icon(
-                painter = painterResource(R.drawable.auto_awesome),
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                text = stringResource(R.string.made_for_you_taste),
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-        }
-        androidx.compose.foundation.lazy.LazyRow(
-            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp, vertical = 4.dp),
-        ) {
-            items(quickGenres) { genre ->
-                androidx.compose.material3.SuggestionChip(
-                    onClick = { navController.navigate("generate?tag=${genre.lowercase()}") },
-                    label = { Text(genre) },
-                    icon = {
-                        Icon(
-                            painter = painterResource(R.drawable.mix),
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                        )
-                    },
-                )
-            }
-        }
-    }
-}

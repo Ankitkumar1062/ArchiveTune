@@ -89,7 +89,7 @@ import moe.rukamori.archivetune.constants.YtmSyncKey
 import moe.rukamori.archivetune.extensions.toMediaItem
 import moe.rukamori.archivetune.extensions.togglePlayPause
 import moe.rukamori.archivetune.playback.queues.ListQueue
-import moe.rukamori.archivetune.ui.component.AppleMusicPlaylistHero
+import moe.rukamori.archivetune.ui.component.MediaDetailHero
 import moe.rukamori.archivetune.ui.component.DefaultDialog
 import moe.rukamori.archivetune.ui.component.DraggableScrollbar
 import moe.rukamori.archivetune.ui.component.EmptyPlaceholder
@@ -466,16 +466,12 @@ fun AutoPlaylistScreen(
                         key = "header",
                         contentType = CONTENT_TYPE_HEADER,
                     ) {
-                        val sectionLabelRes =
-                            if (playlistId == "liked") {
-                                R.string.liked
-                            } else {
-                                R.string.offline
-                            }
-                        AppleMusicPlaylistHero(
-                            sectionLabel = stringResource(sectionLabelRes),
+                        MediaDetailHero(
                             title = playlist,
-                            subtitle =
+                            thumbnailUrl = songs.firstOrNull()?.song?.thumbnailUrl,
+                            fallbackIcon = if (playlistId == "liked") R.drawable.favorite else R.drawable.music_note,
+                            systemBarsTopPadding = systemBarsTopPadding,
+                            metadata =
                                 listOf(
                                     pluralStringResource(
                                         R.plurals.n_song,
@@ -484,14 +480,9 @@ fun AutoPlaylistScreen(
                                     ),
                                     makeTimeString(likeLength * 1000L),
                                 ).joinToString(MediaDetailMetadataSeparator),
-                            onPlay = {
-                                playerConnection.playQueue(
-                                    ListQueue(
-                                        title = playlist,
-                                        items = songs.map { it.toMediaItem() },
-                                    ),
-                                )
-                            },
+                            isAdded = false,
+                            addContentDescription = R.string.add_to_queue,
+                            removeContentDescription = R.string.remove_from_queue,
                             onShuffle = {
                                 playerConnection.playQueue(
                                     ListQueue(
@@ -500,7 +491,16 @@ fun AutoPlaylistScreen(
                                     ),
                                 )
                             },
-                            additionalActions = {
+                            onPlay = {
+                                playerConnection.playQueue(
+                                    ListQueue(
+                                        title = playlist,
+                                        items = songs.map { it.toMediaItem() },
+                                    ),
+                                )
+                            },
+                            onToggleAdd = null,
+                            additionalPrimaryActions = { contentColor ->
                                 val isCompleted = downloadState == HeaderDownloadState.Completed
                                 MediaDetailAction(
                                     contentDescription =
@@ -509,7 +509,7 @@ fun AutoPlaylistScreen(
                                         } else {
                                             R.string.download
                                         },
-                                    contentColor = Color.White,
+                                    contentColor = contentColor,
                                     onClick = {
                                         val headerState = downloadState
                                         when (headerState) {
@@ -574,12 +574,6 @@ fun AutoPlaylistScreen(
                                     }
                                 }
                             },
-                            modifier =
-                                Modifier
-                                    .fillMaxWidth()
-                                    .padding(
-                                        top = systemBarsTopPadding + AppBarHeight + 8.dp,
-                                    ),
                         )
                     }
                 }
