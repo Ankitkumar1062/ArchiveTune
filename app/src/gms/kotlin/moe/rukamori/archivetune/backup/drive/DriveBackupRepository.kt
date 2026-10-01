@@ -162,7 +162,7 @@ class DriveBackupRepository @Inject constructor(@ApplicationContext private val 
             while (entries.hasMoreElements()) {
                 currentCoroutineContext().ensureActive()
                 val entry = entries.nextElement()
-                if (entry.name !in ARCHIVE_ENTRIES || !names.add(entry.name) || entry.isDirectory) {
+                if (!isArchiveEntry(entry.name) || !names.add(entry.name) || entry.isDirectory) {
                     throw DriveBackupException(DriveBackupFailure.INVALID)
                 }
                 zip.getInputStream(entry).use { input ->
@@ -202,6 +202,13 @@ class DriveBackupRepository @Inject constructor(@ApplicationContext private val 
                 }
             }
         }
+    }
+
+    private fun isArchiveEntry(name: String): Boolean {
+        if (name in ARCHIVE_ENTRIES) return true
+        val font = name.removePrefix("${BackupArchiveRepository.FONTS_ZIP_PREFIX}/")
+        return font != name && font.isNotEmpty() && '/' !in font && '\\' !in font &&
+            font.endsWith(".ttf", ignoreCase = true)
     }
 
     private suspend fun checksum(file: File): String {
