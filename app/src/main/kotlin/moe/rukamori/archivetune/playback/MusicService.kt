@@ -3183,11 +3183,10 @@ class MusicService :
 
         val currentItem = player.getMediaItemAt(currentIndex)
         val targetItem = player.getMediaItemAt(targetIndex)
+        if (!repeatCurrent && crossfadeGapless && isGaplessAlbumTransition(currentItem, targetItem)) return null
         // Episodes report duration -1 until resolved: fading against an
         // unknown-length track schedules against fiction. Skip both directions.
-        val currentMeta = currentItem.localConfiguration?.tag as? moe.rukamori.archivetune.models.MediaMetadata
-        val targetMeta = targetItem.localConfiguration?.tag as? moe.rukamori.archivetune.models.MediaMetadata
-        if (currentMeta?.isPodcast == true || targetMeta?.isPodcast == true) return null
+        if (currentItem.metadata?.isPodcast == true || targetItem.metadata?.isPodcast == true) return null
 
         return CrossfadeTarget(
             index = targetIndex,
