@@ -659,7 +659,7 @@ fun PlayerSettings(navController: NavController, scrollTo: String? = null) {
                                         is BitPerfectUsbOutput.Status.Active ->
                                             stringResource(
                                                 R.string.bit_perfect_usb_active,
-                                                status.deviceName.ifBlank { "USB DAC" },
+                                                status.deviceName.ifBlank { stringResource(R.string.bit_perfect_usb_default_device) },
                                                 status.format,
                                             )
                                         is BitPerfectUsbOutput.Status.Fallback ->
@@ -667,7 +667,7 @@ fun PlayerSettings(navController: NavController, scrollTo: String? = null) {
                                         is BitPerfectUsbOutput.Status.Ready ->
                                             stringResource(
                                                 R.string.bit_perfect_usb_ready,
-                                                status.deviceName.ifBlank { "USB DAC" },
+                                                status.deviceName.ifBlank { stringResource(R.string.bit_perfect_usb_default_device) },
                                             )
                                         BitPerfectUsbOutput.Status.NoDevice ->
                                             stringResource(R.string.bit_perfect_usb_no_device)

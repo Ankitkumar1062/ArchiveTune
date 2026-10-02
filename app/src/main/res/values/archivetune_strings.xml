@@ -1011,6 +1011,9 @@
     <string name="bit_perfect_usb_ready">On · %1$s connected, engages on the next song</string>
     <string name="bit_perfect_usb_active">Bit-perfect to %1$s · %2$s</string>
     <string name="bit_perfect_usb_fallback">Normal output · %1$s</string>
+    <string name="bit_perfect_usb_default_device">USB DAC</string>
+    <string name="bit_perfect_usb_reason_no_mode">%1$s offers no bit-perfect mode at %2$s / %3$s</string>
+    <string name="bit_perfect_usb_reason_refused">Android refused bit-perfect mode for this device</string>
     <string name="deezer_arl_login">Sign in with ARL</string>
     <string name="deezer_arl_login_description">Paste the arl cookie from a signed-in deezer.com browser session</string>
     <string name="deezer_arl_placeholder">arl cookie value</string>
