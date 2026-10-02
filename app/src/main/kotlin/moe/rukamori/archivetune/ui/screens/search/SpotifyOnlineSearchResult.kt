@@ -127,7 +127,7 @@ internal fun SpotifyOnlineSearchResult(
             }
         }
 
-    LaunchedEffect(lazyListState, state.hasMore, state.isLoading) {
+    LaunchedEffect(lazyListState, state.hasMore, state.isLoading, visibleItems) {
         if (!state.hasMore) return@LaunchedEffect
         snapshotFlow { lazyListState.layoutInfo.visibleItemsInfo.lastOrNull()?.index }
             .collect { lastIndex ->
