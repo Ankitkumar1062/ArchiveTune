@@ -56,3 +56,10 @@ playback must remain separate from any future public catalog search/fallback wor
 - Keep settings available through both the page and settings search when appropriate.
 - Update route inventory and tests for any renamed or moved entry.
 - Verify back navigation, deep links, dialogs, toggles, sliders, and provider-specific pages on Canary.
+
+## Navigation bar
+
+`NavigationBarHideOnScrollKey` (off by default, Navigation bar page, anchor
+`navigation_bar_hide_on_scroll`) hides the bar on downward user scrolling of a tab and drops the
+collapsed mini player into its place; content padding stays static so lists do not jump. The tinted
+frosted bar blends the accent into its base and content in both light and dark schemes.
