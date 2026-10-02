@@ -578,6 +578,8 @@
     <string name="haptics_desc">Enable haptic feedback on interactive elements</string>
     <string name="default_open_tab">Default open tab</string>
     <string name="navigation_bar_style">Navigation bar style</string>
+    <string name="navigation_bar_hide_on_scroll">Hide while scrolling</string>
+    <string name="navigation_bar_hide_on_scroll_desc">Slides the navigation bar away when scrolling down a tab and lowers the mini player into its place; scrolling up brings it back</string>
     <string name="navigation_bar_style_default">Default</string>
     <string name="navigation_bar_style_floating">Floating</string>
     <string name="navigation_bar_style_apple_music">Apple Music</string>

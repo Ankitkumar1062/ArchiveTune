@@ -84,6 +84,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -281,22 +283,26 @@ fun FloatingNavigationToolbar(
                 }
             }
         }
+    val primary = MaterialTheme.colorScheme.primary
+    val tintedSchemeIsDark = pureBlack || MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val tintedBase =
+        if (tintedSchemeIsDark) lerp(Color.Black, primary, 0.30f) else lerp(Color.White, primary, 0.26f)
+    val tintedContent = if (tintedSchemeIsDark) Color.White else lerp(primary, Color.Black, 0.55f)
     val navigationContainerColor =
         if (canLiquidGlass) {
             // Liquid glass surface — transparent so the LiquidGlassShader tint shows through.
             Color.Transparent
         } else if (canBlurBackdrop) {
-            // Frosted / tinted-frosted: surface sits under the blurred backdrop overlay.
-            // In pure-black mode we still want SOME surface so the blur has something to
-            // blend against — use a near-black tint rather than absolute black so the
-            // frosted effect remains perceptible.
-            if (pureBlack) {
-                if (tintFrostedBlur) Color.Black.copy(alpha = 0.55f) else Color.Black.copy(alpha = 0.45f)
-            } else if (tintFrostedBlur) {
-                Color.Black.copy(alpha = 0.55f)
+            // Pure black still needs some surface under the blur, or the frost is invisible.
+            if (tintFrostedBlur) {
+                tintedBase.copy(alpha = 0.85f)
+            } else if (pureBlack) {
+                Color.Black.copy(alpha = 0.45f)
             } else {
                 MaterialTheme.colorScheme.surfaceContainer
             }
+        } else if (tintFrostedBlur) {
+            tintedBase
         } else if (pureBlack) {
             Color.Black
         } else if (isAppleMusic) {
@@ -330,11 +336,7 @@ fun FloatingNavigationToolbar(
             // Apple Music's active tab sits in a tinted pill: the reference shows a solid
             // primary-coloured capsule with the glyph knocked out of it and the label in the accent.
             isAppleMusic -> MaterialTheme.colorScheme.primary
-            // Tint-frosted: the bar is now a DARK tinted glass (Color.Black at
-            // 55% alpha), so the pill uses a translucent white blob — the
-            // selected icon stands out against the dark bar without being a
-            // harsh solid white circle.
-            tintFrostedBlur && !isFloating -> Color.White.copy(alpha = 0.18f)
+            tintFrostedBlur && !isFloating -> tintedContent.copy(alpha = 0.18f)
             isFloating -> MaterialTheme.colorScheme.primary.copy(alpha = 0.30f)
             pureBlack -> Color.White.copy(alpha = 0.16f)
             else -> MaterialTheme.colorScheme.secondaryContainer
@@ -376,21 +378,14 @@ fun FloatingNavigationToolbar(
                     unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
                     unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-            // The tinted bar keeps its tinted identity in EVERY scheme — including
-            // pure black. With the pureBlack branch first, a pure-black + tinted
-            // combination fell through to the plain white-on-black item set, which
-            // (together with the near-black 30%-tint base) made the bar read as the
-            // untinted pure-black navbar. Tint wins here, matching the container
-            // color which already stays tinted in pure black.
+            // Checked before pureBlack so an AMOLED + tinted bar keeps its tint.
             tintFrostedBlur ->
                 ShortNavigationBarItemDefaults.colors(
                     selectedIndicatorColor = Color.Transparent,
-                    selectedIconColor = Color.White,
-                    selectedTextColor = Color.White,
-                    // 0.7 alpha keeps unselected icons legible but de-emphasized
-                    // against the dark tinted glass.
-                    unselectedIconColor = Color.White.copy(alpha = 0.7f),
-                    unselectedTextColor = Color.White.copy(alpha = 0.7f),
+                    selectedIconColor = tintedContent,
+                    selectedTextColor = tintedContent,
+                    unselectedIconColor = tintedContent.copy(alpha = 0.7f),
+                    unselectedTextColor = tintedContent.copy(alpha = 0.7f),
                 )
             pureBlack ->
                 ShortNavigationBarItemDefaults.colors(
@@ -690,10 +685,7 @@ fun FloatingNavigationToolbar(
                     containerColor = Color.Transparent,
                     contentColor =
                         when {
-                            // Tint wins over pure black so the bar keeps its tinted
-                            // identity in the AMOLED scheme too (see itemColors).
-                            // Tint-frosted bar is now dark glass, so content is white.
-                            tintFrostedBlur -> Color.White
+                            tintFrostedBlur -> tintedContent
                             pureBlack -> Color.White
                             else -> MaterialTheme.colorScheme.onSurface
                         },

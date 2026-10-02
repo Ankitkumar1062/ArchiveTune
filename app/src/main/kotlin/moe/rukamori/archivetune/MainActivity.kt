@@ -152,6 +152,8 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
@@ -267,6 +269,7 @@ import moe.rukamori.archivetune.constants.NavigationBarHeight
 import moe.rukamori.archivetune.constants.NavigationBarHorizontalPadding
 import moe.rukamori.archivetune.constants.NavigationBarStyle
 import moe.rukamori.archivetune.constants.NavigationBarStyleKey
+import moe.rukamori.archivetune.constants.NavigationBarHideOnScrollKey
 import moe.rukamori.archivetune.constants.NavigationBarTintFrostedBlurKey
 import moe.rukamori.archivetune.constants.NeverShowUpdatePopupKey
 import moe.rukamori.archivetune.constants.PauseSearchHistoryKey
@@ -1491,6 +1494,41 @@ class MainActivity : ComponentActivity() {
                                 !active
                         }
 
+                    val hideNavigationBarOnScroll by rememberPreference(
+                        NavigationBarHideOnScrollKey,
+                        defaultValue = false,
+                    )
+                    var navigationBarHiddenByScroll by remember { mutableStateOf(false) }
+                    LaunchedEffect(navBackStackEntry?.destination?.route, hideNavigationBarOnScroll) {
+                        navigationBarHiddenByScroll = false
+                    }
+                    val navigationBarScrollThresholdPx = with(density) { NavigationBarHideScrollThreshold.toPx() }
+                    val navigationBarScrollConnection =
+                        remember(navigationBarScrollThresholdPx) {
+                            object : NestedScrollConnection {
+                                private var travelled = 0f
+
+                                override fun onPostScroll(
+                                    consumed: Offset,
+                                    available: Offset,
+                                    source: NestedScrollSource,
+                                ): Offset {
+                                    if (source != NestedScrollSource.UserInput || consumed.y == 0f) return Offset.Zero
+                                    if (travelled != 0f && (travelled < 0f) != (consumed.y < 0f)) travelled = 0f
+                                    travelled += consumed.y
+                                    if (travelled <= -navigationBarScrollThresholdPx) {
+                                        navigationBarHiddenByScroll = true
+                                        travelled = 0f
+                                    } else if (travelled >= navigationBarScrollThresholdPx) {
+                                        navigationBarHiddenByScroll = false
+                                        travelled = 0f
+                                    }
+                                    return Offset.Zero
+                                }
+                            }
+                        }
+                    val navigationBarVisible = shouldShowNavigationBar && !navigationBarHiddenByScroll
+
                     fun getBottomNavPadding(): Dp =
                         if (shouldShowNavigationBar && !useRail) {
                             NavigationBarHeight
@@ -1541,7 +1579,7 @@ class MainActivity : ComponentActivity() {
 
                     val bottomNavigationBarHeightState =
                         animateDpAsState(
-                            targetValue = if (shouldShowNavigationBar && !useRail) navVisibleHeight else 0.dp,
+                            targetValue = if (navigationBarVisible && !useRail) navVisibleHeight else 0.dp,
                             animationSpec = if (disableAnimations) snap() else NavigationBarAnimationSpec,
                             label = "",
                         )
@@ -1552,8 +1590,7 @@ class MainActivity : ComponentActivity() {
                             dismissedBound = 0.dp,
                             collapsedBound =
                                 bottomInset +
-                                    (if (shouldShowNavigationBar && !useRail) floatingBarsBottomPadding else 0.dp) +
-                                    getBottomNavPadding() +
+                                    (if (navigationBarVisible && !useRail) floatingBarsBottomPadding + NavigationBarHeight else 0.dp) +
                                     MiniPlayerBottomSpacing +
                                     MiniPlayerHeight,
                             expandedBound = maxHeight,
@@ -3233,6 +3270,12 @@ class MainActivity : ComponentActivity() {
                                                 },
                                             ).nestedScroll(
                                                 topAppBarScrollBehavior.nestedScrollConnection,
+                                            ).then(
+                                                if (hideNavigationBarOnScroll && shouldShowNavigationBar && !useRail) {
+                                                    Modifier.nestedScroll(navigationBarScrollConnection)
+                                                } else {
+                                                    Modifier
+                                                },
                                             ),
                                 ) {
                                     navigationBuilder(
@@ -3835,3 +3878,5 @@ private fun Context.isTvDevice(): Boolean {
         packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
         packageManager.hasSystemFeature(PackageManager.FEATURE_TELEVISION)
 }
+
+private val NavigationBarHideScrollThreshold = 14.dp

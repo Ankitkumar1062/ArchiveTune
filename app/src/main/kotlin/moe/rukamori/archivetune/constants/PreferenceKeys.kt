@@ -1302,6 +1302,7 @@ val NavigationBarFrostedBlurKey = booleanPreferencesKey("navigationBarFrostedBlu
 // Mutually exclusive with [NavigationBarFrostedBlurKey] — turning one on turns the other off.
 val NavigationBarTintFrostedBlurKey = booleanPreferencesKey("navigationBarTintFrostedBlur")
 val HideNavigationBarLabelsKey = booleanPreferencesKey("hideNavigationBarLabels")
+val NavigationBarHideOnScrollKey = booleanPreferencesKey("navigationBarHideOnScroll")
 
 // ── Navigation bar dimension customization ──────────────────────────────────
 // Advanced tuning knobs for the FLOATING nav bar style (and corner radius for

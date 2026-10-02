@@ -168,7 +168,9 @@ private val CROSS_PAGE_SCROLL_OWNERS: Map<String, String> =
         )
 
         // Appearance rows that were moved out to their own pages.
-        own("navigation_bar", "appearance", "frosted_nav_bar", "liquid_glass_nav_bar", "hide_navigation_bar_labels")
+        own("navigation_bar", "appearance", "frosted_nav_bar", "liquid_glass_nav_bar", "hide_navigation_bar_labels",
+            "navigation_bar_hide_on_scroll",
+        )
         own("appearance_extras", "appearance", "show_home_category_chips")
         own("playback", "appearance", "swipe_sensitivity")
         own("behavior", "appearance", "force_high_refresh_rate")
