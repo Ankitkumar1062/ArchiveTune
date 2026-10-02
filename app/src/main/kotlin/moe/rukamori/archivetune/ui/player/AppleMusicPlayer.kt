@@ -385,10 +385,6 @@ fun AppleMusicPlayerContent(
         lyricsOpen = false
     }
 
-    // Show controls when lyrics or queue opens, then honor the shared five-second
-    // auto-hide setting.
-    var playerControlsExpanded by remember(mediaMetadata.id) { mutableStateOf(true) }
-
     // Propagate inline-lyrics visibility to the parent so back-stack screens
     // suspend their GPU work during the morph.
     LaunchedEffect(lyricsOpen) {
