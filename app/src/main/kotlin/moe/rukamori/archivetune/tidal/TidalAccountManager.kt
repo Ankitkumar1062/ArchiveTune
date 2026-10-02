@@ -613,7 +613,7 @@ object TidalAccountManager {
      * The signature is deliberately not verified — it only decides whether to re-fetch.
      */
     fun isAccessTokenExpired(token: String, marginSecs: Long = 300L): Boolean {
-        val payload = token.split('.')[1] ?: return true
+        val payload = token.split('.').getOrNull(1) ?: return false
         return try {
             val json =
                 JSONObject(
