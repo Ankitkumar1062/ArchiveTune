@@ -1706,7 +1706,7 @@ fun BitChordPlayerContent(
                         icon = BitChordIcons.LyricsQuote,
                         // This row only exists while the panel is closed, so
                         // the glyph only ever opens it — no lit state of its own.
-                        contentDescription = "Open lyrics",
+                        contentDescription = stringResource(R.string.lyrics),
                         // One sleeve: opening the queue closes lyrics and vice
                         // versa, so the two glyphs can never be lit at once.
                         onClick = {
@@ -1750,7 +1750,7 @@ fun BitChordPlayerContent(
                     }
                     BottomGlyph(
                         icon = Icons.AutoMirrored.Rounded.QueueMusic,
-                        contentDescription = "Up next",
+                        contentDescription = stringResource(R.string.queue),
                         onClick = {
                             lyricsOpen = false
                             queueOpen = !queueOpen
