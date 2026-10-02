@@ -22,6 +22,7 @@ No unidentified batch was blindly reverted.
 - Keep Apple Music AAC fallback consistent with the requested quality tier.
 - Invalidate cached Spotify profile data on account changes and disconnects.
 - Preserve custom-font backup entries during archive validation.
+- Reject traversal, nested paths and null bytes in restored font filenames.
 - Keep fallback canvas sources available when Apple Music canvas lookup fails,
   and use the app-wide low-data default.
 - Avoid SponsorBlock lookups for podcasts when attaching the player as well as
