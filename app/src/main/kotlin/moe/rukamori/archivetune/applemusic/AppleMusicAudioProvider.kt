@@ -366,13 +366,13 @@ object AppleMusicAudioProvider {
                     val kbps = Regex("(\\d+)$").find(flavor)?.groupValues?.last()?.toIntOrNull() ?: 0
                     Asset(flavor, url, kbps)
                 }.sortedByDescending { it.kbps }
-            // `candidates` is sorted best-first, so a missing tier must fall back to the BEST asset
-            // Apple offered, never the worst: `lastOrNull()`/`minByOrNull` picked the lowest
-            // bitrate, so a lossless request against a lossy-only account silently played 64 kbps
-            // when 256 kbps was sitting right there.
+            // `candidates` is sorted best-first. A lossless request with no lossless tier must fall
+            // back to the BEST asset Apple offered, never the worst: it silently played 64 kbps
+            // when 256 kbps was sitting right there. An AAC request with only lossless tiers goes the
+            // other way, to the smallest, so it never pulls hi-res for a user who asked for AAC.
             val asset = when (quality) {
                 AppleMusicQuality.AAC ->
-                    candidates.firstOrNull { it.kbps <= 320 } ?: candidates.firstOrNull()
+                    candidates.firstOrNull { it.kbps <= 320 } ?: candidates.lastOrNull()
                 AppleMusicQuality.LOSSLESS ->
                     candidates.firstOrNull { it.kbps in 321..1411 } ?: candidates.firstOrNull()
                 AppleMusicQuality.HI_RES_LOSSLESS -> candidates.firstOrNull()
