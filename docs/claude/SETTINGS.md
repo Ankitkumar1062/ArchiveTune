@@ -63,3 +63,8 @@ playback must remain separate from any future public catalog search/fallback wor
 `navigation_bar_hide_on_scroll`) hides the bar on downward user scrolling of a tab and drops the
 collapsed mini player into its place; content padding stays static so lists do not jump. The tinted
 frosted bar blends the accent into its base and content in both light and dark schemes.
+
+The interface-style experience, library and player preferences change in one
+DataStore edit, using the current stored player style rather than a value from a
+previous composition. Re-selecting the active style does not overwrite the
+saved player choice.
