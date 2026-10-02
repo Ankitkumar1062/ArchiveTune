@@ -15,6 +15,8 @@
 package moe.rukamori.archivetune.ui.component
 
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalContext
+import androidx.datastore.preferences.core.MutablePreferences
 import moe.rukamori.archivetune.constants.AppleMusicExperienceKey
 import moe.rukamori.archivetune.constants.InterfaceStyle
 import moe.rukamori.archivetune.constants.LibraryStyle
@@ -23,6 +25,8 @@ import moe.rukamori.archivetune.constants.PlayerDesignStyle
 import moe.rukamori.archivetune.constants.PlayerDesignStyleKey
 import moe.rukamori.archivetune.constants.StyleBeforeAppleMusicKey
 import moe.rukamori.archivetune.extensions.toEnum
+import moe.rukamori.archivetune.utils.PreferenceStore
+import moe.rukamori.archivetune.utils.dataStore
 import moe.rukamori.archivetune.utils.rememberEnumPreference
 import moe.rukamori.archivetune.utils.rememberPreference
 
@@ -69,32 +73,36 @@ fun rememberAppleMusicExperience(): Boolean {
  */
 @Composable
 fun rememberAppleMusicExperienceToggle(): (Boolean) -> Unit {
-    val (_, setForced) = rememberPreference(AppleMusicExperienceKey, defaultValue = false)
-    val (_, setStyle) = rememberLibraryStyle()
-    val (playerStyle, setPlayerStyle) = rememberEnumPreference(PlayerDesignStyleKey, PlayerDesignStyle.Default)
-    val (styleBefore, setStyleBefore) = rememberPreference(StyleBeforeAppleMusicKey, defaultValue = "")
-
+    val dataStore = LocalContext.current.dataStore
     return { enabled ->
-        setForced(enabled)
-        setStyle(if (enabled) LibraryStyle.APPLE_MUSIC else LibraryStyle.DEFAULT)
-        if (enabled) {
-            // Only record a style we could actually give back. Switching on while already on the
-            // Apple Music style would otherwise store APPLE_MUSIC as the thing to restore.
-            if (playerStyle != PlayerDesignStyle.APPLE_MUSIC) {
-                setStyleBefore(playerStyle.name)
-            }
-            setPlayerStyle(PlayerDesignStyle.APPLE_MUSIC)
-        } else if (playerStyle == PlayerDesignStyle.APPLE_MUSIC) {
-            setPlayerStyle(styleBefore.toEnum(PlayerDesignStyle.Default))
+        PreferenceStore.launchEdit(dataStore) {
+            applyInterfaceStyle(if (enabled) InterfaceStyle.APPLE_MUSIC else InterfaceStyle.MATERIAL_EXPRESSIVE)
         }
     }
 }
 
-/**
- * The app-wide design language. Apple Music is the existing experience switch, so choosing it moves
- * the player, tab bar, library and headers through [rememberAppleMusicExperienceToggle]; Material 3
- * Expressive is the switch off, which keeps an unwritten preference on the Material default.
- */
+internal fun MutablePreferences.applyInterfaceStyle(style: InterfaceStyle) {
+    val enabled = style == InterfaceStyle.APPLE_MUSIC
+    if ((this[AppleMusicExperienceKey] ?: false) == enabled) return
+
+    val playerStyle = this[PlayerDesignStyleKey].toEnum(PlayerDesignStyle.Default)
+    this[AppleMusicExperienceKey] = enabled
+    this[LibraryStyleKey] = if (enabled) LibraryStyle.APPLE_MUSIC.name else LibraryStyle.DEFAULT.name
+
+    if (enabled) {
+        if (playerStyle != PlayerDesignStyle.APPLE_MUSIC) {
+            this[StyleBeforeAppleMusicKey] = playerStyle.name
+        }
+        this[PlayerDesignStyleKey] = PlayerDesignStyle.APPLE_MUSIC.name
+    } else if (playerStyle == PlayerDesignStyle.APPLE_MUSIC) {
+        this[PlayerDesignStyleKey] =
+            this[StyleBeforeAppleMusicKey]
+                .toEnum(PlayerDesignStyle.Default)
+                .takeUnless { it == PlayerDesignStyle.APPLE_MUSIC }
+                ?.name ?: PlayerDesignStyle.Default.name
+    }
+}
+
 @Composable
 fun rememberInterfaceStyle(): Pair<InterfaceStyle, (InterfaceStyle) -> Unit> {
     val appleMusic = rememberAppleMusicExperience()
