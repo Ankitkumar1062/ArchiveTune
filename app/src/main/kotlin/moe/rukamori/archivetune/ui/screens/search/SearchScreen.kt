@@ -225,12 +225,6 @@ fun SearchScreen(
                     },
                 ),
     ) {
-        // Minimal: no tonal gradient backdrop — the redesigned Search page
-        // sits on the plain dark surface so the floating ArchiveTune top bar
-        // and the search field are the only chrome above the feed. This
-        // matches the redesigned Home page's reduced tonal intensity and
-        // keeps the page calm and premium.
-
         LazyColumn(
             state = lazyListState,
             contentPadding =
@@ -267,7 +261,6 @@ fun SearchScreen(
                 }
             }
 
-            // Modern segmented control — Explore | Suggestions.
             item(
                 key = "search_tabs",
                 contentType = "search_tabs",
@@ -325,7 +318,6 @@ fun SearchScreen(
                 is SearchDiscoveryScreenState.Success -> {
                     when (selectedTab) {
                         SearchDiscoveryTab.EXPLORE -> {
-                            // Section 1 — Recent Searches (swipe-to-delete + Clear).
                             if (recentSearches.isNotEmpty()) {
                                 item(
                                     key = "search_recent_searches",
@@ -341,8 +333,6 @@ fun SearchScreen(
                                 }
                             }
 
-                            // Section 2 — Trending Searches (minimal chips). The Explore tab
-                            // shows only Recent Searches and Trending Searches.
                             if (currentState.data.suggestedArtists.isNotEmpty()) {
                                 item(
                                     key = "search_trending_searches_title",
@@ -468,10 +458,6 @@ fun SearchScreen(
     }
 }
 
-// ============================================================
-// Search bar
-// ============================================================
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SearchEntryField(
@@ -499,10 +485,6 @@ private fun SearchEntryField(
     val primary = MaterialTheme.colorScheme.primary
     val keyboardController = LocalSoftwareKeyboardController.current
 
-    // The search bar is a real inline input — tapping it focuses the field
-    // and shows the keyboard WITHOUT navigating away, so the list below stays
-    // on screen. Pressing the search IME action submits the query (navigates
-    // to results + records history).
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier =
@@ -594,10 +576,6 @@ private fun SearchEntryField(
     }
 }
 
-// ============================================================
-// Segmented tabs (Explore | Suggestions)
-// ============================================================
-
 @Composable
 private fun SearchSegmentedTabs(
     selectedTab: SearchDiscoveryTab,
@@ -659,10 +637,6 @@ private fun SearchSegmentedTabs(
     }
 }
 
-// ============================================================
-// Section header
-// ============================================================
-
 @Composable
 private fun SearchSectionHeader(
     title: String,
@@ -710,10 +684,6 @@ private fun SearchSectionHeader(
         trailing?.invoke()
     }
 }
-
-// ============================================================
-// Section 1 — Recent Searches (swipe-to-delete + Clear)
-// ============================================================
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -880,10 +850,6 @@ private fun RecentSearchMonogram(query: String) {
     }
 }
 
-// ============================================================
-// Section 2 — Based on what you like (2-col grid of large cards)
-// ============================================================
-
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun BasedOnWhatYouLikeGrid(
@@ -1008,10 +974,6 @@ private fun MoodCard(
     }
 }
 
-// ============================================================
-// Section 3 — Trending Searches (horizontal chips)
-// ============================================================
-
 @Composable
 private fun TrendingSearchChips(
     artists: List<ArtistItem>,
@@ -1071,10 +1033,6 @@ private fun TrendingChip(
         )
     }
 }
-
-// ============================================================
-// Suggestions tab — horizontal rows + song list
-// ============================================================
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -1218,10 +1176,6 @@ private fun YouTubeSongMenuButton(
         )
     }
 }
-
-// ============================================================
-// Loading / empty / error states
-// ============================================================
 
 @Composable
 private fun SearchDiscoveryLoading(modifier: Modifier = Modifier) {

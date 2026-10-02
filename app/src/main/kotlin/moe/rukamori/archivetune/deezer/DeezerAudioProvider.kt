@@ -431,10 +431,6 @@ object DeezerAudioProvider {
         )
     }
 
-    // ---------------------------------------------------------------------------------------------
-    // Session
-    // ---------------------------------------------------------------------------------------------
-
     /** Returns a live session for [account], reusing a cached one until it ages out. */
     private fun session(account: PoolAccountManager.DeezerPoolAccount): Session {
         val now = System.currentTimeMillis()

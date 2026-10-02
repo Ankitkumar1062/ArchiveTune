@@ -317,7 +317,6 @@ class BackupRestoreViewModel
         private var exportPlaylistListJob: Job? = null
         private var exportPlaylistJob: Job? = null
 
-        // --- Google Drive sync state ----------------------------------------------------------
         private val _googleDriveSyncState =
             MutableStateFlow<GoogleDriveSyncScreenState>(GoogleDriveSyncScreenState.Loading)
         val googleDriveSyncState: StateFlow<GoogleDriveSyncScreenState> = _googleDriveSyncState.asStateFlow()
@@ -626,7 +625,6 @@ class BackupRestoreViewModel
                 )
         }
 
-        // --- Google Drive sync -----------------------------------------------------------------
 
         fun onGoogleDriveSyncEnabledChanged(enabled: Boolean) {
             updateGoogleDriveSync { updateGoogleDriveSync.setEnabled(enabled) }
