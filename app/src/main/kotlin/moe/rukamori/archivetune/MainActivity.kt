@@ -360,6 +360,7 @@ import moe.rukamori.archivetune.ui.screens.settings.NavigationTab
 import moe.rukamori.archivetune.ui.theme.ArchiveTuneTheme
 import moe.rukamori.archivetune.ui.theme.ColorSaver
 import moe.rukamori.archivetune.ui.theme.DefaultThemeColor
+import moe.rukamori.archivetune.ui.theme.ExpressiveThemeColor
 import moe.rukamori.archivetune.ui.theme.PlayerColorExtractor
 import moe.rukamori.archivetune.ui.theme.extractThemeColor
 import moe.rukamori.archivetune.ui.theme.extractWallpaperThemeColor
@@ -1106,6 +1107,7 @@ class MainActivity : ComponentActivity() {
                 darkTheme = useDarkTheme,
                 pureBlack = pureBlack,
                 themeColor = themeColor,
+                defaultSeed = if (rememberAppleMusicExperience()) DefaultThemeColor else ExpressiveThemeColor,
                 seedPalette = if (!enableDynamicTheme) customThemeSeedPalette else null,
                 disableAnimations = disableAnimations,
                 fontPreference = fontPreference,

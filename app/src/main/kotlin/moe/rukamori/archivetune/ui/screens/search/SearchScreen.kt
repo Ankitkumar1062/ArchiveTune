@@ -11,6 +11,11 @@ package moe.rukamori.archivetune.ui.screens.search
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -23,6 +28,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.aspectRatio
@@ -64,11 +76,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -89,6 +104,9 @@ import moe.rukamori.archivetune.LocalPlayerAwareWindowInsets
 import moe.rukamori.archivetune.LocalPlayerConnection
 import moe.rukamori.archivetune.R
 import moe.rukamori.archivetune.constants.DefaultSearchSourceKey
+import moe.rukamori.archivetune.constants.HideSearchChromeWhileScrollingKey
+import moe.rukamori.archivetune.constants.SearchBarPosition
+import moe.rukamori.archivetune.constants.SearchBarPositionKey
 import moe.rukamori.archivetune.constants.SearchProvider
 import moe.rukamori.archivetune.constants.SearchSource
 import moe.rukamori.archivetune.db.entities.SearchHistory
@@ -115,15 +133,20 @@ import moe.rukamori.archivetune.viewmodels.SearchDiscoveryTab
 import moe.rukamori.archivetune.viewmodels.SearchDiscoveryViewModel
 import moe.rukamori.archivetune.viewmodels.SearchHistoryViewModel
 import moe.rukamori.archivetune.utils.rememberEnumPreference
+import moe.rukamori.archivetune.utils.rememberPreference
+import moe.rukamori.archivetune.ui.component.rememberAppleMusicExperience
 
 private val SearchHorizontalPadding = 24.dp
 private val SearchSectionSpacing = 28.dp
 private val SearchCardCornerRadius = 18.dp
 private val SearchSegmentedCornerRadius = 28.dp
-private val SearchBarHeight = 58.dp
-private val SearchBarCornerRadius = 20.dp
+private val ExpressiveSearchBarHeight = 58.dp
+private val ExpressiveSearchBarCornerRadius = 28.dp
+private val AppleSearchBarHeight = 48.dp
+private val BottomSearchChromeSpace = ExpressiveSearchBarHeight + 24.dp
+private const val SearchChromeScrollThreshold = 6f
 
-@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun SearchScreen(
     navController: NavController,
@@ -143,6 +166,32 @@ fun SearchScreen(
     val selectedTab by viewModel.selectedTab.collectAsStateWithLifecycle()
     val recentSearches by historyViewModel.recentSearches.collectAsStateWithLifecycle()
     val lazyListState = listState ?: rememberLazyListState()
+    val appleMusicStyle = rememberAppleMusicExperience()
+    val searchBarPosition by rememberEnumPreference(SearchBarPositionKey, SearchBarPosition.TOP)
+    val hideSearchBarWhileScrolling by rememberPreference(HideSearchChromeWhileScrollingKey, defaultValue = false)
+    val searchBarAtBottom = searchBarPosition == SearchBarPosition.BOTTOM
+    var searchBarScrolledAway by remember { mutableStateOf(false) }
+    val searchBarScrollConnection =
+        remember {
+            object : NestedScrollConnection {
+                override fun onPreScroll(
+                    available: Offset,
+                    source: NestedScrollSource,
+                ): Offset {
+                    if (available.y < -SearchChromeScrollThreshold) {
+                        searchBarScrolledAway = true
+                    } else if (available.y > SearchChromeScrollThreshold) {
+                        searchBarScrolledAway = false
+                    }
+                    return Offset.Zero
+                }
+            }
+        }
+    val showBottomSearchBar =
+        !hideSearchBarWhileScrolling ||
+            !searchBarScrolledAway ||
+            WindowInsets.isImeVisible ||
+            !lazyListState.canScrollBackward
     val safeTopPadding = WindowInsets.safeDrawing.asPaddingValues().calculateTopPadding()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val scrollToTop =
@@ -168,6 +217,12 @@ fun SearchScreen(
                     } else {
                         Modifier
                     },
+                ).then(
+                    if (searchBarAtBottom && hideSearchBarWhileScrolling) {
+                        Modifier.nestedScroll(searchBarScrollConnection)
+                    } else {
+                        Modifier
+                    },
                 ),
     ) {
         // Minimal: no tonal gradient backdrop — the redesigned Search page
@@ -181,32 +236,35 @@ fun SearchScreen(
             contentPadding =
                 PaddingValues(
                     top = maxOf(LocalPlayerAwareWindowInsets.current.asPaddingValues().calculateTopPadding(), safeTopPadding),
-                    bottom = LocalPlayerAwareWindowInsets.current.asPaddingValues().calculateBottomPadding(),
+                    bottom =
+                        LocalPlayerAwareWindowInsets.current.asPaddingValues().calculateBottomPadding() +
+                            if (searchBarAtBottom) BottomSearchChromeSpace else 0.dp,
                     start = LocalPlayerAwareWindowInsets.current.asPaddingValues().calculateLeftPadding(LayoutDirection.Ltr),
                     end = LocalPlayerAwareWindowInsets.current.asPaddingValues().calculateRightPadding(LayoutDirection.Ltr),
                 ),
             modifier = Modifier.fillMaxSize(),
         ) {
-            // Large rounded search bar — opens the existing OnlineSearchScreen
-            // (preserves all current search functionality and providers).
-            item(
-                key = "search_field",
-                contentType = "search_field",
-            ) {
-                SearchEntryField(
-                    query = searchQuery,
-                    onQueryChange = { searchQuery = it },
-                    onSearch = onSearchQuery,
-                    onVoiceSearch = onVoiceSearch,
-                    searchScope = SearchSource.ONLINE,
-                    searchProvider = searchProvider,
-                    onSourceSelection = onSearchSourceSelection,
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = SearchHorizontalPadding, vertical = 8.dp)
-                            .animateItem(),
-                )
+            if (!searchBarAtBottom) {
+                item(
+                    key = "search_field",
+                    contentType = "search_field",
+                ) {
+                    SearchEntryField(
+                        query = searchQuery,
+                        onQueryChange = { searchQuery = it },
+                        onSearch = onSearchQuery,
+                        onVoiceSearch = onVoiceSearch,
+                        searchScope = SearchSource.ONLINE,
+                        searchProvider = searchProvider,
+                        onSourceSelection = onSearchSourceSelection,
+                        appleMusicStyle = appleMusicStyle,
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = SearchHorizontalPadding, vertical = 8.dp)
+                                .animateItem(),
+                    )
+                }
             }
 
             // Modern segmented control — Explore | Suggestions.
@@ -366,6 +424,47 @@ fun SearchScreen(
                 Spacer(Modifier.height(SearchSectionSpacing))
             }
         }
+
+        if (searchBarAtBottom) {
+            AnimatedVisibility(
+                visible = showBottomSearchBar,
+                enter =
+                    slideInVertically(
+                        animationSpec =
+                            spring(
+                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                stiffness = Spring.StiffnessMediumLow,
+                            ),
+                        initialOffsetY = { it },
+                    ) + fadeIn(),
+                exit =
+                    slideOutVertically(
+                        animationSpec = spring(stiffness = Spring.StiffnessMedium),
+                        targetOffsetY = { it },
+                    ) + fadeOut(),
+                modifier =
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .windowInsetsPadding(
+                            LocalPlayerAwareWindowInsets.current
+                                .union(WindowInsets.ime)
+                                .only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal),
+                        ).padding(horizontal = SearchHorizontalPadding, vertical = 12.dp),
+            ) {
+                SearchEntryField(
+                    query = searchQuery,
+                    onQueryChange = { searchQuery = it },
+                    onSearch = onSearchQuery,
+                    onVoiceSearch = onVoiceSearch,
+                    searchScope = SearchSource.ONLINE,
+                    searchProvider = searchProvider,
+                    onSourceSelection = onSearchSourceSelection,
+                    appleMusicStyle = appleMusicStyle,
+                    floating = true,
+                )
+            }
+        }
     }
 }
 
@@ -383,9 +482,18 @@ private fun SearchEntryField(
     searchScope: SearchSource,
     searchProvider: SearchProvider,
     onSourceSelection: (SearchSource, SearchProvider) -> Unit,
+    appleMusicStyle: Boolean,
     modifier: Modifier = Modifier,
+    floating: Boolean = false,
 ) {
-    val containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+    val colors = MaterialTheme.colorScheme
+    val containerColor =
+        when {
+            !appleMusicStyle -> colors.surfaceContainerHigh
+            floating -> colors.surfaceContainerHighest.copy(alpha = 0.94f)
+            else -> colors.onSurface.copy(alpha = 0.08f)
+        }
+    val shape = if (appleMusicStyle) CircleShape else RoundedCornerShape(ExpressiveSearchBarCornerRadius)
     val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
     val onSurface = MaterialTheme.colorScheme.onSurface
     val primary = MaterialTheme.colorScheme.primary
@@ -400,18 +508,19 @@ private fun SearchEntryField(
         modifier =
             modifier
                 .fillMaxWidth()
-                .height(SearchBarHeight)
-                .clip(RoundedCornerShape(SearchBarCornerRadius))
+                .height(if (appleMusicStyle) AppleSearchBarHeight else ExpressiveSearchBarHeight)
+                .then(if (floating) Modifier.shadow(if (appleMusicStyle) 12.dp else 6.dp, shape) else Modifier)
+                .clip(shape)
                 .background(containerColor),
     ) {
         Icon(
-            painter = painterResource(R.drawable.search),
+            painter = painterResource(if (appleMusicStyle) R.drawable.search else R.drawable.solar_magnifer_linear),
             contentDescription = null,
             tint = onSurfaceVariant,
             modifier =
                 Modifier
-                    .padding(start = 20.dp)
-                    .size(24.dp),
+                    .padding(start = if (appleMusicStyle) 14.dp else 20.dp)
+                    .size(if (appleMusicStyle) 20.dp else 24.dp),
         )
         BasicTextField(
             value = query,

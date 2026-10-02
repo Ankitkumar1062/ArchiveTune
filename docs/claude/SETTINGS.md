@@ -12,6 +12,17 @@ The Spotify group contains account login/logout, playlist visibility, playlist r
 
 ## Apple Music experience status
 
+The experience is chosen with **Appearance → Theme → Interface style** (`interface_style`, legacy
+anchor `apple_music_experience`), a two-way selector over `AppleMusicExperienceKey`: Material 3
+Expressive (the default, key unset or false) or Apple Music. Material 3 Expressive seeds the palette
+from purple instead of the wallpaper when no custom or album-art color applies. Nothing seeds the
+Apple Music style on a fresh install any more.
+
+The Search tab's field can sit at the top (default) or float above the bottom bar
+(`SearchBarPositionKey`), optionally sliding away while scrolling down
+(`HideSearchChromeWhileScrollingKey`). Both styles render it: a 28dp tonal container with the Solar
+magnifier for Material, a capsule for Apple Music.
+
 Shipped and driven by the experience switch: the Apple Music player (with its queue sheet, inline
 lyrics and mini header), the animated-artwork backdrop, the playlist hero, the sleep-timer sheet, the
 sliders, and the menu-header treatment. The switch forces the player style and the tab bar, and it

@@ -147,11 +147,6 @@ class App :
         YtDlpJavaScriptRuntime.initialize(this)
         BotGuardTokenGenerator.initialize(this)
         PreferenceStore.start(this)
-        applicationScope.launch(Dispatchers.IO) {
-            runCatching {
-                moe.rukamori.archivetune.ui.component.seedAppleMusicExperienceForFreshInstall(dataStore)
-            }.onFailure { Timber.w(it, "Apple Music Experience default was not applied") }
-        }
         JapaneseLanguagePackManager.initialize(this)
         Timber.plant(Timber.DebugTree())
         try {

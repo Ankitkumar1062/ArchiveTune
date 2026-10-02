@@ -52,6 +52,7 @@ import moe.rukamori.archivetune.constants.HideExplicitKey
 import moe.rukamori.archivetune.constants.HideNavigationBarLabelsKey
 import moe.rukamori.archivetune.constants.HidePlayerThumbnailKey
 import moe.rukamori.archivetune.constants.HideScrollbarKey
+import moe.rukamori.archivetune.constants.HideSearchChromeWhileScrollingKey
 import moe.rukamori.archivetune.constants.HideVideoKey
 import moe.rukamori.archivetune.constants.SplashOverlayEnabledKey
 import moe.rukamori.archivetune.constants.TikTokMainLyricsEnabledKey
@@ -91,8 +92,6 @@ import moe.rukamori.archivetune.constants.TranslateLyricsKey
 import moe.rukamori.archivetune.constants.UseLyricsV2Key
 import moe.rukamori.archivetune.constants.UseSystemFontKey
 import moe.rukamori.archivetune.constants.WakelockKey
-import moe.rukamori.archivetune.ui.component.rememberAppleMusicExperience
-import moe.rukamori.archivetune.ui.component.rememberAppleMusicExperienceToggle
 import moe.rukamori.archivetune.utils.rememberPreference
 
 @Composable
@@ -104,18 +103,6 @@ private fun SearchResultSwitch(
     Switch(
         checked = checked,
         onCheckedChange = onCheckedChange,
-    )
-}
-
-/**
- * The Apple Music Experience switch, which cannot be a plain [SearchResultSwitch]: setting it also
- * moves the player design style, and writing the raw preference here left the two disagreeing.
- */
-@Composable
-private fun AppleMusicExperienceSearchSwitch() {
-    Switch(
-        checked = rememberAppleMusicExperience(),
-        onCheckedChange = rememberAppleMusicExperienceToggle(),
     )
 }
 
@@ -188,7 +175,7 @@ fun buildSettingsGroups(
                 SettingsChild("Thumbnail corner radius", "thumbnail_corner_radius", listOf("thumbnail corner", "corner radius", "rounded thumbnail", "thumbnail shape")),
                 SettingsChild("Crop thumbnail to square", "crop_thumbnail_to_square", listOf("crop thumbnail", "square thumbnail", "thumbnail crop")) { SearchResultSwitch(CropThumbnailToSquareKey, false) },
                 SettingsChild("Enable canvas in albums page", "album_canvas_enabled", listOf("album canvas", "canvas in album", "album motion artwork", "album animated cover", "album header video")) { SearchResultSwitch(AlbumCanvasEnabledKey, true) },
-                SettingsChild("Apple Music Experience", "apple_music_experience", listOf("apple music", "apple music experience", "ios style", "ios header", "apple nav bar", "apple tab bar")) { AppleMusicExperienceSearchSwitch() },
+                SettingsChild("Interface style", "interface_style", listOf("interface style", "design", "material you", "material 3", "expressive", "apple music", "apple music experience", "ios style", "apple tab bar")),
                 SettingsChild("Library style", "library_style", listOf("library style", "apple music library", "library layout")),
                 SettingsChild("Player design style", "player_design_style", listOf("player design", "player layout", "player style")),
                 SettingsChild("Show lyrics on main player (TikTok)", "tiktok_main_lyrics", listOf("tiktok lyrics", "main player lyrics", "current line lyrics", "karaoke line", "tiktok player")) { SearchResultSwitch(TikTokMainLyricsEnabledKey, false) },
@@ -213,6 +200,8 @@ fun buildSettingsGroups(
                 SettingsChild("Navigation bar customization", "navigation_bar_settings", listOf("navigation bar", "nav bar dimensions", "nav bar opacity", "nav bar width", "nav bar height", "nav bar corner radius", "nav bar label spacing")),
                 SettingsChild("Hide scrollbar", "hide_scrollbar", listOf("scrollbar", "scroll bar", "hide scroll", "no scrollbar")) { SearchResultSwitch(HideScrollbarKey, false) },
                 SettingsChild("Default open tab", "default_open_tab", listOf("default tab", "home tab", "start page", "open tab")),
+                SettingsChild("Search bar position", "search_bar_position", listOf("search bar", "bottom search", "search at bottom", "search position")),
+                SettingsChild("Hide search bar while scrolling", "hide_search_bar_while_scrolling", listOf("hide search bar", "search scrolling", "auto hide search")) { SearchResultSwitch(HideSearchChromeWhileScrollingKey, false) },
                 SettingsChild("Grid layout", "grid_layout", listOf("grid", "layout", "list view", "artist grid")),
                 SettingsChild("Show home category chips", "show_home_category_chips", listOf("home chips", "category chips", "home category", "chips")) { SearchResultSwitch(ShowHomeCategoryChipsKey, false) },
                 SettingsChild("Language", "app_language", listOf("language", "app language", "locale")),

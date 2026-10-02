@@ -70,8 +70,11 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import moe.rukamori.archivetune.constants.LibraryStyle
 import moe.rukamori.archivetune.ui.component.rememberLibraryStyle
-import moe.rukamori.archivetune.ui.component.rememberAppleMusicExperience
-import moe.rukamori.archivetune.ui.component.rememberAppleMusicExperienceToggle
+import moe.rukamori.archivetune.ui.component.rememberInterfaceStyle
+import moe.rukamori.archivetune.constants.HideSearchChromeWhileScrollingKey
+import moe.rukamori.archivetune.constants.InterfaceStyle
+import moe.rukamori.archivetune.constants.SearchBarPosition
+import moe.rukamori.archivetune.constants.SearchBarPositionKey
 import moe.rukamori.archivetune.LocalPlayerAwareWindowInsets
 import moe.rukamori.archivetune.R
 import moe.rukamori.archivetune.constants.AppFontPreference
@@ -325,8 +328,11 @@ fun AppearanceSectionSettings(
             defaultValue = false,
         )
     val (libraryStyle, setLibraryStyle) = rememberLibraryStyle()
-    val appleMusicExperience = rememberAppleMusicExperience()
-    val setAppleMusicExperience = rememberAppleMusicExperienceToggle()
+    val (interfaceStyle, onInterfaceStyleChange) = rememberInterfaceStyle()
+    val (searchBarPosition, onSearchBarPositionChange) =
+        rememberEnumPreference(SearchBarPositionKey, defaultValue = SearchBarPosition.TOP)
+    val (hideSearchBarWhileScrolling, onHideSearchBarWhileScrollingChange) =
+        rememberPreference(HideSearchChromeWhileScrollingKey, defaultValue = false)
     // The experience owns the player style while it is on, and the coupling lives with the setting
     // rather than here — the settings-search switch sets the same thing and has to move the style
     // with it too.
@@ -771,6 +777,23 @@ fun AppearanceSectionSettings(
                     title = themeTitle,
                 ) {
                 item {
+                    EnumListPreference(
+                        modifier = positions.modifierFor("interface_style", "apple_music_experience"),
+                        title = { Text(stringResource(R.string.interface_style)) },
+                        description = stringResource(R.string.interface_style_desc),
+                        icon = { Icon(painterResource(R.drawable.palette), null) },
+                        selectedValue = interfaceStyle,
+                        onValueSelected = onInterfaceStyleChange,
+                        valueText = {
+                            when (it) {
+                                InterfaceStyle.MATERIAL_EXPRESSIVE -> stringResource(R.string.interface_style_material_expressive)
+                                InterfaceStyle.APPLE_MUSIC -> stringResource(R.string.apple_music_experience)
+                            }
+                        },
+                    )
+                }
+
+                item {
                     SwitchPreference(
                         title = { Text(stringResource(R.string.enable_dynamic_theme)) },
                         icon = { Icon(painterResource(R.drawable.palette), null) },
@@ -1035,18 +1058,6 @@ fun AppearanceSectionSettings(
                     modifier = positions.modifierFor("disable_blur"),
                     title = playerTitle,
                 ) {
-                    item {
-                        Column(modifier = positions.modifierFor("apple_music_experience")) {
-                            SwitchPreference(
-                                title = { Text(stringResource(R.string.apple_music_experience)) },
-                                description = stringResource(R.string.apple_music_experience_desc),
-                                icon = { Icon(painterResource(R.drawable.music_note), null) },
-                                checked = appleMusicExperience,
-                                onCheckedChange = setAppleMusicExperience,
-                            )
-                        }
-                    }
-
                     item {
                         Column(modifier = positions.modifierFor("home_screens")) {
                             PreferenceEntry(
@@ -1470,6 +1481,34 @@ fun AppearanceSectionSettings(
                             },
                         )
                     }
+                }
+
+                item {
+                    EnumListPreference(
+                        modifier = positions.modifierFor("search_bar_position"),
+                        title = { Text(stringResource(R.string.search_bar_position)) },
+                        description = stringResource(R.string.search_bar_position_desc),
+                        icon = { Icon(painterResource(R.drawable.search), null) },
+                        selectedValue = searchBarPosition,
+                        onValueSelected = onSearchBarPositionChange,
+                        valueText = {
+                            when (it) {
+                                SearchBarPosition.TOP -> stringResource(R.string.search_bar_position_top)
+                                SearchBarPosition.BOTTOM -> stringResource(R.string.search_bar_position_bottom)
+                            }
+                        },
+                    )
+                }
+
+                item(visible = searchBarPosition == SearchBarPosition.BOTTOM) {
+                    SwitchPreference(
+                        modifier = positions.modifierFor("hide_search_bar_while_scrolling"),
+                        title = { Text(stringResource(R.string.hide_search_bar_while_scrolling)) },
+                        description = stringResource(R.string.hide_search_bar_while_scrolling_desc),
+                        icon = { Icon(painterResource(R.drawable.search), null) },
+                        checked = hideSearchBarWhileScrolling,
+                        onCheckedChange = onHideSearchBarWhileScrollingChange,
+                    )
                 }
                 }
             }

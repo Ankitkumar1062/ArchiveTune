@@ -1280,6 +1280,19 @@ enum class NavigationBarStyle {
 
 val NavigationBarStyleKey = stringPreferencesKey("navigationBarStyle")
 
+enum class InterfaceStyle {
+    MATERIAL_EXPRESSIVE,
+    APPLE_MUSIC,
+}
+
+enum class SearchBarPosition {
+    TOP,
+    BOTTOM,
+}
+
+val SearchBarPositionKey = stringPreferencesKey("searchBarPosition")
+val HideSearchChromeWhileScrollingKey = booleanPreferencesKey("hideSearchChromeWhileScrolling")
+
 // Draws a frosted (blurred app content) backdrop behind the navigation bar. True backdrop blur on
 // Android 12+; a translucent surface fallback below that.
 val NavigationBarFrostedBlurKey = booleanPreferencesKey("navigationBarFrostedBlur")
