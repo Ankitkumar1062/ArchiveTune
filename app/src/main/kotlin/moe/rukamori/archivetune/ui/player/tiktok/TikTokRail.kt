@@ -96,6 +96,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import moe.rukamori.archivetune.LocalDatabase
 import moe.rukamori.archivetune.LocalSyncUtils
 import moe.rukamori.archivetune.R
@@ -509,13 +510,15 @@ internal fun rememberTikTokLikeAction(
     }
 }
 
-private fun reportLikeFailure(
+private suspend fun reportLikeFailure(
     error: Throwable,
     message: String,
     context: Context,
 ) {
     Timber.w(error, message)
-    Toast.makeText(context, R.string.error_unknown, Toast.LENGTH_SHORT).show()
+    withContext(Dispatchers.Main) {
+        Toast.makeText(context, R.string.error_unknown, Toast.LENGTH_SHORT).show()
+    }
 }
 
 /**

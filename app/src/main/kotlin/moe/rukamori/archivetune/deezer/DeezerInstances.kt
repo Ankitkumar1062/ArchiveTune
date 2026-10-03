@@ -84,11 +84,6 @@ object DeezerInstances {
         userInstances = parse(raw)
     }
 
-    fun userInstanceCount(): Int = userInstances.size
-
-    /** Instances the pool served on its last fetch (empty until discovery ran). */
-    fun discoveredInstanceCount(): Int = discovered.size
-
     /**
      * True when a resolve could reach at least one instance. Cheap, no network: counts user entries,
      * cached pool entries, and a configured pool whose feed has not been fetched yet.

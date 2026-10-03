@@ -105,6 +105,12 @@ tasks.configureEach {
 // committed debug keystore was removed from the tree (same key now lives only in
 // GitHub Secrets) and must not be restored.
 
+// Automix's local beat/vocal analysis runs on ONNX models through the onnxruntime AAR:
+// ~27 MiB of native runtime per ABI (double in a universal APK) plus ~13 MiB of models.
+// Off by default — the slim APK ships without either and the analyzers fall back to the
+// plain crossfade path, which they already treat as a missing model. CI builds the full
+// variant as a separate artifact with -Pautomix=true.
+val automix = (project.findProperty("automix") as String?)?.toBoolean() ?: false
 android {
     namespace = "moe.rukamori.archivetune"
     compileSdk = 37
@@ -401,6 +407,19 @@ android {
             if ((project.findProperty("slimTdlib") as String?)?.toBoolean() ?: true) {
                 excludes += "**/libtdjni.so"
             }
+            if (!automix) {
+                excludes += listOf(
+                    "**/libonnxruntime.so",
+                    "**/libonnxruntime4j_jni.so",
+                )
+            } else {
+                // Analysis targets arm64 phones; the x86_64 copy exists for emulators and
+                // Chromebooks and doubles the runtime's cost in a universal APK.
+                excludes += listOf(
+                    "lib/x86_64/libonnxruntime.so",
+                    "lib/x86_64/libonnxruntime4j_jni.so",
+                )
+            }
             keepDebugSymbols += listOf(
                 "**/libandroidx.graphics.path.so",
                 "**/libdatastore_shared_counter.so"
@@ -437,6 +456,14 @@ android {
             excludes += "META-INF/build.archives"
             excludes += "META-INF/com.android.tools/**"
             excludes += "META-INF/proguard/**"
+        }
+    }
+
+    if (automix) {
+        // The analysis models ride in their own asset dir so the default APK never
+        // packages them; the trackers already treat a missing asset as no analysis.
+        sourceSets.getByName("main") {
+            assets.srcDir("src/automix/assets")
         }
     }
 

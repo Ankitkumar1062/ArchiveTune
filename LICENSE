@@ -672,3 +672,18 @@ may consider it more useful to permit linking proprietary applications with
 the library.  If this is what you want to do, use the GNU Lesser General
 Public License instead of this License.  But first, please read
 <https://www.gnu.org/licenses/why-not-lgpl.html>.
+
+---
+
+Attribution notices
+===================
+
+ArchiveTune is a fork of Rukamori's ArchiveTune
+<https://github.com/rukamori/ArchiveTune>, licensed under GPL-3.0. Files that
+have diverged from the upstream tree carry the fork's copyright header; the
+original work remains credited to Rukamori here and in the git history.
+
+Portions of the Spotify integration derive from YumaPlayer by MuwMx.
+Portions of the appearance work (navigation, tint, bottom search) adapt
+designs from 4nx3b/ArchiveTune <https://github.com/4nx3b/ArchiveTune>.
+The Editorial player adaptations derive from adam-adrian/ArchiveTune.

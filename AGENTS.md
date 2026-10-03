@@ -8,6 +8,7 @@ must preserve the invariants below.
 
 ## Fork invariants — never break
 
+- **Presentation**: Material 3 Expressive is the default interface style. Apple Music is selectable in Appearance and uses the existing experience preference to coordinate player, library, headers and tab bar in one atomic edit. Playback providers and source selection remain independent. Bottom search and scroll-hidden navigation are optional; keep the current settings UI rather than importing upstream's settings redesign.
 - **Tidal source**: `app/src/main/kotlin/moe/rukamori/archivetune/tidal/` (`TidalAudioProvider`, `TidalAccountManager`, `TidalInstanceHealthManager`, `TidalDns`, `TidalArtworkProvider`), Tidal settings/login UI, `utils/tidal/`; instance racing documented in `docs/instance-racing.md`. Live progressive-DASH streams use the `tidal-dash://` scheme routed in `MusicService`.
 - **Multi-source audio**: providers live in top-level packages `tidal/`, `deezer/` (DeezerCrypto + Media3 decrypting DataSource), `qobuz/` (+ `QobuzBackupProvider` via the kouzu.in mirror), `spotify/`; shared contract (`DirectStream`, `TitleMatch`, source priority) in `audiosource/`. Playback resolution goes through `resolveMultiSourceDataSpec` in `playback/MusicService.kt`; YouTube is the final fallback. Do not rewire playback around this.
 - **Spotify is catalog-only**: `spotifycore/` + app `spotify/` provide metadata, artwork, search, playlist import and track-to-YouTube identification. Spotify is never an `AudioSourceType`.

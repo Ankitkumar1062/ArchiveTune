@@ -1587,9 +1587,6 @@ class ListenTogetherManager @Inject constructor(
     }
 
     /**
-     * Disconnect from the server
-     */
-    /**
      * Drops the held connection when its service is destroyed. This singleton deliberately keeps
      * the connection across MainActivity's onStop (its player getter follows the live service, so
      * room sync keeps working in the background), but once the service itself is gone the
@@ -1629,6 +1626,9 @@ class ListenTogetherManager @Inject constructor(
             }
     }
 
+    /**
+     * Disconnect from the server
+     */
     fun disconnect() {
         Timber.tag(TAG).d("Disconnecting from server")
         cleanup()

@@ -6,13 +6,6 @@
  */
 
 /*
- * ArchiveTune (2026)
- * © Rukamori — github.com/rukamori
- * GPL-3.0 License | Contributors: see git history
- * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
- */
-
-/*
  * Bitchord player style — the player itself.
  *
  * Ported from BitChord (https://github.com/kushagrasinghx/BitChord),
@@ -198,6 +191,8 @@ import moe.rukamori.archivetune.ui.component.LyricsEnhanced
 import moe.rukamori.archivetune.ui.component.LyricsV2
 import moe.rukamori.archivetune.utils.rememberEnumPreference
 import moe.rukamori.archivetune.ui.player.LosslessOrStats
+import moe.rukamori.archivetune.ui.player.SeekSkipButton
+import moe.rukamori.archivetune.ui.player.rememberSeekSkip
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.runtime.MutableFloatState
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -1237,7 +1232,6 @@ fun BitChordPlayerContent(
                     )
                 }
 
-                // ---- Title + menu ----
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1404,7 +1398,6 @@ fun BitChordPlayerContent(
                 }
             }
 
-            // ---- Bottom: lyric strip, scrubber, transport, volume, toggles ----
             // One block, measured at its natural height and pinned to the foot
             // of the player. Whatever is left over above it is the artwork's,
             // which is what keeps this row of controls in the same place on
@@ -1479,25 +1472,15 @@ fun BitChordPlayerContent(
                     scrubbing = false
                 },
             )
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    // The slider's touch target extends well past the drawn
-                    // bar, so pull the labels back up under it.
-                    .offset(y = (-9).dp),
-            ) {
-                BitChordScrubTimes(shownFraction = shownFraction, duration = duration)
-                // Pinned to the box's own center rather than squeezed into the
-                // gap between the two timestamps: that gap's width changes by a
-                // digit's worth every time a minute rolls over.
-                LosslessOrStats(
-                    isLoading = isLoading,
-                    format = currentFormat,
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .padding(horizontal = 8.dp),
-                )
-            }
+            BitChordScrubTimes(
+                shownFraction = shownFraction,
+                duration = duration,
+                isLoading = isLoading,
+                format = currentFormat,
+                // The slider's touch target extends well past the drawn
+                // bar, so pull the labels back up under it.
+                modifier = Modifier.offset(y = (-9).dp),
+            )
 
             if (lyricsOpen) {
                 Spacer(Modifier.height(16.dp))
@@ -1598,7 +1581,6 @@ fun BitChordPlayerContent(
             // which sit close enough together to read as one.
             Spacer(Modifier.height(10.dp + controlSpread / 3))
 
-            // ---- Transport ----
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly,
@@ -1642,7 +1624,6 @@ fun BitChordPlayerContent(
 
             Spacer(Modifier.height(12.dp + controlSpread / 3))
 
-            // ---- Volume ----
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1685,7 +1666,6 @@ fun BitChordPlayerContent(
             // the reference stacks seekbar -> transport -> volume -> pills.
             Spacer(Modifier.height(6.dp))
 
-            // ---- Lyrics · Shuffle/Repeat capsule · Queue ----
             // Shuffle and repeat live INSIDE the pill so their state reads
             // without opening anything; the flanking glyphs open the lyrics
             // panel and the queue.
@@ -1706,7 +1686,7 @@ fun BitChordPlayerContent(
                         icon = BitChordIcons.LyricsQuote,
                         // This row only exists while the panel is closed, so
                         // the glyph only ever opens it — no lit state of its own.
-                        contentDescription = "Open lyrics",
+                        contentDescription = stringResource(R.string.lyrics),
                         // One sleeve: opening the queue closes lyrics and vice
                         // versa, so the two glyphs can never be lit at once.
                         onClick = {
@@ -1750,7 +1730,7 @@ fun BitChordPlayerContent(
                     }
                     BottomGlyph(
                         icon = Icons.AutoMirrored.Rounded.QueueMusic,
-                        contentDescription = "Up next",
+                        contentDescription = stringResource(R.string.queue),
                         onClick = {
                             lyricsOpen = false
                             queueOpen = !queueOpen
@@ -1959,11 +1939,6 @@ private fun BottomGlyph(
     }
 }
 
-// ---------------------------------------------------------------------------
-// The segmented capsule at the centre of the bottom row (reference style):
-// squared-off segments joined by hairline dividers, one highlight fill.
-// ---------------------------------------------------------------------------
-
 /** Diameter of the glyphs flanking the capsule, which the row is sized around. */
 private val BOTTOM_GLYPH_DIAMETER = 44.dp
 
@@ -2109,33 +2084,58 @@ private object OverlayBack {
 }
 
 /**
- * The elapsed/remaining pair under the scrubber.
+ * The elapsed/remaining pair under the scrubber, with the quality badge between them.
  *
- * Its own composable purely so the position read is scoped here: these two labels change once a
- * second, and reading the position for them in the player's body invalidated the entire player ten
- * times a second instead.
+ * One row, so the timestamps, the seek glyphs and the badge share a centre line; the two ends
+ * take equal weight, which pins the badge to the middle however many digits the clock has. The
+ * position is read inside [ScrubTime] alone: these labels change once a second, and reading it
+ * here, or in the player's body, would invalidate far more than the two labels ten times a second.
  */
 @Composable
 private fun BitChordScrubTimes(
     shownFraction: () -> Float,
     duration: Long,
+    isLoading: Boolean,
+    format: FormatEntity?,
+    modifier: Modifier = Modifier,
 ) {
-    val shown = shownFraction()
+    val seekSkip = rememberSeekSkip()
+    val glyphTint = Color.White.copy(alpha = 0.7f)
     Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = formatTime((shown * duration).toLong()),
-            style = MaterialTheme.typography.labelMedium,
-            color = Color.White.copy(alpha = 0.55f),
+        Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+            ScrubTime { formatTime((shownFraction() * duration).toLong()) }
+            if (seekSkip != null) {
+                SeekSkipButton(seekSkip = seekSkip, forward = false, tint = glyphTint, buttonSize = 28.dp, iconSize = 18.dp)
+            }
+        }
+        LosslessOrStats(
+            isLoading = isLoading,
+            format = format,
+            modifier = Modifier.padding(horizontal = 8.dp),
         )
-        Text(
-            text = "-" + formatTime(duration - (shown * duration).toLong()),
-            style = MaterialTheme.typography.labelMedium,
-            color = Color.White.copy(alpha = 0.55f),
-        )
+        Row(
+            modifier = Modifier.weight(1f),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (seekSkip != null) {
+                SeekSkipButton(seekSkip = seekSkip, forward = true, tint = glyphTint, buttonSize = 28.dp, iconSize = 18.dp)
+            }
+            ScrubTime { "-" + formatTime(duration - (shownFraction() * duration).toLong()) }
+        }
     }
+}
+
+@Composable
+private fun ScrubTime(label: () -> String) {
+    Text(
+        text = label(),
+        style = MaterialTheme.typography.labelMedium,
+        color = Color.White.copy(alpha = 0.55f),
+    )
 }
 
 /**

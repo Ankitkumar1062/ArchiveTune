@@ -1412,6 +1412,7 @@ private fun AppleMusicControls(
     val safeDuration = if (hasDuration) duration else 1L
     val currentPosition = (sliderPosition ?: position).coerceIn(0L, safeDuration)
     val remainingPosition = (safeDuration - currentPosition).coerceAtLeast(0L)
+    val seekSkip = rememberSeekSkip()
 
     Column(
         modifier =
@@ -1441,17 +1442,28 @@ private fun AppleMusicControls(
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = makeTimeString(currentPosition),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = foregroundColor.copy(alpha = 0.54f),
-                )
-                Text(
-                    text = if (hasDuration) "-${makeTimeString(remainingPosition)}" else "",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = foregroundColor.copy(alpha = 0.54f),
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = makeTimeString(currentPosition),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = foregroundColor.copy(alpha = 0.54f),
+                    )
+                    if (seekSkip != null) {
+                        SeekSkipButton(seekSkip = seekSkip, forward = false, tint = foregroundColor.copy(alpha = 0.7f))
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (seekSkip != null) {
+                        SeekSkipButton(seekSkip = seekSkip, forward = true, tint = foregroundColor.copy(alpha = 0.7f))
+                    }
+                    Text(
+                        text = if (hasDuration) "-${makeTimeString(remainingPosition)}" else "",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = foregroundColor.copy(alpha = 0.54f),
+                    )
+                }
             }
             // Centred on the row rather than placed between the two timestamps: that gap changes
             // width by a digit every time a minute rolls over, and a badge that shifts with the

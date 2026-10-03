@@ -152,6 +152,8 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
@@ -246,8 +248,6 @@ import moe.rukamori.archivetune.constants.DynamicThemeKey
 import moe.rukamori.archivetune.constants.EnableHapticFeedbackKey
 import moe.rukamori.archivetune.constants.EnablePipModeKey
 import moe.rukamori.archivetune.constants.EnableVideoPlaybackKey
-import moe.rukamori.archivetune.constants.FloatingNavigationBarBottomPadding
-import moe.rukamori.archivetune.constants.FloatingNavigationBarHorizontalPadding
 import moe.rukamori.archivetune.constants.FontPreferenceKey
 import moe.rukamori.archivetune.constants.HasPressedStarKey
 import moe.rukamori.archivetune.constants.HideStatusBarKey
@@ -261,12 +261,11 @@ import moe.rukamori.archivetune.constants.MiniPlayerBottomSpacing
 import moe.rukamori.archivetune.constants.MiniPlayerHeight
 import moe.rukamori.archivetune.constants.MiniPlayerLastAnchorKey
 import moe.rukamori.archivetune.constants.NavigationBarAnimationSpec
-import moe.rukamori.archivetune.constants.NavigationBarBottomPadding
 import moe.rukamori.archivetune.constants.NavigationBarFrostedBlurKey
 import moe.rukamori.archivetune.constants.NavigationBarHeight
-import moe.rukamori.archivetune.constants.NavigationBarHorizontalPadding
 import moe.rukamori.archivetune.constants.NavigationBarStyle
 import moe.rukamori.archivetune.constants.NavigationBarStyleKey
+import moe.rukamori.archivetune.constants.NavigationBarHideOnScrollKey
 import moe.rukamori.archivetune.constants.NavigationBarTintFrostedBlurKey
 import moe.rukamori.archivetune.constants.NeverShowUpdatePopupKey
 import moe.rukamori.archivetune.constants.PauseSearchHistoryKey
@@ -321,6 +320,7 @@ import moe.rukamori.archivetune.ui.component.IconButton
 import moe.rukamori.archivetune.ui.component.LocalBottomSheetPageState
 import moe.rukamori.archivetune.ui.component.LocalLiquidGlassBackdrop
 import moe.rukamori.archivetune.ui.component.LocalMenuState
+import moe.rukamori.archivetune.ui.component.LocalNavigationBarHiddenByScroll
 import moe.rukamori.archivetune.ui.component.LocalNavigationBarBackdrop
 import moe.rukamori.archivetune.ui.component.MarkdownText
 import moe.rukamori.archivetune.ui.component.NavigationBarBackdrop
@@ -331,6 +331,8 @@ import moe.rukamori.archivetune.ui.component.SearchSourcePicker
 import moe.rukamori.archivetune.ui.component.StarDialog
 import moe.rukamori.archivetune.ui.component.TopSearch
 import moe.rukamori.archivetune.ui.component.TvNavigationRail
+import moe.rukamori.archivetune.ui.component.pillBottomInset
+import moe.rukamori.archivetune.ui.component.pillHorizontalInset
 import moe.rukamori.archivetune.ui.component.rememberAppleMusicExperience
 import moe.rukamori.archivetune.ui.component.rememberBottomSheetState
 import moe.rukamori.archivetune.ui.component.shimmer.ShimmerTheme
@@ -360,6 +362,7 @@ import moe.rukamori.archivetune.ui.screens.settings.NavigationTab
 import moe.rukamori.archivetune.ui.theme.ArchiveTuneTheme
 import moe.rukamori.archivetune.ui.theme.ColorSaver
 import moe.rukamori.archivetune.ui.theme.DefaultThemeColor
+import moe.rukamori.archivetune.ui.theme.ExpressiveThemeColor
 import moe.rukamori.archivetune.ui.theme.PlayerColorExtractor
 import moe.rukamori.archivetune.ui.theme.extractThemeColor
 import moe.rukamori.archivetune.ui.theme.extractWallpaperThemeColor
@@ -1106,6 +1109,7 @@ class MainActivity : ComponentActivity() {
                 darkTheme = useDarkTheme,
                 pureBlack = pureBlack,
                 themeColor = themeColor,
+                defaultSeed = if (rememberAppleMusicExperience()) DefaultThemeColor else ExpressiveThemeColor,
                 seedPalette = if (!enableDynamicTheme) customThemeSeedPalette else null,
                 disableAnimations = disableAnimations,
                 fontPreference = fontPreference,
@@ -1489,6 +1493,41 @@ class MainActivity : ComponentActivity() {
                                 !active
                         }
 
+                    val hideNavigationBarOnScroll by rememberPreference(
+                        NavigationBarHideOnScrollKey,
+                        defaultValue = false,
+                    )
+                    var navigationBarHiddenByScroll by remember { mutableStateOf(false) }
+                    LaunchedEffect(navBackStackEntry?.destination?.route, hideNavigationBarOnScroll) {
+                        navigationBarHiddenByScroll = false
+                    }
+                    val navigationBarScrollThresholdPx = with(density) { NavigationBarHideScrollThreshold.toPx() }
+                    val navigationBarScrollConnection =
+                        remember(navigationBarScrollThresholdPx) {
+                            object : NestedScrollConnection {
+                                private var travelled = 0f
+
+                                override fun onPostScroll(
+                                    consumed: Offset,
+                                    available: Offset,
+                                    source: NestedScrollSource,
+                                ): Offset {
+                                    if (source != NestedScrollSource.UserInput || consumed.y == 0f) return Offset.Zero
+                                    if (travelled != 0f && (travelled < 0f) != (consumed.y < 0f)) travelled = 0f
+                                    travelled += consumed.y
+                                    if (travelled <= -navigationBarScrollThresholdPx) {
+                                        navigationBarHiddenByScroll = true
+                                        travelled = 0f
+                                    } else if (travelled >= navigationBarScrollThresholdPx) {
+                                        navigationBarHiddenByScroll = false
+                                        travelled = 0f
+                                    }
+                                    return Offset.Zero
+                                }
+                            }
+                        }
+                    val navigationBarVisible = shouldShowNavigationBar && !navigationBarHiddenByScroll
+
                     fun getBottomNavPadding(): Dp =
                         if (shouldShowNavigationBar && !useRail) {
                             NavigationBarHeight
@@ -1500,8 +1539,7 @@ class MainActivity : ComponentActivity() {
                     // Every consumer below (collapsed player anchor, slide distance, insets, FAB
                     // padding) derives from these two values so the styles stay in sync.
                     val isFloatingNavBar = navigationBarStyle == NavigationBarStyle.FLOATING
-                    val floatingBarsBottomPadding =
-                        if (isFloatingNavBar) FloatingNavigationBarBottomPadding else NavigationBarBottomPadding
+                    val floatingBarsBottomPadding = navigationBarStyle.pillBottomInset
                     // Task 6: respect the user's navigation bar height multiplier so the bottom
                     // sheet anchor and the rendered bar stay aligned.
                     val (navBarHeightMultiplier) = rememberPreference(
@@ -1509,8 +1547,7 @@ class MainActivity : ComponentActivity() {
                         defaultValue = moe.rukamori.archivetune.constants.NAVIGATION_BAR_HEIGHT_DEFAULT,
                     )
                     val navVisibleHeight = NavigationBarHeight * navBarHeightMultiplier
-                    val navBarHorizontalPadding =
-                        if (isFloatingNavBar) FloatingNavigationBarHorizontalPadding else NavigationBarHorizontalPadding
+                    val navBarHorizontalPadding = navigationBarStyle.pillHorizontalInset
 
                     // Frosted backdrop (nav bar + mini player + tablet rail): allocated whenever
                     // any frosted surface can run (RenderEffect available). The bottom toolbar and
@@ -1539,7 +1576,7 @@ class MainActivity : ComponentActivity() {
 
                     val bottomNavigationBarHeightState =
                         animateDpAsState(
-                            targetValue = if (shouldShowNavigationBar && !useRail) navVisibleHeight else 0.dp,
+                            targetValue = if (navigationBarVisible && !useRail) navVisibleHeight else 0.dp,
                             animationSpec = if (disableAnimations) snap() else NavigationBarAnimationSpec,
                             label = "",
                         )
@@ -1550,8 +1587,7 @@ class MainActivity : ComponentActivity() {
                             dismissedBound = 0.dp,
                             collapsedBound =
                                 bottomInset +
-                                    (if (shouldShowNavigationBar && !useRail) floatingBarsBottomPadding else 0.dp) +
-                                    getBottomNavPadding() +
+                                    (if (navigationBarVisible && !useRail) floatingBarsBottomPadding + NavigationBarHeight else 0.dp) +
                                     MiniPlayerBottomSpacing +
                                     MiniPlayerHeight,
                             expandedBound = maxHeight,
@@ -2157,6 +2193,8 @@ class MainActivity : ComponentActivity() {
                         LocalPlayerConnection provides playerConnection,
                         LocalListenTogetherManager provides listenTogetherManager,
                         LocalPlayerAwareWindowInsets provides playerAwareWindowInsets,
+                        LocalNavigationBarHiddenByScroll provides
+                            (navigationBarHiddenByScroll && shouldShowNavigationBar && !useRail),
                         LocalStableSystemBarsTopPadding provides effectiveStatusBarTop,
                         LocalDownloadUtil provides downloadUtil,
                         LocalShimmerTheme provides ShimmerTheme,
@@ -3231,6 +3269,12 @@ class MainActivity : ComponentActivity() {
                                                 },
                                             ).nestedScroll(
                                                 topAppBarScrollBehavior.nestedScrollConnection,
+                                            ).then(
+                                                if (hideNavigationBarOnScroll && shouldShowNavigationBar && !useRail) {
+                                                    Modifier.nestedScroll(navigationBarScrollConnection)
+                                                } else {
+                                                    Modifier
+                                                },
                                             ),
                                 ) {
                                     navigationBuilder(
@@ -3833,3 +3877,5 @@ private fun Context.isTvDevice(): Boolean {
         packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
         packageManager.hasSystemFeature(PackageManager.FEATURE_TELEVISION)
 }
+
+private val NavigationBarHideScrollThreshold = 14.dp

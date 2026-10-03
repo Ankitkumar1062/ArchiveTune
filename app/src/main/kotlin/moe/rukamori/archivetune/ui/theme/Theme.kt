@@ -53,6 +53,7 @@ import kotlin.math.abs
 import kotlin.math.min
 
 val DefaultThemeColor = Color(0xFFED5564)
+val ExpressiveThemeColor = Color(0xFF6750A4)
 val LocalArchiveTuneFontPreference = staticCompositionLocalOf { AppFontPreference.DEFAULT }
 val LocalArchiveTuneFontFamily = staticCompositionLocalOf { AppFontFamily }
 
@@ -78,6 +79,7 @@ fun ArchiveTuneTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     pureBlack: Boolean = false,
     themeColor: Color = DefaultThemeColor,
+    defaultSeed: Color = DefaultThemeColor,
     seedPalette: ThemeSeedPalette? = null,
     disableAnimations: Boolean = false,
     fontPreference: AppFontPreference = AppFontPreference.DEFAULT,
@@ -86,7 +88,11 @@ fun ArchiveTuneTheme(
 ) {
     val context = LocalContext.current
     val useSystemDynamicColor =
-        (seedPalette == null && themeColor == DefaultThemeColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+        seedPalette == null &&
+            themeColor == DefaultThemeColor &&
+            defaultSeed == DefaultThemeColor &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val keyColor = if (themeColor == DefaultThemeColor) defaultSeed else themeColor
 
     val customFontFamily =
         produceState<FontFamily?>(
@@ -123,12 +129,12 @@ fun ArchiveTuneTheme(
             if (disableAnimations) DisabledMotionScheme else MotionScheme.expressive()
         }
     val paletteStyle =
-        remember(themeColor, seedPalette) {
-            paletteStyleFor(seedPalette?.primary ?: themeColor)
+        remember(keyColor, seedPalette) {
+            paletteStyleFor(seedPalette?.primary ?: keyColor)
         }
 
     val appColorScheme =
-        remember(seedPalette, themeColor, darkTheme) {
+        remember(seedPalette, keyColor, paletteStyle, darkTheme) {
             if (seedPalette != null) {
                 exactPaletteColorScheme(
                     palette = seedPalette,
@@ -136,7 +142,7 @@ fun ArchiveTuneTheme(
                 )
             } else {
                 materialKolorDynamicColorScheme(
-                    keyColor = themeColor,
+                    keyColor = keyColor,
                     isDark = darkTheme,
                     style = paletteStyle,
                 )

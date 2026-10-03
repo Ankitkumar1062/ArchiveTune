@@ -9,6 +9,7 @@
 package moe.rukamori.archivetune.ui.player
 
 import android.os.Build
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
@@ -16,7 +17,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
@@ -35,6 +35,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
@@ -47,7 +48,6 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.lerp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.palette.graphics.Palette
 import coil3.imageLoader
@@ -59,19 +59,19 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import moe.rukamori.archivetune.LocalPlayerConnection
-import moe.rukamori.archivetune.constants.FloatingBarJunctionCornerRadius
-import moe.rukamori.archivetune.constants.FloatingBarOuterCornerRadius
-import moe.rukamori.archivetune.constants.FloatingBarStandaloneCornerRadius
 import moe.rukamori.archivetune.constants.MiniPlayerBackgroundStyle
 import moe.rukamori.archivetune.constants.MiniPlayerBackgroundStyleKey
 import moe.rukamori.archivetune.constants.MiniPlayerHeight
-import moe.rukamori.archivetune.constants.NavigationBarMaxWidth
 import moe.rukamori.archivetune.constants.SwipeSensitivityKey
 import moe.rukamori.archivetune.playback.artwork.PlayerPaletteCacheKey
 import moe.rukamori.archivetune.playback.artwork.guessArtworkProvider
 import moe.rukamori.archivetune.ui.component.LocalNavigationBarBackdrop
 import moe.rukamori.archivetune.ui.component.LocalLiquidGlassBackdrop
+import moe.rukamori.archivetune.ui.component.PillFrostBlurRadiusPx
+import moe.rukamori.archivetune.ui.component.PillFrostOverlayAlpha
+import moe.rukamori.archivetune.ui.component.PillRole
 import moe.rukamori.archivetune.ui.component.liquidGlass
+import moe.rukamori.archivetune.ui.component.rememberPillStyle
 import moe.rukamori.archivetune.ui.component.rememberPreSFrostedBitmap
 import moe.rukamori.archivetune.ui.theme.PlayerColorExtractor
 import moe.rukamori.archivetune.ui.theme.PlayerPaletteCache
@@ -253,25 +253,22 @@ private fun NewMiniPlayer(
     val navigationProximity by remember(navigationProximityProvider) {
         derivedStateOf { navigationProximityProvider().coerceIn(0f, 1f) }
     }
+    val pill = rememberPillStyle()
     val miniPlayerShape =
-        remember(navigationProximity) {
-            RoundedCornerShape(
-                topStart = lerp(FloatingBarStandaloneCornerRadius, FloatingBarOuterCornerRadius, navigationProximity),
-                topEnd = lerp(FloatingBarStandaloneCornerRadius, FloatingBarOuterCornerRadius, navigationProximity),
-                bottomStart = lerp(FloatingBarStandaloneCornerRadius, FloatingBarJunctionCornerRadius, navigationProximity),
-                bottomEnd = lerp(FloatingBarStandaloneCornerRadius, FloatingBarJunctionCornerRadius, navigationProximity),
-            )
-        }
-    // Width snaps instead of morphing: the mini player is full-width until contact, then
-    // clamps to the nav bar width. Kept outside the shape's derivedStateOf — a boolean
-    // threshold flips at most twice per gesture, not every frame.
+        remember(pill, navigationProximity) { pill.shape(PillRole.MINI_PLAYER, navigationProximity) }
+    val restingShape = remember(pill) { pill.shape(PillRole.MINI_PLAYER) }
+    // Width snaps instead of morphing: a docked mini player is full-width until contact, then
+    // clamps to the nav bar width; floating and Apple Music pills never dock, so they always sit at
+    // the bar's width. Kept outside the shape's derivedStateOf — a boolean threshold flips at most
+    // twice per gesture, not every frame.
     val constrainToNavigationWidth by remember(navigationProximityProvider) {
         derivedStateOf { navigationProximityProvider() > 0f }
     }
 
     SwipeableMiniPlayerBox(
         modifier = modifier,
-        contentMaxWidth = if (constrainToNavigationWidth) NavigationBarMaxWidth else null,
+        contentMaxWidth = if (constrainToNavigationWidth || !pill.isDocked) pill.maxWidth else null,
+        horizontalInset = pill.horizontalInset,
         swipeSensitivity = swipeSensitivity,
         swipeThumbnail = swipeThumbnail,
         playerConnection = playerConnection,
@@ -286,11 +283,14 @@ private fun NewMiniPlayer(
                     .fillMaxWidth()
                     .height(MiniPlayerHeight)
                     .offset { IntOffset(offsetX.roundToInt(), 0) }
-                    .clip(miniPlayerShape),
+                    .clip(miniPlayerShape)
+                    .then(pill.border?.let { Modifier.border(it, miniPlayerShape) } ?: Modifier),
         ) {
             MiniPlayerBackground(
                 style = effectiveBackgroundStyle,
                 palette = backgroundPalette,
+                themeColor = pill.raisedContainerColor,
+                shape = restingShape,
                 modifier = Modifier.fillMaxSize(),
             )
             NewMiniPlayerContent(
@@ -351,15 +351,12 @@ private fun rememberMiniPlayerContentColors(useArtworkBackground: Boolean): Mini
     }
 }
 
-// Frosted mini-player backdrop: blur radius in raw px (RenderEffect works in pixels) and the
-// bounded fraction of blurred content shown over the opaque base — same recipe as the nav bar.
-private const val FrostedMiniPlayerBlurRadiusPx = 60f
-private const val FrostedMiniPlayerOverlayAlpha = 0.30f
-
 @Composable
 private fun MiniPlayerBackground(
     style: MiniPlayerBackgroundStyle,
     palette: MiniPlayerBackgroundPalette?,
+    themeColor: Color,
+    shape: Shape,
     modifier: Modifier = Modifier,
 ) {
     // Frosted blur on the mini player relies on RenderEffect (API 31+). On pre-S the CPU-blurred
@@ -377,19 +374,19 @@ private fun MiniPlayerBackground(
     when (effectiveStyle) {
         MiniPlayerBackgroundStyle.THEME -> {
             Box(
-                modifier = modifier.background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                modifier = modifier.background(themeColor),
             )
         }
 
         MiniPlayerBackgroundStyle.LIQUID_GLASS -> {
             val liquidGlassBackdrop = LocalLiquidGlassBackdrop.current
-            val baseColor = MaterialTheme.colorScheme.surfaceContainerHigh
+            val baseColor = themeColor
             if (liquidGlassBackdrop != null) {
                 Box(
                     modifier =
                         modifier.liquidGlass(
                             backdrop = liquidGlassBackdrop,
-                            shape = MaterialTheme.shapes.extraLarge,
+                            shape = shape,
                             interactive = false,
                             baseColor = baseColor,
                         ),
@@ -403,7 +400,7 @@ private fun MiniPlayerBackground(
 
         MiniPlayerBackgroundStyle.FROSTED -> {
             val backdrop = LocalNavigationBarBackdrop.current
-            val baseColor = MaterialTheme.colorScheme.surfaceContainerHigh
+            val baseColor = themeColor
             if (backdrop == null) {
                 Box(modifier = modifier.background(baseColor))
             } else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
@@ -417,7 +414,7 @@ private fun MiniPlayerBackground(
                     backdrop = backdrop,
                     barPositionInRoot = positionInRoot,
                     barSize = miniPlayerSize,
-                    blurRadiusPx = FrostedMiniPlayerBlurRadiusPx,
+                    blurRadiusPx = PillFrostBlurRadiusPx,
                     updateIntervalMs = if (LocalContext.current.isLowEndDevice()) 160L else 80L,
                 )
                 Box(
@@ -435,7 +432,7 @@ private fun MiniPlayerBackground(
                                 Modifier
                                     .fillMaxSize()
                                     .graphicsLayer {
-                                        alpha = FrostedMiniPlayerOverlayAlpha
+                                        alpha = PillFrostOverlayAlpha
                                         clip = true
                                     }.drawBehind {
                                         drawImage(blurredBitmap)
@@ -458,11 +455,11 @@ private fun MiniPlayerBackground(
                                 .graphicsLayer {
                                     renderEffect =
                                         BlurEffect(
-                                            radiusX = FrostedMiniPlayerBlurRadiusPx,
-                                            radiusY = FrostedMiniPlayerBlurRadiusPx,
+                                            radiusX = PillFrostBlurRadiusPx,
+                                            radiusY = PillFrostBlurRadiusPx,
                                             edgeTreatment = TileMode.Clamp,
                                         )
-                                    alpha = FrostedMiniPlayerOverlayAlpha
+                                    alpha = PillFrostOverlayAlpha
                                     clip = true
                                 }.drawBehind {
                                     val offset = backdrop.contentOffsetInRoot - positionInRoot

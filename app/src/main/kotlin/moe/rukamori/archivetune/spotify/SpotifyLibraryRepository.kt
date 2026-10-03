@@ -243,6 +243,7 @@ class SpotifyLibraryRepository
                     if (credentialsChanged) {
                         prefs.remove(SpotifyAccessTokenKey)
                         prefs.remove(SpotifyAccessTokenExpiresAtKey)
+                        SpotifyProfileCache.clearSnapshot(prefs)
                     }
                 }
                 if (credentialsChanged) {
@@ -271,6 +272,7 @@ class SpotifyLibraryRepository
                     prefs.remove(SpotifyAccountNameKey)
                     prefs.remove(SpotifyAccountAvatarUrlKey)
                     prefs.remove(SpotifyLibraryPlaylistsCacheKey)
+                    SpotifyProfileCache.clearSnapshot(prefs)
                 }
                 _playlists.value = null
                 _errorMessage.value = null

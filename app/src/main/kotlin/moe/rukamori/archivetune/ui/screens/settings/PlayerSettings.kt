@@ -177,6 +177,10 @@ fun PlayerSettings(navController: NavController, scrollTo: String? = null) {
         )
     val bitPerfectStatus by BitPerfectUsbOutput.status.collectAsState()
     val bitPerfectContext = LocalContext.current
+    val releaseBitPerfectUsb = {
+        onBitPerfectUsbChange(false)
+        if (BitPerfectUsbOutput.sinkActive) BitPerfectUsbOutput.setEnabled(bitPerfectContext, false)
+    }
 
     val (seekExtraSeconds, onSeekExtraSeconds) =
         rememberPreference(
@@ -475,7 +479,7 @@ fun PlayerSettings(navController: NavController, scrollTo: String? = null) {
                                     onAutomixEnabledChange(false)
                                     // A fade needs a second player and gain changes, neither of
                                     // which a bit-perfect path allows.
-                                    onBitPerfectUsbChange(false)
+                                    releaseBitPerfectUsb()
                                 }
                                 onCrossfadeEnabledChange(enabled)
                             },
@@ -499,7 +503,7 @@ fun PlayerSettings(navController: NavController, scrollTo: String? = null) {
                                     // Automix hands every transition to the analysis engine; the
                                     // manual crossfade slider stops applying.
                                     onCrossfadeEnabledChange(false)
-                                    onBitPerfectUsbChange(false)
+                                    releaseBitPerfectUsb()
                                 }
                                 onAutomixEnabledChange(enabled)
                             },
@@ -639,7 +643,7 @@ fun PlayerSettings(navController: NavController, scrollTo: String? = null) {
                                 onSkipSilenceChange(false)
                                 onCrossfadeEnabledChange(false)
                                 onAutomixEnabledChange(false)
-                                onBitPerfectUsbChange(false)
+                                releaseBitPerfectUsb()
                             }
                         },
                     )
@@ -659,7 +663,7 @@ fun PlayerSettings(navController: NavController, scrollTo: String? = null) {
                                         is BitPerfectUsbOutput.Status.Active ->
                                             stringResource(
                                                 R.string.bit_perfect_usb_active,
-                                                status.deviceName.ifBlank { "USB DAC" },
+                                                status.deviceName.ifBlank { stringResource(R.string.bit_perfect_usb_default_device) },
                                                 status.format,
                                             )
                                         is BitPerfectUsbOutput.Status.Fallback ->
@@ -667,7 +671,7 @@ fun PlayerSettings(navController: NavController, scrollTo: String? = null) {
                                         is BitPerfectUsbOutput.Status.Ready ->
                                             stringResource(
                                                 R.string.bit_perfect_usb_ready,
-                                                status.deviceName.ifBlank { "USB DAC" },
+                                                status.deviceName.ifBlank { stringResource(R.string.bit_perfect_usb_default_device) },
                                             )
                                         BitPerfectUsbOutput.Status.NoDevice ->
                                             stringResource(R.string.bit_perfect_usb_no_device)

@@ -6,13 +6,6 @@
  */
 
 /*
- * ArchiveTune (2026)
- * © Rukamori — github.com/rukamori
- * GPL-3.0 License | Contributors: see git history
- * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
- */
-
-/*
  * SimpMusic player style.
  *
  * The layout is SimpMusic's default now-playing screen — its `NowPlayingContentSpotify`
@@ -175,6 +168,8 @@ import moe.rukamori.archivetune.ui.component.MarqueeText
 import moe.rukamori.archivetune.ui.component.MenuState
 import moe.rukamori.archivetune.ui.menu.PlayerMenu
 import moe.rukamori.archivetune.ui.player.LosslessOrStats
+import moe.rukamori.archivetune.ui.player.SeekSkipButton
+import moe.rukamori.archivetune.ui.player.rememberSeekSkip
 import moe.rukamori.archivetune.ui.player.rememberInlineLyricLines
 import moe.rukamori.archivetune.ui.utils.ShowMediaInfo
 import moe.rukamori.archivetune.ui.utils.highRes
@@ -883,6 +878,7 @@ private fun SimpMusicProgressRow(
     val safeDuration = if (hasDuration) duration else 1L
     val shown = (sliderPosition ?: position).coerceIn(0L, safeDuration)
     val trackColor = Color.White
+    val seekSkip = rememberSeekSkip()
 
     Column(modifier = modifier) {
         Slider(
@@ -920,22 +916,33 @@ private fun SimpMusicProgressRow(
             modifier = Modifier.fillMaxWidth(),
         )
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = clockTime(shown),
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color.White.copy(alpha = 0.55f),
-                modifier = Modifier.weight(1f),
-            )
+            Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = clockTime(shown),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.White.copy(alpha = 0.55f),
+                )
+                if (seekSkip != null) {
+                    SeekSkipButton(seekSkip = seekSkip, forward = false, tint = Color.White.copy(alpha = 0.7f))
+                }
+            }
             // SimpMusic keeps this middle slot for its "Crossfading" shimmer. ArchiveTune knows
             // what it is actually streaming, so the slot carries that instead of sitting empty.
             LosslessOrStats(isLoading = isLoading, format = currentFormat)
-            Text(
-                text = if (hasDuration) clockTime(duration) else "",
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color.White.copy(alpha = 0.55f),
-                textAlign = TextAlign.End,
+            Row(
                 modifier = Modifier.weight(1f),
-            )
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (seekSkip != null) {
+                    SeekSkipButton(seekSkip = seekSkip, forward = true, tint = Color.White.copy(alpha = 0.7f))
+                }
+                Text(
+                    text = if (hasDuration) clockTime(duration) else "",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.White.copy(alpha = 0.55f),
+                )
+            }
         }
     }
 }

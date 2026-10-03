@@ -146,7 +146,6 @@ val BackdropBlurAmountKey = intPreferencesKey("backdropBlurAmount")
 val MiniPlayerLastAnchorKey = intPreferencesKey("miniPlayerLastAnchor")
 val MiniPlayerBackgroundStyleKey = stringPreferencesKey("miniPlayerBackgroundStyle")
 
-// ── Liquid Glass effects ──────────────────────────────────────────────────────
 // Master toggle: when off, all Liquid Glass surfaces (header pills on detail
 // pages, the Liquid Glass mini player background, and the Liquid Glass nav bar
 // style) are unavailable / hidden / forced to their non-glass fallback.
@@ -1280,6 +1279,19 @@ enum class NavigationBarStyle {
 
 val NavigationBarStyleKey = stringPreferencesKey("navigationBarStyle")
 
+enum class InterfaceStyle {
+    MATERIAL_EXPRESSIVE,
+    APPLE_MUSIC,
+}
+
+enum class SearchBarPosition {
+    TOP,
+    BOTTOM,
+}
+
+val SearchBarPositionKey = stringPreferencesKey("searchBarPosition")
+val HideSearchChromeWhileScrollingKey = booleanPreferencesKey("hideSearchChromeWhileScrolling")
+
 // Draws a frosted (blurred app content) backdrop behind the navigation bar. True backdrop blur on
 // Android 12+; a translucent surface fallback below that.
 val NavigationBarFrostedBlurKey = booleanPreferencesKey("navigationBarFrostedBlur")
@@ -1289,8 +1301,8 @@ val NavigationBarFrostedBlurKey = booleanPreferencesKey("navigationBarFrostedBlu
 // Mutually exclusive with [NavigationBarFrostedBlurKey] — turning one on turns the other off.
 val NavigationBarTintFrostedBlurKey = booleanPreferencesKey("navigationBarTintFrostedBlur")
 val HideNavigationBarLabelsKey = booleanPreferencesKey("hideNavigationBarLabels")
+val NavigationBarHideOnScrollKey = booleanPreferencesKey("navigationBarHideOnScroll")
 
-// ── Navigation bar dimension customization ──────────────────────────────────
 // Advanced tuning knobs for the FLOATING nav bar style (and corner radius for
 // DEFAULT). Defaults preserve the pre-existing look.
 val NavigationBarWidthKey = floatPreferencesKey("navigationBarWidth")
@@ -1576,14 +1588,10 @@ val TidalAudioQualityOptions =
         TidalAudioQuality.HI_RES_LOSSLESS,
     )
 
-// ---------------------------------------------------------------------------
-// Qobuz source (user-provided Qobuz-DL proxy instances, e.g. squid.wtf-style)
-// ---------------------------------------------------------------------------
 // Streaming/playback only (like Tidal): the app never bundles endpoints — the user pastes their own
 // proxy instance URLs. Each instance exposes get-music (search) + download-music (stream URL).
 val QobuzEnabledKey = booleanPreferencesKey("qobuzEnabled")
 
-// ---------------------------------------------------------------------------
 // Qobuz backup server (mlc.kouzu.in). Separate from Qobuz proper — the
 // backup takes a YouTube video id and returns a lossless stream, while
 // regular Qobuz uses source pool tokens + community proxy instances. The
@@ -1595,9 +1603,6 @@ val QobuzBackupEnabledKey = booleanPreferencesKey("qobuzBackupEnabled")
 val QobuzInstancesKey = stringPreferencesKey("qobuzInstances")
 
 
-// ---------------------------------------------------------------------------
-// Source Pool integration
-// ---------------------------------------------------------------------------
 // When ON (default), the app uses shared accounts from the community Source Pool for Tidal, Qobuz,
 // Deezer, and Apple Music playback. When OFF, only manually-added accounts are used. The manual
 // sign-in UI is always visible regardless of this toggle, so users can add their own accounts

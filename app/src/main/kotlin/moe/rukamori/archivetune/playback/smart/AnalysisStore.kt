@@ -139,8 +139,16 @@ class AnalysisStore(private val context: Context) {
             .forEach { it.delete() }
     }
 
-    /** Hashed rather than used raw: a track id is not guaranteed to be a legal filename. */
-    private fun fileNameFor(trackId: String): String = "${trackId.hashCode().toUInt()}_${trackId.length}.json"
+    /**
+     * Hashed rather than used raw: a track id is not guaranteed to be a legal filename. A 128-bit
+     * digest, because a 32-bit [String.hashCode] collision would hand one track another's beat grid.
+     */
+    private fun fileNameFor(trackId: String): String =
+        java.security.MessageDigest
+            .getInstance("SHA-256")
+            .digest(trackId.toByteArray(Charsets.UTF_8))
+            .take(16)
+            .joinToString("") { "%02x".format(it) } + ".json"
 
     /**
      * The persisted subset, kept separate from [TrackAnalysis] so that adding a

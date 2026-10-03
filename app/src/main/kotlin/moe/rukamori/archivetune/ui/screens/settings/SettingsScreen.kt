@@ -144,7 +144,7 @@ private val CROSS_PAGE_SCROLL_OWNERS: Map<String, String> =
         // Appearance is now a hub of three pages, so every row indexed under it has to say which.
         own(
             "appearance_theme", "appearance",
-            "dynamic_theme", "random_theme_on_startup", "dark_theme", "pure_black", "color_palette",
+            "interface_style", "dynamic_theme", "random_theme_on_startup", "dark_theme", "pure_black", "color_palette",
             "color_source", "palette_picker", "theme_creator", "app_icon", "disable_animations",
             "splash_overlay_enabled",
             "hide_status_bar", "ui_scale", "blur_intensity", "disable_blur", "backdrop_blur",
@@ -157,17 +157,20 @@ private val CROSS_PAGE_SCROLL_OWNERS: Map<String, String> =
             "mini_player_background_style", "player_buttons_style", "player_slider_style",
             "show_player_volume_bar", "hide_player_thumbnail", "crop_thumbnail_to_square",
             "thumbnail_corner_radius", "customized_background", "album_canvas_enabled",
-            "apple_music_animated_artwork", "simpmusic_lyrics", "apple_music_experience",
+            "apple_music_animated_artwork", "simpmusic_lyrics",
         )
         own(
             "appearance_interface", "appearance",
-            "home_screen_style", "minimal_home_mode", "default_open_tab",
+            "home_screen_style", "minimal_home_mode", "default_open_tab", "search_bar_position",
+            "hide_search_bar_while_scrolling",
             "tablet_mode", "navigation_bar_style", "navigation_bar_settings", "hide_scrollbar",
             "grid_layout", "default_lib_chips", "extras", "app_language",
         )
 
         // Appearance rows that were moved out to their own pages.
-        own("navigation_bar", "appearance", "frosted_nav_bar", "liquid_glass_nav_bar", "hide_navigation_bar_labels")
+        own("navigation_bar", "appearance", "frosted_nav_bar", "liquid_glass_nav_bar", "hide_navigation_bar_labels",
+            "navigation_bar_hide_on_scroll",
+        )
         own("appearance_extras", "appearance", "show_home_category_chips")
         own("playback", "appearance", "swipe_sensitivity")
         own("behavior", "appearance", "force_high_refresh_rate")

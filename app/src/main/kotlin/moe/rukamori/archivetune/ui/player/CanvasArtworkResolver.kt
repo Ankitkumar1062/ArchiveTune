@@ -268,13 +268,15 @@ internal suspend fun fetchAllCanvasSourcesForSong(
                 song.isNotBlank() && artist.isNotBlank()
             }
         candidates.firstNotNullOfOrNull { (song, artist) ->
-            AppleMusicProvider.getBySongArtist(
-                song = song,
-                artist = artist,
-                storefront = storefront,
-                forceRefresh = false,
-                album = albumTitle,
-            )?.takeIf { it.hasRequiredCanvasVariant(requireVertical = false) }
+            runCatching {
+                AppleMusicProvider.getBySongArtist(
+                    song = song,
+                    artist = artist,
+                    storefront = storefront,
+                    forceRefresh = false,
+                    album = albumTitle,
+                )
+            }.getOrNull()?.takeIf { it.hasRequiredCanvasVariant(requireVertical = false) }
         }
     }
 

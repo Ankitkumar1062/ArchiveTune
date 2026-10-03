@@ -61,6 +61,7 @@ import androidx.navigation.NavController
 import moe.rukamori.archivetune.LocalPlayerAwareWindowInsets
 import moe.rukamori.archivetune.R
 import moe.rukamori.archivetune.constants.HideNavigationBarLabelsKey
+import moe.rukamori.archivetune.constants.NavigationBarHideOnScrollKey
 import moe.rukamori.archivetune.constants.NAVIGATION_BAR_CORNER_RADIUS_DEFAULT
 import moe.rukamori.archivetune.constants.NAVIGATION_BAR_HEIGHT_DEFAULT
 import moe.rukamori.archivetune.constants.NAVIGATION_BAR_LABEL_SPACING_DEFAULT
@@ -126,6 +127,8 @@ fun NavigationBarSettings(navController: NavController, scrollTo: String? = null
     }
     val (hideNavigationBarLabels, onHideNavigationBarLabelsChange) =
         rememberPreference(HideNavigationBarLabelsKey, defaultValue = false)
+    val (hideOnScroll, onHideOnScrollChange) =
+        rememberPreference(NavigationBarHideOnScrollKey, defaultValue = false)
 
     // Customization sliders. Defaults are the constants defined alongside
     // their preference keys so the pre-existing look is preserved.
@@ -290,6 +293,17 @@ fun NavigationBarSettings(navController: NavController, scrollTo: String? = null
                         icon = { Icon(painterResource(R.drawable.nav_bar), null) },
                         checked = hideNavigationBarLabels,
                         onCheckedChange = onHideNavigationBarLabelsChange,
+                    )
+                }
+
+                item {
+                    SwitchPreference(
+                        modifier = positions.modifierFor("navigation_bar_hide_on_scroll"),
+                        title = { Text(stringResource(R.string.navigation_bar_hide_on_scroll)) },
+                        description = stringResource(R.string.navigation_bar_hide_on_scroll_desc),
+                        icon = { Icon(painterResource(R.drawable.nav_bar), null) },
+                        checked = hideOnScroll,
+                        onCheckedChange = onHideOnScrollChange,
                     )
                 }
             }

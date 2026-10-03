@@ -144,6 +144,14 @@ jobs:
             distributionName: Foss
             deviceName: Mobile
             abi: universal
+          # Full-fat build: bundles the automix analysis models and the arm64 onnxruntime
+          # (the default entries exclude them — see app/build.gradle.kts).
+          - device: mobile
+            distribution: gms
+            distributionName: Gms
+            deviceName: Mobile
+            abi: universal
+            automix: true
 
     steps:
       - uses: actions/checkout@v7
@@ -180,17 +188,26 @@ jobs:
           echo "abi=$ABI" >> "$GITHUB_OUTPUT"
           echo "device_cap=$DEVICE_CAP" >> "$GITHUB_OUTPUT"
           echo "abi_cap=$ABI_CAP" >> "$GITHUB_OUTPUT"
+          EXTRA_ARGS=""
+          VARIANT_SUFFIX=""
+          if [ "${{ matrix.automix }}" = "true" ]; then
+            EXTRA_ARGS="-Pautomix=true"
+            VARIANT_SUFFIX="-automix"
+          fi
+          echo "gradle_extra=${EXTRA_ARGS}" >> "$GITHUB_OUTPUT"
           echo "gradle_task=assemble${DISTRIBUTION_CAP}${DEVICE_CAP}${ABI_CAP}Release" >> "$GITHUB_OUTPUT"
           # Nightly asset name expected by the updater's canary channel.
-          echo "artifact_name=app-${DISTRIBUTION}-${DEVICE}-${ABI}-nightly" >> "$GITHUB_OUTPUT"
-          echo "apk_name=app-${DISTRIBUTION}-${DEVICE}-${ABI}-nightly.apk" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=app-${DISTRIBUTION}-${DEVICE}-${ABI}${VARIANT_SUFFIX}-nightly" >> "$GITHUB_OUTPUT"
+          echo "apk_name=app-${DISTRIBUTION}-${DEVICE}-${ABI}${VARIANT_SUFFIX}-nightly.apk" >> "$GITHUB_OUTPUT"
 
       - name: Build Release APK
         shell: bash
         run: |
           set -euo pipefail
           GRADLE_TASK="${{ steps.variant.outputs.gradle_task }}"
-          ./gradlew "$GRADLE_TASK"
+          GRADLE_EXTRA="${{ steps.variant.outputs.gradle_extra }}"
+          # shellcheck disable=SC2086 — each token is a single word by construction.
+          ./gradlew $GRADLE_TASK $GRADLE_EXTRA
         env:
           PULL_REQUEST: 'false'
           GITHUB_EVENT_NAME: ${{ github.event_name }}

@@ -115,6 +115,7 @@ data class MiniPlayerContentColors(
 fun SwipeableMiniPlayerBox(
     modifier: Modifier = Modifier,
     contentMaxWidth: Dp? = null,
+    horizontalInset: Dp = NavigationBarHorizontalPadding,
     swipeSensitivity: Float,
     swipeThumbnail: Boolean,
     playerConnection: PlayerConnection,
@@ -145,7 +146,7 @@ fun SwipeableMiniPlayerBox(
             null
         } else {
             contentMaxWidth?.let {
-                it + NavigationBarHorizontalPadding + NavigationBarHorizontalPadding
+                it + horizontalInset + horizontalInset
             }
         }
 
@@ -179,7 +180,7 @@ fun SwipeableMiniPlayerBox(
                                 },
                             )
                         } else {
-                            baseModifier.padding(horizontal = NavigationBarHorizontalPadding)
+                            baseModifier.padding(horizontal = horizontalInset)
                         }
                     }.let { baseModifier ->
                         if (swipeThumbnail) {

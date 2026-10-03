@@ -12,6 +12,17 @@ The Spotify group contains account login/logout, playlist visibility, playlist r
 
 ## Apple Music experience status
 
+The experience is chosen with **Appearance → Theme → Interface style** (`interface_style`, legacy
+anchor `apple_music_experience`), a two-way selector over `AppleMusicExperienceKey`: Material 3
+Expressive (the default, key unset or false) or Apple Music. Material 3 Expressive seeds the palette
+from purple instead of the wallpaper when no custom or album-art color applies. Nothing seeds the
+Apple Music style on a fresh install any more.
+
+The Search tab's field can sit at the top (default) or float above the bottom bar
+(`SearchBarPositionKey`), optionally sliding away while scrolling down
+(`HideSearchChromeWhileScrollingKey`). Both styles render it: a 28dp tonal container with the Solar
+magnifier for Material, a capsule for Apple Music.
+
 Shipped and driven by the experience switch: the Apple Music player (with its queue sheet, inline
 lyrics and mini header), the animated-artwork backdrop, the playlist hero, the sleep-timer sheet, the
 sliders, and the menu-header treatment. The switch forces the player style and the tab bar, and it
@@ -45,3 +56,15 @@ playback must remain separate from any future public catalog search/fallback wor
 - Keep settings available through both the page and settings search when appropriate.
 - Update route inventory and tests for any renamed or moved entry.
 - Verify back navigation, deep links, dialogs, toggles, sliders, and provider-specific pages on Canary.
+
+## Navigation bar
+
+`NavigationBarHideOnScrollKey` (off by default, Navigation bar page, anchor
+`navigation_bar_hide_on_scroll`) hides the bar on downward user scrolling of a tab and drops the
+collapsed mini player into its place; content padding stays static so lists do not jump. The tinted
+frosted bar blends the accent into its base and content in both light and dark schemes.
+
+The interface-style experience, library and player preferences change in one
+DataStore edit, using the current stored player style rather than a value from a
+previous composition. Re-selecting the active style does not overwrite the
+saved player choice.
