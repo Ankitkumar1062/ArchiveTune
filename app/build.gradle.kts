@@ -178,7 +178,7 @@ android {
             "String",
             "TDLIB_NATIVE_BASE_URL",
             "\"${project.findProperty("tdlibNativeBaseUrl") as String?
-                ?: "https://github.com/4nx3b/ArchiveTune/releases/download/tdlight-2b51b33"}\"",
+                ?: "https://github.com/NatuneGroup/ArchiveTune/releases/download/tdlight-2b51b33"}\"",
         )
 
         // Base URL of the community Source Pool website (Next.js). When set, the app auto-discovers
