@@ -271,10 +271,8 @@ fun V10PlayerContent(
     val accent = textBackgroundColor
     val field = textButtonColor
 
-    // ========== MAIN LAYOUT (EditorialNowPlayingView) ==========
     Column(modifier = modifier.fillMaxSize()) {
 
-        // ========== TOP BAR (No statusBarsPadding to give breathing space/hide status bar) ==========
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -350,7 +348,6 @@ fun V10PlayerContent(
             }
         }
 
-        // ========== DIE-CUT ART ==========
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -371,7 +368,6 @@ fun V10PlayerContent(
             )
         }
 
-        // ========== HEADLINE ==========
         val title = mediaMetadata.title
         val headlineBase = when {
             title.length <= 12 -> MaterialTheme.typography.displayLarge
@@ -438,7 +434,6 @@ fun V10PlayerContent(
 
         Spacer(modifier = Modifier.height(4.dp))
 
-        // ========== CONTROL CLUSTER (asymmetric bento) ==========
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -590,7 +585,6 @@ fun V10PlayerContent(
 
             Spacer(modifier = Modifier.height(18.dp))
 
-            // ========== CHIPS ROW ==========
             val (swipeUpToOpenQueue) = rememberPreference(SwipeUpToOpenQueueKey, defaultValue = true)
             Row(
                 modifier = Modifier
@@ -665,8 +659,6 @@ fun V10PlayerContent(
         )
     }
 }
-
-// ========== HELPERS ==========
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable

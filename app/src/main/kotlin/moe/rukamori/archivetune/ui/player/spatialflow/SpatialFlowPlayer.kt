@@ -326,8 +326,6 @@ fun SpatialFlowPlayerContent(
     // permission is denied.
     var hapticsEnabled by remember { mutableStateOf(MusicHapticsSettings.isEnabled(context)) }
 
-    // ---- Canvas gating (Apple Music recipe) --------------------------------
-    //
     // The canvas layers (frosted twin + sharp stage) STAY in composition while
     // lyrics are open; rendering stops in two steps. Playback freezes the
     // instant lyrics open — the decoder and both TextureView composites quit

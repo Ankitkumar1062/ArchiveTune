@@ -1237,7 +1237,6 @@ fun BitChordPlayerContent(
                     )
                 }
 
-                // ---- Title + menu ----
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1404,7 +1403,6 @@ fun BitChordPlayerContent(
                 }
             }
 
-            // ---- Bottom: lyric strip, scrubber, transport, volume, toggles ----
             // One block, measured at its natural height and pinned to the foot
             // of the player. Whatever is left over above it is the artwork's,
             // which is what keeps this row of controls in the same place on
@@ -1598,7 +1596,6 @@ fun BitChordPlayerContent(
             // which sit close enough together to read as one.
             Spacer(Modifier.height(10.dp + controlSpread / 3))
 
-            // ---- Transport ----
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly,
@@ -1642,7 +1639,6 @@ fun BitChordPlayerContent(
 
             Spacer(Modifier.height(12.dp + controlSpread / 3))
 
-            // ---- Volume ----
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1685,7 +1681,6 @@ fun BitChordPlayerContent(
             // the reference stacks seekbar -> transport -> volume -> pills.
             Spacer(Modifier.height(6.dp))
 
-            // ---- Lyrics · Shuffle/Repeat capsule · Queue ----
             // Shuffle and repeat live INSIDE the pill so their state reads
             // without opening anything; the flanking glyphs open the lyrics
             // panel and the queue.
@@ -1958,11 +1953,6 @@ private fun BottomGlyph(
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// The segmented capsule at the centre of the bottom row (reference style):
-// squared-off segments joined by hairline dividers, one highlight fill.
-// ---------------------------------------------------------------------------
 
 /** Diameter of the glyphs flanking the capsule, which the row is sized around. */
 private val BOTTOM_GLYPH_DIAMETER = 44.dp

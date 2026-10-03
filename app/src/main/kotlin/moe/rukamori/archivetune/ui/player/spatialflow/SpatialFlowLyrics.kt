@@ -977,9 +977,6 @@ private fun SpatialFlowInterludeItem(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Lyrics moving-blur backdrop — Apple Music's exact recipe
-// ---------------------------------------------------------------------------
 // The AM player's lyrics backdrop: the artwork image sized to the drift
 // footprint, blurred 64dp (AmBackdropBlurRadius), slowly wandering
 // (blurWander — the "moving" part) and scaling from the rest scale (1.2,
