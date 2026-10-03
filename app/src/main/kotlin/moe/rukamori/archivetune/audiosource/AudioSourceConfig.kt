@@ -138,17 +138,32 @@ object TitleMatch {
     /**
      * Splits a raw (pre-normalization) title into its alternative-name segments. Handles the
      * common separators used when a track's title contains both an original and a romanized /
-     * translated form: hyphen-with-spaces, slash, pipe, colon, and the CJK full-width
-     * variants of those characters. Returns an empty list when no separator is present.
+     * translated form: hyphen-with-spaces, slash, pipe, colon, parenthesized aliases, and the
+     * CJK full-width variants of those characters. Returns an empty list when no separator is present.
      */
     private fun splitRawTitleSegments(raw: String?): List<String> {
         if (raw.isNullOrBlank()) return emptyList()
-        val split =
+        val segments = mutableListOf<String>()
+        val delimiterSplit =
             raw
                 .split(Regex("""\s*[-/|:]\s*|\s*[－／｜：]\s*"""))
                 .map { it.trim() }
                 .filter { it.isNotEmpty() }
-        return if (split.size <= 1) emptyList() else split
+        if (delimiterSplit.size > 1) {
+            segments.addAll(delimiterSplit)
+        }
+        val parenRegex = Regex("""[([（【](.*?)[)\]）】]""")
+        parenRegex.findAll(raw).forEach { matchResult ->
+            val inside = matchResult.groupValues[1].trim()
+            if (inside.isNotEmpty()) {
+                segments.add(inside)
+            }
+        }
+        val outside = raw.replace(parenRegex, " ").trim()
+        if (outside.isNotEmpty() && outside != raw.trim()) {
+            segments.add(outside)
+        }
+        return segments.distinct().filter { it.length >= 2 }
     }
 
     fun evaluate(
@@ -170,8 +185,20 @@ object TitleMatch {
 
         val wantedArtist = wantedArtists.joinToString(", ").takeIf { it.isNotBlank() }
         val candidateArtist = stream.matchedArtist?.takeIf { it.isNotBlank() }
-        val artistScore =
+        val rawArtistScore =
             if (wantedArtist != null && candidateArtist != null) artistRatio(wantedArtist, candidateArtist) else null
+
+        // Cross-script tolerance: If title matches strongly (>= 0.85) and duration matches (>= 0.80),
+        // but artist strings use different scripts (e.g. Latin "Minami" vs Kanji "美波"),
+        // grant a passing artist score of 0.75 instead of rejecting as an artist mismatch.
+        val isCrossScript = wantedArtist != null && candidateArtist != null &&
+            (isNonLatin(wantedArtist) != isNonLatin(candidateArtist))
+        val artistScore = if (rawArtistScore != null && rawArtistScore < MIN_ARTIST && isCrossScript &&
+            titleScore >= 0.85 && (durationScore ?: 0.0) >= 0.80) {
+            0.75
+        } else {
+            rawArtistScore
+        }
 
         // Artist is gated before duration. Both gates reject, so this does not change
         // WHETHER a stream is accepted — only the reason reported for it. That matters
@@ -223,6 +250,10 @@ object TitleMatch {
         return ratio(wanted, candidate)
     }
 
+    private fun isNonLatin(s: String): Boolean = s.any { c ->
+        c.code > 0x024F && Character.isLetter(c)
+    }
+
     private fun artistRatio(wanted: String, candidate: String): Double {
         val wantedParts = artistParts(wanted)
         val candidateParts = artistParts(candidate.replace(" - Topic", "", ignoreCase = true))
@@ -240,7 +271,7 @@ object TitleMatch {
 
     private fun artistParts(value: String): List<String> =
         value
-            .split(Regex("""\s*[,;&/]\s*|\s+(?:and|x)\s+""", RegexOption.IGNORE_CASE))
+            .split(Regex("""\s*[,;&/×・，／]\s*|\s+(?:and|x)\s+""", RegexOption.IGNORE_CASE))
             .map(::normalize)
             .filter { it.isNotBlank() }
 
@@ -265,6 +296,7 @@ object TitleMatch {
         listOf(
             "live", "concert", "remix", "rework", "acoustic", "instrumental", "karaoke",
             "cover", "demo", "sped up", "nightcore", "slowed", "extended", "radio edit",
+            "music box", "orchestral", "オルゴール",
         )
 
     private fun hasVersionMismatch(wanted: String, candidate: String): Boolean {

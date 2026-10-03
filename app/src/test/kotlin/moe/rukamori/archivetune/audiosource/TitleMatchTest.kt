@@ -74,6 +74,62 @@ class TitleMatchTest {
     }
 
     @Test
+    fun matchesCrossScriptArtistWhenTitleAndDurationMatch() {
+        val result =
+            TitleMatch.evaluate(
+                wantedTitle = "カワキヲアメク",
+                wantedArtists = listOf("Minami"),
+                wantedAlbum = null,
+                wantedDurationMs = 251_000,
+                stream = stream("カワキヲアメク", "美波", durationMs = 250_500),
+            )
+
+        assertTrue(result.accepted)
+    }
+
+    @Test
+    fun rejectsMusicBoxCover() {
+        val result =
+            TitleMatch.evaluate(
+                wantedTitle = "Kizuna no Kiseki",
+                wantedArtists = listOf("MAN WITH A MISSION"),
+                wantedAlbum = null,
+                wantedDurationMs = 210_000,
+                stream = stream("Kizuna no Kiseki (Music Box)", "MAN WITH A MISSION", durationMs = 251_000),
+            )
+
+        assertFalse(result.accepted)
+    }
+
+    @Test
+    fun matchesParenthesizedMultilingualTitle() {
+        val result =
+            TitleMatch.evaluate(
+                wantedTitle = "カワキヲアメク",
+                wantedArtists = listOf("美波"),
+                wantedAlbum = null,
+                wantedDurationMs = 251_000,
+                stream = stream("カワキヲアメク (Kawaki wo Ameku)", "美波", durationMs = 251_200),
+            )
+
+        assertTrue(result.accepted)
+    }
+
+    @Test
+    fun splitsAsianArtistDelimiter() {
+        val result =
+            TitleMatch.evaluate(
+                wantedTitle = "絆ノ奇跡",
+                wantedArtists = listOf("MAN WITH A MISSION × milet"),
+                wantedAlbum = null,
+                wantedDurationMs = 210_000,
+                stream = stream("絆ノ奇跡", "MAN WITH A MISSION", durationMs = 210_500),
+            )
+
+        assertTrue(result.accepted)
+    }
+
+    @Test
     fun rejectsMissingMatchMetadataInsteadOfAssumingExact() {
         val result = evaluate(stream(title = null, artist = null, durationMs = null))
 

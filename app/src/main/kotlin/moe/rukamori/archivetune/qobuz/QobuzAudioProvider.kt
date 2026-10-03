@@ -44,7 +44,7 @@ object QobuzAudioProvider {
     private val STOP_WORDS =
         setOf("the", "a", "an", "of", "and", "feat", "ft", "featuring", "with")
     private val VERSION_TOKENS =
-        setOf("remix", "acoustic", "live", "instrumental", "demo", "edit", "mix", "version")
+        setOf("remix", "acoustic", "live", "instrumental", "demo", "edit", "mix", "version", "cover", "karaoke", "music box", "orchestral")
 
     private const val QOBUZ_API_BASE = "https://www.qobuz.com/api.json/0.2"
 
@@ -344,6 +344,7 @@ object QobuzAudioProvider {
          * and goes straight to [backend.download] with this trackId.
          */
         val directTrackId: String? = null,
+        val isrc: String? = null,
     )
 
     /**
@@ -644,15 +645,22 @@ object QobuzAudioProvider {
                     ?: ""
             val candidateDurationMs = item.longOrNull("duration")?.times(1000L)
             val candidateAlbum = item.optJSONObject("album")?.stringOrNull("title")
+            val candidateIsrc = item.stringOrNull("isrc")?.replace("-", "")?.trim()?.uppercase()
+            val wantedIsrc = query.isrc?.replace("-", "")?.trim()?.uppercase()
+            val isrcMatches = wantedIsrc != null && candidateIsrc == wantedIsrc
             val score =
-                scoreMatch(
-                    wantedTitle = wantedTitle,
-                    wantedArtists = wantedArtists,
-                    candidateTitle = candidateTitle,
-                    candidateArtist = candidateArtist.normalized(),
-                    wantedDurationMs = query.durationMs,
-                    candidateDurationMs = candidateDurationMs,
-                )
+                if (isrcMatches && durationMatches(query.durationMs, candidateDurationMs)) {
+                    220
+                } else {
+                    scoreMatch(
+                        wantedTitle = wantedTitle,
+                        wantedArtists = wantedArtists,
+                        candidateTitle = candidateTitle,
+                        candidateArtist = candidateArtist.normalized(),
+                        wantedDurationMs = query.durationMs,
+                        candidateDurationMs = candidateDurationMs,
+                    )
+                }
             if (score > bestScore) {
                 bestScore = score
                 bestId = id
@@ -1033,9 +1041,20 @@ object QobuzAudioProvider {
         if (wantedTitle.isBlank() || candidateTitle.isBlank()) return Int.MIN_VALUE
         // Reject clear version mismatches (live vs studio, remix, instrumental, ...).
         if (hasVersionMismatch(" $wantedTitle ", " $candidateTitle ")) return Int.MIN_VALUE
+        if (wantedDurationMs != null && candidateDurationMs != null) {
+            val diff = abs(wantedDurationMs - candidateDurationMs)
+            if (diff > 12_000L) return Int.MIN_VALUE
+        }
         val titleOverlap = tokenOverlap(significantTokens(wantedTitle), significantTokens(candidateTitle))
-        if (titleOverlap < 0.5) return Int.MIN_VALUE
+        val isDirectOrSubstring =
+            candidateTitle == wantedTitle || candidateTitle.contains(wantedTitle) || wantedTitle.contains(candidateTitle)
+        if (titleOverlap < 0.5 && !isDirectOrSubstring) return Int.MIN_VALUE
         var score = (titleOverlap * 100).toInt()
+        if (candidateTitle == wantedTitle) {
+            score += 20
+        } else if (isDirectOrSubstring) {
+            score += 10
+        }
         if (wantedArtists.isNotEmpty() && candidateArtist.isNotBlank()) {
             val artistOverlap =
                 wantedArtists.maxOf { tokenOverlap(significantTokens(it), significantTokens(candidateArtist)) }
@@ -1051,7 +1070,7 @@ object QobuzAudioProvider {
         value
             .split(' ')
             .map { it.trim() }
-            .filter { it.length >= 2 && it !in STOP_WORDS }
+            .filter { it.length >= 1 && it !in STOP_WORDS }
             .toSet()
 
     private fun tokenOverlap(
@@ -1068,7 +1087,7 @@ object QobuzAudioProvider {
         candidateDurationMs: Long?,
     ): Boolean {
         if (wantedDurationMs == null || candidateDurationMs == null) return true
-        return abs(wantedDurationMs - candidateDurationMs) <= 45_000L
+        return abs(wantedDurationMs - candidateDurationMs) <= 3_000L
     }
 
     private fun hasVersionMismatch(
@@ -1093,7 +1112,7 @@ object QobuzAudioProvider {
             ?.lowercase(Locale.US)
             ?.let { Normalizer.normalize(it, Normalizer.Form.NFD) }
             ?.replace(Regex("\\p{Mn}+"), "")
-            ?.replace(Regex("[^a-z0-9]+"), " ")
+            ?.replace(Regex("[^\\p{L}\\p{N}]+"), " ")
             ?.trim()
             .orEmpty()
 

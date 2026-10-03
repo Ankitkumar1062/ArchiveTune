@@ -33,10 +33,10 @@ internal object TrackMatching {
      * serving nothing and falling through to the next source.
      */
     private val VERSION_TOKENS =
-        setOf("remix", "acoustic", "live", "instrumental", "demo", "edit", "mix", "version")
+        setOf("remix", "acoustic", "live", "instrumental", "demo", "edit", "mix", "version", "cover", "karaoke", "music box", "orchestral")
 
     /** Runtimes this far apart are still considered the same recording. */
-    private const val DURATION_TOLERANCE_MS = 45_000L
+    private const val DURATION_TOLERANCE_MS = 3_000L
 
     /**
      * Scores [candidateTitle]/[candidateArtist] against what we wanted. Returns [Int.MIN_VALUE] for a
@@ -52,9 +52,20 @@ internal object TrackMatching {
     ): Int {
         if (wantedTitle.isBlank() || candidateTitle.isBlank()) return Int.MIN_VALUE
         if (hasVersionMismatch(" $wantedTitle ", " $candidateTitle ")) return Int.MIN_VALUE
+        if (wantedDurationMs != null && candidateDurationMs != null) {
+            val diff = abs(wantedDurationMs - candidateDurationMs)
+            if (diff > 12_000L) return Int.MIN_VALUE
+        }
         val titleOverlap = tokenOverlap(significantTokens(wantedTitle), significantTokens(candidateTitle))
-        if (titleOverlap < 0.5) return Int.MIN_VALUE
+        val isDirectOrSubstring =
+            candidateTitle == wantedTitle || candidateTitle.contains(wantedTitle) || wantedTitle.contains(candidateTitle)
+        if (titleOverlap < 0.5 && !isDirectOrSubstring) return Int.MIN_VALUE
         var score = (titleOverlap * 100).toInt()
+        if (candidateTitle == wantedTitle) {
+            score += 20
+        } else if (isDirectOrSubstring) {
+            score += 10
+        }
         if (wantedArtists.isNotEmpty() && candidateArtist.isNotBlank()) {
             val artistOverlap =
                 wantedArtists.maxOf { tokenOverlap(significantTokens(it), significantTokens(candidateArtist)) }
@@ -74,6 +85,7 @@ internal object TrackMatching {
         val artists: List<String>,
         val album: String?,
         val durationMs: Long?,
+        val isrc: String? = null,
     )
 
     /**
@@ -86,6 +98,7 @@ internal object TrackMatching {
         val artists: List<String>,
         val album: String?,
         val durationMs: Long?,
+        val isrc: String? = null,
     )
 
     /**
@@ -99,8 +112,17 @@ internal object TrackMatching {
     fun best(
         target: Target,
         candidates: List<Candidate>,
-    ): Candidate? =
-        candidates
+    ): Candidate? {
+        if (!target.isrc.isNullOrBlank()) {
+            val targetIsrc = target.isrc.replace("-", "").trim().uppercase()
+            val isrcMatch = candidates.firstOrNull { candidate ->
+                val cIsrc = candidate.isrc?.replace("-", "")?.trim()?.uppercase()
+                cIsrc == targetIsrc && durationMatches(target.durationMs, candidate.durationMs)
+            }
+            if (isrcMatch != null) return isrcMatch
+        }
+
+        return candidates
             .asSequence()
             .map { candidate ->
                 candidate to
@@ -115,12 +137,13 @@ internal object TrackMatching {
             }.filter { (_, score) -> score >= MIN_MATCH_SCORE }
             .maxByOrNull { (_, score) -> score }
             ?.first
+    }
 
     private fun significantTokens(value: String): Set<String> =
         value
             .split(' ')
             .map { it.trim() }
-            .filter { it.length >= 2 && it !in STOP_WORDS }
+            .filter { it.length >= 1 && it !in STOP_WORDS }
             .toSet()
 
     private fun tokenOverlap(
@@ -153,7 +176,7 @@ internal object TrackMatching {
             ?.lowercase(Locale.US)
             ?.let { Normalizer.normalize(it, Normalizer.Form.NFD) }
             ?.replace(Regex("\\p{Mn}+"), "")
-            ?.replace(Regex("[^a-z0-9]+"), " ")
+            ?.replace(Regex("[^\\p{L}\\p{N}]+"), " ")
             ?.trim()
             .orEmpty()
 

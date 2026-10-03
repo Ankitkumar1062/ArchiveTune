@@ -20,19 +20,20 @@ import moe.rukamori.archivetune.spotify.models.SpotifyTrack
  */
 object SpotifyMapper {
     // Pre-compiled regex patterns for title normalization (avoids re-creation on each call)
-    private val FEAT_PATTERN = Regex("\\(feat\\..*?\\)")
-    private val FT_PATTERN = Regex("\\(ft\\..*?\\)")
-    private val BRACKET_PATTERN = Regex("\\[.*?]")
+    private val FEAT_PATTERN = Regex("\\(feat\\..*?\\)", RegexOption.IGNORE_CASE)
+    private val FT_PATTERN = Regex("\\(ft\\..*?\\)", RegexOption.IGNORE_CASE)
+    private val BRACKET_PATTERN = Regex("\\[.*?\\]")
     private val REMASTER_PATTERN = Regex("\\(.*?remaster.*?\\)", RegexOption.IGNORE_CASE)
     private val REMIX_PATTERN = Regex("\\(.*?remix.*?\\)", RegexOption.IGNORE_CASE)
-    private val NON_ALNUM_PATTERN = Regex("[^a-z0-9\\s]")
+    private val NON_ALNUM_PATTERN = Regex("[^\\p{L}\\p{N}\\s]")
     private val MULTI_SPACE_PATTERN = Regex("\\s+")
 
     private const val NORM_CACHE_MAX_SIZE = 256
     private const val EARLY_EXIT_THRESHOLD = 0.95
+    private const val MIN_TITLE_SCORE = 0.40
 
     /**
-     * LRU cache for normalized strings. Avoids re-running 7 regex replacements
+     * LRU cache for normalized strings. Avoids re-running regex replacements
      * on the same Spotify title/artist across multiple candidate comparisons.
      * Bounded to [NORM_CACHE_MAX_SIZE] entries to limit memory usage.
      */
@@ -84,10 +85,44 @@ object SpotifyMapper {
         return if (artist.isEmpty()) title else "$artist $title"
     }
 
-    /** The best artwork URL Spotify offers for a playlist. */
+    /**
+     * Upgrades Spotify CDN artwork URLs to their maximum-quality (640x640) resolution variant.
+     */
+    fun toHighResSpotifyUrl(url: String): String {
+        return when {
+            url.contains("mosaic.scdn.co/") -> {
+                url.replace(Regex("mosaic\\.scdn\\.co/(60|300)/"), "mosaic.scdn.co/640/")
+            }
+            url.contains("ab67616d00001e02") -> url.replace("ab67616d00001e02", "ab67616d0000b273")
+            url.contains("ab67616d00004851") -> url.replace("ab67616d00004851", "ab67616d0000b273")
+            url.contains("ab67616100005174") -> url.replace("ab67616100005174", "ab6761610000e5eb")
+            url.contains("ab6761610000f08a") -> url.replace("ab6761610000f08a", "ab6761610000e5eb")
+            url.contains("ab67706c0000bebb") -> url.replace("ab67706c0000bebb", "ab67706c0000da84")
+            url.contains("ab67706c00004851") -> url.replace("ab67706c00004851", "ab67706c0000da84")
+            else -> url
+        }
+    }
+
+    /**
+     * Infers Spotify artwork dimensions from known CDN URL size hashes.
+     */
+    fun inferSpotifyImageDimension(url: String): Int {
+        return when {
+            url.contains("0000b273") || url.contains("0000e5eb") || url.contains("0000da84") || url.contains("mosaic.scdn.co/640") -> 640
+            url.contains("00001e02") || url.contains("00005174") || url.contains("0000bebb") || url.contains("mosaic.scdn.co/300") -> 300
+            url.contains("00004851") || url.contains("0000f08a") || url.contains("mosaic.scdn.co/60") -> 64
+            else -> 0
+        }
+    }
+
+    /**
+     * The best artwork URL Spotify offers for a playlist.
+     */
     fun getPlaylistThumbnail(playlist: SpotifyPlaylist): String? = largestImageUrl(playlist.images)
 
-    /** The best avatar Spotify offers for an artist. Same reasoning as [getPlaylistThumbnail]. */
+    /**
+     * The best avatar Spotify offers for an artist. Same reasoning as [getPlaylistThumbnail].
+     */
     fun getArtistThumbnail(artist: SpotifyArtist): String? = largestImageUrl(artist.images)
 
     /**
@@ -96,11 +131,13 @@ object SpotifyMapper {
      */
     fun getTrackThumbnail(track: SpotifyTrack): String? = largestImageUrl(track.album?.images)
 
-    private fun largestImageUrl(images: List<SpotifyImage>?): String? =
-        images
-            ?.maxByOrNull { it.width ?: 0 }
-            ?.url
-            ?.takeIf { it.isNotBlank() }
+    fun largestImageUrl(images: List<SpotifyImage>?): String? {
+        if (images.isNullOrEmpty()) return null
+        val best = images.maxByOrNull { image ->
+            image.width?.takeIf { it > 0 } ?: inferSpotifyImageDimension(image.url)
+        } ?: images.firstOrNull()
+        return best?.url?.takeIf { it.isNotBlank() }?.let { toHighResSpotifyUrl(it) }
+    }
 
     /**
      * Pre-computes normalized title/artist and their bigrams for a Spotify track.
@@ -146,15 +183,26 @@ object SpotifyMapper {
                 normCandidateTitle,
                 cachedBigrams(normCandidateTitle),
             )
-        val artistScore =
+        if (titleScore < MIN_TITLE_SCORE) return 0.0
+        val rawArtistScore =
             bigramSimilarity(
                 normSpotifyArtist,
                 cachedBigrams(normSpotifyArtist),
                 normCandidateArtist,
                 cachedBigrams(normCandidateArtist),
             )
-
         val durationScore = durationScore(spotifyDurationMs, candidateDurationSec)
+
+        // Cross-script tolerance: If title matches strongly (>= 0.75) and duration matches (>= 0.50),
+        // but artist strings use different scripts (e.g. Latin "Rokudenashi" vs Japanese "ロクデナシ"),
+        // grant a neutral artist score of 0.60 instead of 0.0.
+        val isCrossScript = isNonLatin(normSpotifyArtist) != isNonLatin(normCandidateArtist)
+        val artistScore = if (rawArtistScore < 0.20 && isCrossScript && titleScore >= 0.75 && durationScore >= 0.50) {
+            0.60
+        } else {
+            rawArtistScore
+        }
+
         return titleScore * 0.45 + artistScore * 0.35 + durationScore * 0.20
     }
 
@@ -179,20 +227,32 @@ object SpotifyMapper {
                 normCandidateTitle,
                 cachedBigrams(normCandidateTitle),
             )
-        val artistScore =
+        if (titleScore < MIN_TITLE_SCORE) return 0.0
+
+        val rawArtistScore =
             bigramSimilarity(
                 precomputed.normalizedArtist,
                 precomputed.artistBigrams,
                 normCandidateArtist,
                 cachedBigrams(normCandidateArtist),
             )
-
         val durationScore = durationScore(precomputed.durationMs, candidateDurationSec)
+
+        val isCrossScript = isNonLatin(precomputed.normalizedArtist) != isNonLatin(normCandidateArtist)
+        val artistScore = if (rawArtistScore < 0.20 && isCrossScript && titleScore >= 0.75 && durationScore >= 0.50) {
+            0.60
+        } else {
+            rawArtistScore
+        }
+
         return titleScore * 0.45 + artistScore * 0.35 + durationScore * 0.20
     }
 
     /** Threshold above which we consider a match good enough to skip remaining candidates. */
     fun earlyExitThreshold(): Double = EARLY_EXIT_THRESHOLD
+
+    private fun isNonLatin(text: String): Boolean =
+        text.any { it.code > 0x024F }
 
     private fun durationScore(
         spotifyDurationMs: Int,
@@ -202,9 +262,8 @@ object SpotifyMapper {
         val diff = kotlin.math.abs(spotifyDurationMs / 1000 - candidateDurationSec)
         return when {
             diff <= 2 -> 1.0
-            diff <= 5 -> 0.8
-            diff <= 10 -> 0.5
-            diff <= 30 -> 0.2
+            diff <= 4 -> 0.8
+            diff <= 6 -> 0.4
             else -> 0.0
         }
     }
@@ -237,7 +296,7 @@ object SpotifyMapper {
             .replace(BRACKET_PATTERN, "")
             .replace(REMASTER_PATTERN, "")
             .replace(REMIX_PATTERN, "")
-            .replace(NON_ALNUM_PATTERN, "")
+            .replace(NON_ALNUM_PATTERN, " ")
             .replace(MULTI_SPACE_PATTERN, " ")
             .trim()
 
@@ -250,6 +309,7 @@ object SpotifyMapper {
         b: String,
         bigramsB: Set<String>,
     ): Double {
+        if (a.isEmpty() || b.isEmpty()) return 0.0
         if (a == b) return 1.0
         if (bigramsA.isEmpty() || bigramsB.isEmpty()) return 0.0
         val intersection = bigramsA.count { it in bigramsB }

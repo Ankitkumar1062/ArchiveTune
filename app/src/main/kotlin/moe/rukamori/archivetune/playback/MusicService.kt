@@ -8578,6 +8578,7 @@ class MusicService :
                             album = query.album,
                             durationMs = query.durationMs,
                             directTrackId = query.directQobuzTrackId,
+                            isrc = query.isrc,
                         ),
                     formatId = formatId,
                 )

@@ -80,7 +80,7 @@ object TidalAudioProvider {
     private val ISRC_STRIP_REGEX = Regex("[^A-Z0-9]")
     private val ISRC_PATTERN_REGEX = Regex("[A-Z]{2}[A-Z0-9]{3}[0-9]{7}")
     private val DIACRITIC_REGEX = Regex("\\p{Mn}+")
-    private val NON_ALPHANUMERIC_REGEX = Regex("[^a-z0-9]+")
+    private val NON_ALPHANUMERIC_REGEX = Regex("[^\\p{L}\\p{N}]+")
     private val WHITESPACE_REGEX = Regex("\\s+")
     private val FEATURED_ARTIST_TITLE_SUFFIX_REGEX = Regex("""\b(feat|ft|featuring)\b.*$""")
     private val EDITION_NOISE_WORD_REGEX = Regex("""\b(explicit|clean|remaster|remastered|version|audio|official)\b""")
@@ -1299,11 +1299,10 @@ object TidalAudioProvider {
         val candidateDurationMs = track.durationMs
         if (wantedDurationMs != null && candidateDurationMs != null) {
             val diffSeconds = abs(wantedDurationMs - candidateDurationMs) / 1000L
-            if (diffSeconds > 45) return REJECT_SCORE
+            if (diffSeconds > 12) return REJECT_SCORE
             score += when {
                 diffSeconds <= 3 -> 36
                 diffSeconds <= 8 -> 18
-                diffSeconds <= 20 -> 4
                 else -> -50
             }
         }
@@ -2705,7 +2704,7 @@ object TidalAudioProvider {
         value
             .split(' ')
             .map { it.trim() }
-            .filter { it.length >= 2 && it !in STOP_WORDS }
+            .filter { it.length >= 1 && it !in STOP_WORDS }
             .toSet()
 
     private fun tokenOverlap(
@@ -2834,5 +2833,9 @@ object TidalAudioProvider {
             "slowed",
             "nightcore",
             "karaoke",
+            "cover",
+            "instrumental",
+            "music box",
+            "orchestral",
         )
 }
