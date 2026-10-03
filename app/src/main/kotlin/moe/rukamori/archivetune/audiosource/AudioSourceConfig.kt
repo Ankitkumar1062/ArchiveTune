@@ -152,10 +152,10 @@ object TitleMatch {
         if (delimiterSplit.size > 1) {
             segments.addAll(delimiterSplit)
         }
-        val parenRegex = Regex("""[([（【](.*?)[)\]）】]""")
+        val parenRegex = Regex("""\((.*?)\)|\[(.*?)\]|（(.*?)）|【(.*?)】""")
         parenRegex.findAll(raw).forEach { matchResult ->
-            val inside = matchResult.groupValues[1].trim()
-            if (inside.isNotEmpty()) {
+            val inside = matchResult.groupValues.drop(1).firstOrNull { it.isNotEmpty() }?.trim()
+            if (!inside.isNullOrEmpty()) {
                 segments.add(inside)
             }
         }
