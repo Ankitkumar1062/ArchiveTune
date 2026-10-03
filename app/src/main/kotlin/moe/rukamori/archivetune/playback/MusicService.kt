@@ -9299,57 +9299,30 @@ class MusicService :
         knownContentLength: Long?,
         includePlayerCache: Boolean = true,
     ): DataSpec? {
-        val requestedLength =
-            when {
-                dataSpec.length > 0L -> {
-                    dataSpec.length
-                }
-
-                knownContentLength != null && knownContentLength > dataSpec.position -> {
-                    knownContentLength - dataSpec.position
-                }
-
-                else -> {
-                    // No known content length and no explicit request length.
-                    // For offline playback of fully-downloaded songs whose
-                    // cache metadata never had the content length persisted,
-                    // compute the total cached byte range across all candidate
-                    // keys and use that as the requested length. Without it, the
-                    // resolver returns null here, falls through to the YouTube
-                    // resolver, and fails offline.
-                    val candidateKeys = DownloadSourceConfig.cacheKeysFor(mediaId)
-                    val maxCachedLength =
-                        candidateKeys.maxOfOrNull { key ->
-                            runCatching {
-                                val spans = downloadCache.getCachedSpans(key).toList() +
-                                    (if (includePlayerCache) playerCache.getCachedSpans(key).toList() else emptyList())
-                                if (spans.isEmpty()) {
-                                    0L
-                                } else {
-                                    // Sum up the total cached bytes starting from
-                                    // dataSpec.position. For a fully-downloaded
-                                    // song, this equals the content length.
-                                    val sortedSpans = spans.sortedBy { it.position }
-                                    var total = 0L
-                                    var cursor = dataSpec.position
-                                    for (span in sortedSpans) {
-                                        if (span.position > cursor) break
-                                        val spanEnd = span.position + span.length
-                                        if (spanEnd > cursor) {
-                                            total += (spanEnd - cursor)
-                                            cursor = spanEnd
-                                        }
-                                    }
-                                    total
-                                }
-                            }.getOrDefault(0L)
+        val readWindow =
+            resolveCachedReadWindow(
+                position = dataSpec.position,
+                requestedLength = dataSpec.length,
+                knownContentLength = knownContentLength,
+            ) {
+                DownloadSourceConfig.cacheKeysFor(mediaId).maxOfOrNull { key ->
+                    runCatching {
+                        val spans = downloadCache.getCachedSpans(key).toList() +
+                            (if (includePlayerCache) playerCache.getCachedSpans(key).toList() else emptyList())
+                        var total = 0L
+                        var cursor = dataSpec.position
+                        for (span in spans.sortedBy { it.position }) {
+                            if (span.position > cursor) break
+                            val spanEnd = span.position + span.length
+                            if (spanEnd > cursor) {
+                                total += (spanEnd - cursor)
+                                cursor = spanEnd
+                            }
                         }
-                    if (maxCachedLength == null || maxCachedLength <= 0L) {
-                        return null
-                    }
-                    maxCachedLength
-                }
-            }
+                        total
+                    }.getOrDefault(0L)
+                } ?: 0L
+            } ?: return null
 
         // Find the first key (every download source's prefix, then the bare mediaId, as
         // DownloadSourceConfig.cacheKeysFor orders them) that has the requested byte range fully
@@ -9361,24 +9334,40 @@ class MusicService :
         // this replaces skipped qobuz_backup: and jiosaavn:, so those downloads never played
         // offline.
         val candidateKeys = DownloadSourceConfig.cacheKeysFor(mediaId)
-        val matchingKey = candidateKeys.firstOrNull { key ->
-            getContinuousCachedLengthForKey(
-                key = key,
-                position = dataSpec.position,
-                requestedLength = requestedLength,
-                includePlayerCache = includePlayerCache,
-            ) >= requestedLength
-        } ?: return null
+        val (matchingKey, matchingWindow) =
+            candidateKeys.firstNotNullOfOrNull { key ->
+                val keyWindow =
+                    recordedContentLength(key, includePlayerCache)
+                        ?.let { readWindow.coveringRecordedLength(it, explicitRequest = dataSpec.length > 0L) }
+                        ?: readWindow
+                val cachedLength =
+                    getContinuousCachedLengthForKey(
+                        key = key,
+                        position = keyWindow.position,
+                        requestedLength = keyWindow.length,
+                        includePlayerCache = includePlayerCache,
+                    )
+                if (cachedLength >= keyWindow.length) key to keyWindow else null
+            } ?: return null
 
-        // DataSpec.Builder has no subrange() method (subrange() is defined
-        // on the DataSpec data class, not on its Builder). Use the Builder
-        // equivalents setPosition() / setLength() to scope the cached
-        // request to the bytes that are actually present.
         return dataSpec.buildUpon()
             .setKey(matchingKey)
-            .setPosition(0L)
-            .setLength(requestedLength)
+            .setPosition(matchingWindow.position)
+            .setLength(matchingWindow.length)
             .build()
+    }
+
+    private fun recordedContentLength(
+        key: String,
+        includePlayerCache: Boolean,
+    ): Long? {
+        val caches = if (includePlayerCache) listOf(downloadCache, playerCache) else listOf(downloadCache)
+        return caches
+            .mapNotNull { cache ->
+                runCatching { cache.getContentMetadata(key).get(ContentMetadata.KEY_CONTENT_LENGTH, -1L) }
+                    .getOrNull()
+                    ?.takeIf { it > 0L }
+            }.maxOrNull()
     }
 
     /**
