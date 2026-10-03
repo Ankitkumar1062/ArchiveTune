@@ -207,6 +207,7 @@ jobs:
           if [ "${{ matrix.automix }}" = "true" ]; then
             EXTRA_ARGS="-Pautomix=true"
             VARIANT_SUFFIX="-automix"
+          fi
           echo "gradle_extra=${EXTRA_ARGS}" >> "$GITHUB_OUTPUT"
           echo "gradle_task=assemble${DISTRIBUTION_CAP}${DEVICE_CAP}${ABI_CAP}Release" >> "$GITHUB_OUTPUT"
           # Canary asset name expected by the updater's Canary channel.
