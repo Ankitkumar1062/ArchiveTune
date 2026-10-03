@@ -1652,6 +1652,7 @@ private fun AppleMusicControlsColumn(
     val swipeUpThreshold = 120f
     val swipeActivationThreshold = 72f
     val (swipeUpToOpenQueue) = rememberPreference(SwipeUpToOpenQueueKey, defaultValue = true)
+    val seekSkip = rememberSeekSkip(playerConnection)
     val resetSwipeUp = remember {
         {
             if (swipeUpAccumulated != 0f) swipeUpAccumulated = 0f
@@ -1788,12 +1789,21 @@ private fun AppleMusicControlsColumn(
         // chip (Lossless / AAC / OPUS) centered, -remaining on the right.
         // The chip is tappable and opens the song-detail bottom sheet.
         Box(Modifier.fillMaxWidth()) {
-            Text(
-                text = makeTimeString(sliderPosition ?: currentPosition),
-                style = MaterialTheme.typography.labelMedium,
-                color = Color.White.copy(alpha = 0.55f),
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.align(Alignment.CenterStart),
-            )
+            ) {
+                Text(
+                    text = makeTimeString(sliderPosition ?: currentPosition),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.White.copy(alpha = 0.55f),
+                )
+                SeekSkipButton(
+                    seekSkip = seekSkip,
+                    forward = false,
+                    tint = Color.White.copy(alpha = 0.7f),
+                )
+            }
             if (currentFormat != null) {
                 AppleMusicQualityChip(
                     currentFormat = currentFormat,
@@ -1801,12 +1811,21 @@ private fun AppleMusicControlsColumn(
                     modifier = Modifier.align(Alignment.Center),
                 )
             }
-            Text(
-                text = "-" + makeTimeString((duration - (sliderPosition ?: currentPosition)).coerceAtLeast(0L)),
-                style = MaterialTheme.typography.labelMedium,
-                color = Color.White.copy(alpha = 0.55f),
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.align(Alignment.CenterEnd),
-            )
+            ) {
+                SeekSkipButton(
+                    seekSkip = seekSkip,
+                    forward = true,
+                    tint = Color.White.copy(alpha = 0.7f),
+                )
+                Text(
+                    text = "-" + makeTimeString((duration - (sliderPosition ?: currentPosition)).coerceAtLeast(0L)),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.White.copy(alpha = 0.55f),
+                )
+            }
         }
     }
 

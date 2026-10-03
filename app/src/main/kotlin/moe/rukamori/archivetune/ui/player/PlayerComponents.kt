@@ -877,20 +877,32 @@ fun PlayerTimeLabel(
     showRemainingTime: Boolean = false,
     centerContent: @Composable (() -> Unit)? = null,
 ) {
+    val seekSkip = rememberSeekSkip()
     Box(
         modifier =
             Modifier
                 .fillMaxWidth()
                 .padding(horizontal = PlayerHorizontalPadding + 4.dp),
     ) {
-        Text(
-            text = makeTimeString(sliderPosition ?: position),
-            style = MaterialTheme.typography.labelMedium,
-            color = textBackgroundColor,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.align(Alignment.CenterStart),
-        )
+        ) {
+            Text(
+                text = makeTimeString(sliderPosition ?: position),
+                style = MaterialTheme.typography.labelMedium,
+                color = textBackgroundColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (seekSkip != null) {
+                SeekSkipButton(
+                    seekSkip = seekSkip,
+                    forward = false,
+                    tint = textBackgroundColor.copy(alpha = 0.75f),
+                )
+            }
+        }
 
         if (centerContent != null) {
             Box(
@@ -901,24 +913,35 @@ fun PlayerTimeLabel(
             }
         }
 
-        Text(
-            text =
-                if (duration != C.TIME_UNSET) {
-                    if (showRemainingTime) {
-                        val remaining = duration - (sliderPosition ?: position)
-                        "-${makeTimeString(remaining.coerceAtLeast(0))}"
-                    } else {
-                        makeTimeString(duration)
-                    }
-                } else {
-                    ""
-                },
-            style = MaterialTheme.typography.labelMedium,
-            color = textBackgroundColor,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.align(Alignment.CenterEnd),
-        )
+        ) {
+            if (seekSkip != null) {
+                SeekSkipButton(
+                    seekSkip = seekSkip,
+                    forward = true,
+                    tint = textBackgroundColor.copy(alpha = 0.75f),
+                )
+            }
+            Text(
+                text =
+                    if (duration != C.TIME_UNSET) {
+                        if (showRemainingTime) {
+                            val remaining = duration - (sliderPosition ?: position)
+                            "-${makeTimeString(remaining.coerceAtLeast(0))}"
+                        } else {
+                            makeTimeString(duration)
+                        }
+                    } else {
+                        ""
+                    },
+                style = MaterialTheme.typography.labelMedium,
+                color = textBackgroundColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
@@ -2665,6 +2688,7 @@ private fun V8PlaybackProgress(
 ) {
     val safeDuration = if (duration <= 0L || duration == C.TIME_UNSET) 0f else duration.toFloat()
     val safeValue = (sliderPosition ?: position).toFloat().coerceIn(0f, safeDuration.coerceAtLeast(0f))
+    val seekSkip = rememberSeekSkip()
 
     Column(modifier = Modifier.fillMaxWidth()) {
         V8FlatSlider(
@@ -2685,14 +2709,25 @@ private fun V8PlaybackProgress(
                     .fillMaxWidth()
                     .padding(top = 8.dp),
         ) {
-            Text(
-                text = makeTimeString(sliderPosition ?: position),
-                style = MaterialTheme.typography.labelMedium,
-                color = foreground,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.align(Alignment.CenterStart),
-            )
+            ) {
+                Text(
+                    text = makeTimeString(sliderPosition ?: position),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = foreground,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (seekSkip != null) {
+                    SeekSkipButton(
+                        seekSkip = seekSkip,
+                        forward = false,
+                        tint = foreground.copy(alpha = 0.8f),
+                    )
+                }
+            }
 
             if (currentFormat != null) {
                 V8QualityChip(
@@ -2702,14 +2737,25 @@ private fun V8PlaybackProgress(
                 )
             }
 
-            Text(
-                text = if (duration != C.TIME_UNSET) makeTimeString(duration) else "",
-                style = MaterialTheme.typography.labelMedium,
-                color = foreground,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.align(Alignment.CenterEnd),
-            )
+            ) {
+                if (seekSkip != null) {
+                    SeekSkipButton(
+                        seekSkip = seekSkip,
+                        forward = true,
+                        tint = foreground.copy(alpha = 0.8f),
+                    )
+                }
+                Text(
+                    text = if (duration != C.TIME_UNSET) makeTimeString(duration) else "",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = foreground,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }
@@ -3551,6 +3597,7 @@ private fun V9PlaybackProgress(
     val safeDuration = if (duration <= 0L || duration == C.TIME_UNSET) 0f else duration.toFloat()
     val safeRange = 0f..safeDuration.coerceAtLeast(1f)
     val safeValue = (sliderPosition ?: position).toFloat().coerceIn(safeRange)
+    val seekSkip = rememberSeekSkip()
     val sliderColors =
         SliderDefaults.colors(
             thumbColor = activeColor,
@@ -3589,22 +3636,44 @@ private fun V9PlaybackProgress(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = makeTimeString(sliderPosition ?: position),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = textColor.copy(alpha = 0.78f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = if (duration != C.TIME_UNSET) makeTimeString(duration) else "",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = textColor.copy(alpha = 0.78f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = makeTimeString(sliderPosition ?: position),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = textColor.copy(alpha = 0.78f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (seekSkip != null) {
+                    SeekSkipButton(
+                        seekSkip = seekSkip,
+                        forward = false,
+                        tint = textColor.copy(alpha = 0.78f),
+                        buttonSize = 40.dp,
+                        iconSize = 24.dp,
+                    )
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (seekSkip != null) {
+                    SeekSkipButton(
+                        seekSkip = seekSkip,
+                        forward = true,
+                        tint = textColor.copy(alpha = 0.78f),
+                        buttonSize = 40.dp,
+                        iconSize = 24.dp,
+                    )
+                }
+                Text(
+                    text = if (duration != C.TIME_UNSET) makeTimeString(duration) else "",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = textColor.copy(alpha = 0.78f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }

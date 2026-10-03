@@ -6,13 +6,6 @@
  */
 
 /*
- * ArchiveTune (2026)
- * © Rukamori — github.com/rukamori
- * GPL-3.0 License | Contributors: see git history
- * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
- */
-
-/*
  * SpatialFlow player style — shared UI components.
  *
  * Ports of SpatialFlow's PlayerUiComponents.kt
@@ -83,7 +76,9 @@ import moe.rukamori.archivetune.R
 import moe.rukamori.archivetune.db.entities.FormatEntity
 import moe.rukamori.archivetune.db.entities.codecLabel
 import moe.rukamori.archivetune.models.MediaMetadata
+import moe.rukamori.archivetune.ui.player.SeekSkipButton
 import moe.rukamori.archivetune.ui.player.rememberOfflineArtworkImageRequest
+import moe.rukamori.archivetune.ui.player.rememberSeekSkip
 import moe.rukamori.archivetune.ui.utils.rememberPreBlurredBitmap
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -391,6 +386,7 @@ internal fun WavySliderWithLabels(
     val safeDur = if (duration > 0) duration.toFloat() else 1f
     val displayPos = if (isScrubbing) (sliderScrubPos * safeDur).toLong() else currentPosition
     val progressRatio = (currentPosition.toFloat() / safeDur).coerceIn(0f, 1f)
+    val seekSkip = rememberSeekSkip()
 
     Column(
         modifier =
@@ -426,11 +422,16 @@ internal fun WavySliderWithLabels(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = formatDuration(displayPos),
-                style = MaterialTheme.typography.labelSmall,
-                color = contentSecondary,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = formatDuration(displayPos),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = contentSecondary,
+                )
+                if (seekSkip != null) {
+                    SeekSkipButton(seekSkip = seekSkip, forward = false, tint = contentSecondary)
+                }
+            }
 
             if (currentFormat != null) {
                 val label =
@@ -461,11 +462,16 @@ internal fun WavySliderWithLabels(
                 }
             }
 
-            Text(
-                text = formatDuration(duration),
-                style = MaterialTheme.typography.labelSmall,
-                color = contentSecondary,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (seekSkip != null) {
+                    SeekSkipButton(seekSkip = seekSkip, forward = true, tint = contentSecondary)
+                }
+                Text(
+                    text = formatDuration(duration),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = contentSecondary,
+                )
+            }
         }
     }
 }

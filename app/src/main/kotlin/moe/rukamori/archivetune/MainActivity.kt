@@ -248,8 +248,6 @@ import moe.rukamori.archivetune.constants.DynamicThemeKey
 import moe.rukamori.archivetune.constants.EnableHapticFeedbackKey
 import moe.rukamori.archivetune.constants.EnablePipModeKey
 import moe.rukamori.archivetune.constants.EnableVideoPlaybackKey
-import moe.rukamori.archivetune.constants.FloatingNavigationBarBottomPadding
-import moe.rukamori.archivetune.constants.FloatingNavigationBarHorizontalPadding
 import moe.rukamori.archivetune.constants.FontPreferenceKey
 import moe.rukamori.archivetune.constants.HasPressedStarKey
 import moe.rukamori.archivetune.constants.HideStatusBarKey
@@ -263,10 +261,8 @@ import moe.rukamori.archivetune.constants.MiniPlayerBottomSpacing
 import moe.rukamori.archivetune.constants.MiniPlayerHeight
 import moe.rukamori.archivetune.constants.MiniPlayerLastAnchorKey
 import moe.rukamori.archivetune.constants.NavigationBarAnimationSpec
-import moe.rukamori.archivetune.constants.NavigationBarBottomPadding
 import moe.rukamori.archivetune.constants.NavigationBarFrostedBlurKey
 import moe.rukamori.archivetune.constants.NavigationBarHeight
-import moe.rukamori.archivetune.constants.NavigationBarHorizontalPadding
 import moe.rukamori.archivetune.constants.NavigationBarStyle
 import moe.rukamori.archivetune.constants.NavigationBarStyleKey
 import moe.rukamori.archivetune.constants.NavigationBarHideOnScrollKey
@@ -324,6 +320,7 @@ import moe.rukamori.archivetune.ui.component.IconButton
 import moe.rukamori.archivetune.ui.component.LocalBottomSheetPageState
 import moe.rukamori.archivetune.ui.component.LocalLiquidGlassBackdrop
 import moe.rukamori.archivetune.ui.component.LocalMenuState
+import moe.rukamori.archivetune.ui.component.LocalNavigationBarHiddenByScroll
 import moe.rukamori.archivetune.ui.component.LocalNavigationBarBackdrop
 import moe.rukamori.archivetune.ui.component.MarkdownText
 import moe.rukamori.archivetune.ui.component.NavigationBarBackdrop
@@ -334,6 +331,8 @@ import moe.rukamori.archivetune.ui.component.SearchSourcePicker
 import moe.rukamori.archivetune.ui.component.StarDialog
 import moe.rukamori.archivetune.ui.component.TopSearch
 import moe.rukamori.archivetune.ui.component.TvNavigationRail
+import moe.rukamori.archivetune.ui.component.pillBottomInset
+import moe.rukamori.archivetune.ui.component.pillHorizontalInset
 import moe.rukamori.archivetune.ui.component.rememberAppleMusicExperience
 import moe.rukamori.archivetune.ui.component.rememberBottomSheetState
 import moe.rukamori.archivetune.ui.component.shimmer.ShimmerTheme
@@ -1540,8 +1539,7 @@ class MainActivity : ComponentActivity() {
                     // Every consumer below (collapsed player anchor, slide distance, insets, FAB
                     // padding) derives from these two values so the styles stay in sync.
                     val isFloatingNavBar = navigationBarStyle == NavigationBarStyle.FLOATING
-                    val floatingBarsBottomPadding =
-                        if (isFloatingNavBar) FloatingNavigationBarBottomPadding else NavigationBarBottomPadding
+                    val floatingBarsBottomPadding = navigationBarStyle.pillBottomInset
                     // Task 6: respect the user's navigation bar height multiplier so the bottom
                     // sheet anchor and the rendered bar stay aligned.
                     val (navBarHeightMultiplier) = rememberPreference(
@@ -1549,8 +1547,7 @@ class MainActivity : ComponentActivity() {
                         defaultValue = moe.rukamori.archivetune.constants.NAVIGATION_BAR_HEIGHT_DEFAULT,
                     )
                     val navVisibleHeight = NavigationBarHeight * navBarHeightMultiplier
-                    val navBarHorizontalPadding =
-                        if (isFloatingNavBar) FloatingNavigationBarHorizontalPadding else NavigationBarHorizontalPadding
+                    val navBarHorizontalPadding = navigationBarStyle.pillHorizontalInset
 
                     // Frosted backdrop (nav bar + mini player + tablet rail): allocated whenever
                     // any frosted surface can run (RenderEffect available). The bottom toolbar and
@@ -2196,6 +2193,8 @@ class MainActivity : ComponentActivity() {
                         LocalPlayerConnection provides playerConnection,
                         LocalListenTogetherManager provides listenTogetherManager,
                         LocalPlayerAwareWindowInsets provides playerAwareWindowInsets,
+                        LocalNavigationBarHiddenByScroll provides
+                            (navigationBarHiddenByScroll && shouldShowNavigationBar && !useRail),
                         LocalStableSystemBarsTopPadding provides effectiveStatusBarTop,
                         LocalDownloadUtil provides downloadUtil,
                         LocalShimmerTheme provides ShimmerTheme,

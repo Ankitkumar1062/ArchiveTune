@@ -1487,7 +1487,14 @@ fun AppearanceSectionSettings(
                     EnumListPreference(
                         modifier = positions.modifierFor("search_bar_position"),
                         title = { Text(stringResource(R.string.search_bar_position)) },
-                        description = stringResource(R.string.search_bar_position_desc),
+                        description =
+                            stringResource(
+                                if (searchBarPosition == SearchBarPosition.BOTTOM) {
+                                    R.string.search_bar_position_bottom_desc
+                                } else {
+                                    R.string.search_bar_position_desc
+                                },
+                            ),
                         icon = { Icon(painterResource(R.drawable.search), null) },
                         selectedValue = searchBarPosition,
                         onValueSelected = onSearchBarPositionChange,

@@ -12,12 +12,15 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -44,6 +47,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyListState
@@ -81,6 +85,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -100,11 +105,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import coil3.compose.AsyncImage
+import moe.rukamori.archivetune.LocalAnimationsDisabled
 import moe.rukamori.archivetune.LocalPlayerAwareWindowInsets
 import moe.rukamori.archivetune.LocalPlayerConnection
 import moe.rukamori.archivetune.R
+import moe.rukamori.archivetune.constants.NavigationBarAnimationSpec
 import moe.rukamori.archivetune.constants.DefaultSearchSourceKey
 import moe.rukamori.archivetune.constants.HideSearchChromeWhileScrollingKey
+import moe.rukamori.archivetune.constants.NavigationBarHeight
 import moe.rukamori.archivetune.constants.SearchBarPosition
 import moe.rukamori.archivetune.constants.SearchBarPositionKey
 import moe.rukamori.archivetune.constants.SearchProvider
@@ -120,6 +128,9 @@ import moe.rukamori.archivetune.models.toMediaMetadata
 import moe.rukamori.archivetune.playback.queues.YouTubeQueue
 import moe.rukamori.archivetune.search.SearchDiscoveryUiModel
 import moe.rukamori.archivetune.ui.component.LocalMenuState
+import moe.rukamori.archivetune.ui.component.LocalNavigationBarHiddenByScroll
+import moe.rukamori.archivetune.ui.component.PillRole
+import moe.rukamori.archivetune.ui.component.PillStyle
 import moe.rukamori.archivetune.ui.component.YouTubeGridItem
 import moe.rukamori.archivetune.ui.component.YouTubeListItem
 import moe.rukamori.archivetune.ui.component.shimmer.ShimmerHost
@@ -135,6 +146,7 @@ import moe.rukamori.archivetune.viewmodels.SearchHistoryViewModel
 import moe.rukamori.archivetune.utils.rememberEnumPreference
 import moe.rukamori.archivetune.utils.rememberPreference
 import moe.rukamori.archivetune.ui.component.rememberAppleMusicExperience
+import moe.rukamori.archivetune.ui.component.rememberPillStyle
 
 private val SearchHorizontalPadding = 24.dp
 private val SearchSectionSpacing = 28.dp
@@ -143,7 +155,7 @@ private val SearchSegmentedCornerRadius = 28.dp
 private val ExpressiveSearchBarHeight = 58.dp
 private val ExpressiveSearchBarCornerRadius = 28.dp
 private val AppleSearchBarHeight = 48.dp
-private val BottomSearchChromeSpace = ExpressiveSearchBarHeight + 24.dp
+private val BottomSearchPillMargin = 12.dp
 private const val SearchChromeScrollThreshold = 6f
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -167,6 +179,9 @@ fun SearchScreen(
     val recentSearches by historyViewModel.recentSearches.collectAsStateWithLifecycle()
     val lazyListState = listState ?: rememberLazyListState()
     val appleMusicStyle = rememberAppleMusicExperience()
+    val pill = rememberPillStyle()
+    val bottomSearchChromeSpace =
+        (if (appleMusicStyle) AppleSearchBarHeight else ExpressiveSearchBarHeight) + BottomSearchPillMargin * 2
     val searchBarPosition by rememberEnumPreference(SearchBarPositionKey, SearchBarPosition.TOP)
     val hideSearchBarWhileScrolling by rememberPreference(HideSearchChromeWhileScrollingKey, defaultValue = false)
     val searchBarAtBottom = searchBarPosition == SearchBarPosition.BOTTOM
@@ -192,6 +207,12 @@ fun SearchScreen(
             !searchBarScrolledAway ||
             WindowInsets.isImeVisible ||
             !lazyListState.canScrollBackward
+    val followHiddenNavigationBar = LocalNavigationBarHiddenByScroll.current && !WindowInsets.isImeVisible
+    val navigationBarLowering by animateDpAsState(
+        targetValue = if (followHiddenNavigationBar) NavigationBarHeight + pill.bottomInset else 0.dp,
+        animationSpec = if (LocalAnimationsDisabled.current) snap() else NavigationBarAnimationSpec,
+        label = "bottomSearchPillLowering",
+    )
     val safeTopPadding = WindowInsets.safeDrawing.asPaddingValues().calculateTopPadding()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val scrollToTop =
@@ -232,7 +253,7 @@ fun SearchScreen(
                     top = maxOf(LocalPlayerAwareWindowInsets.current.asPaddingValues().calculateTopPadding(), safeTopPadding),
                     bottom =
                         LocalPlayerAwareWindowInsets.current.asPaddingValues().calculateBottomPadding() +
-                            if (searchBarAtBottom) BottomSearchChromeSpace else 0.dp,
+                            if (searchBarAtBottom) bottomSearchChromeSpace else 0.dp,
                     start = LocalPlayerAwareWindowInsets.current.asPaddingValues().calculateLeftPadding(LayoutDirection.Ltr),
                     end = LocalPlayerAwareWindowInsets.current.asPaddingValues().calculateRightPadding(LayoutDirection.Ltr),
                 ),
@@ -435,24 +456,34 @@ fun SearchScreen(
                 modifier =
                     Modifier
                         .align(Alignment.BottomCenter)
+                        .graphicsLayer { translationY = navigationBarLowering.toPx() }
                         .fillMaxWidth()
                         .windowInsetsPadding(
                             LocalPlayerAwareWindowInsets.current
                                 .union(WindowInsets.ime)
                                 .only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal),
-                        ).padding(horizontal = SearchHorizontalPadding, vertical = 12.dp),
+                        ),
             ) {
-                SearchEntryField(
-                    query = searchQuery,
-                    onQueryChange = { searchQuery = it },
-                    onSearch = onSearchQuery,
-                    onVoiceSearch = onVoiceSearch,
-                    searchScope = SearchSource.ONLINE,
-                    searchProvider = searchProvider,
-                    onSourceSelection = onSearchSourceSelection,
-                    appleMusicStyle = appleMusicStyle,
-                    floating = true,
-                )
+                Box(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = pill.horizontalInset, vertical = BottomSearchPillMargin),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    SearchEntryField(
+                        query = searchQuery,
+                        onQueryChange = { searchQuery = it },
+                        onSearch = onSearchQuery,
+                        onVoiceSearch = onVoiceSearch,
+                        searchScope = SearchSource.ONLINE,
+                        searchProvider = searchProvider,
+                        onSourceSelection = onSearchSourceSelection,
+                        appleMusicStyle = appleMusicStyle,
+                        pill = pill,
+                        modifier = Modifier.widthIn(max = pill.maxWidth),
+                    )
+                }
             }
         }
     }
@@ -470,16 +501,23 @@ private fun SearchEntryField(
     onSourceSelection: (SearchSource, SearchProvider) -> Unit,
     appleMusicStyle: Boolean,
     modifier: Modifier = Modifier,
-    floating: Boolean = false,
+    pill: PillStyle? = null,
 ) {
     val colors = MaterialTheme.colorScheme
     val containerColor =
         when {
+            pill != null -> pill.raisedContainerColor
             !appleMusicStyle -> colors.surfaceContainerHigh
-            floating -> colors.surfaceContainerHighest.copy(alpha = 0.94f)
             else -> colors.onSurface.copy(alpha = 0.08f)
         }
-    val shape = if (appleMusicStyle) CircleShape else RoundedCornerShape(ExpressiveSearchBarCornerRadius)
+    val shape =
+        remember(pill, appleMusicStyle) {
+            when {
+                pill != null -> pill.shape(PillRole.STANDALONE)
+                appleMusicStyle -> CircleShape
+                else -> RoundedCornerShape(ExpressiveSearchBarCornerRadius)
+            }
+        }
     val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
     val onSurface = MaterialTheme.colorScheme.onSurface
     val primary = MaterialTheme.colorScheme.primary
@@ -491,9 +529,10 @@ private fun SearchEntryField(
             modifier
                 .fillMaxWidth()
                 .height(if (appleMusicStyle) AppleSearchBarHeight else ExpressiveSearchBarHeight)
-                .then(if (floating) Modifier.shadow(if (appleMusicStyle) 12.dp else 6.dp, shape) else Modifier)
+                .then(if (pill != null) Modifier.shadow(pill.shadowElevation, shape) else Modifier)
                 .clip(shape)
-                .background(containerColor),
+                .background(containerColor)
+                .then(pill?.border?.let { Modifier.border(it, shape) } ?: Modifier),
     ) {
         Icon(
             painter = painterResource(if (appleMusicStyle) R.drawable.search else R.drawable.solar_magnifer_linear),

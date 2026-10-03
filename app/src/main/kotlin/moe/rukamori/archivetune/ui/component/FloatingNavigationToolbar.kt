@@ -18,7 +18,6 @@ import androidx.compose.animation.core.EaseOut
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.LocalIndication
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -43,7 +42,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBarDefaults
 import androidx.compose.material3.ShortNavigationBar
 import androidx.compose.material3.ShortNavigationBarArrangement
 import androidx.compose.material3.ShortNavigationBarItem
@@ -84,8 +82,6 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -99,7 +95,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.util.fastCoerceIn
 import androidx.compose.ui.util.lerp
 import kotlinx.coroutines.Dispatchers
@@ -111,26 +106,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import moe.rukamori.archivetune.utils.ImageBlurUtils
 import moe.rukamori.archivetune.constants.DisableAnimationsKey
-import moe.rukamori.archivetune.constants.FloatingBarJunctionCornerRadius
-import moe.rukamori.archivetune.constants.FloatingBarOuterCornerRadius
-import moe.rukamori.archivetune.constants.FloatingBarStandaloneCornerRadius
-import moe.rukamori.archivetune.constants.FloatingNavigationBarMaxWidth
 import moe.rukamori.archivetune.constants.HideNavigationBarLabelsKey
-import moe.rukamori.archivetune.constants.NAVIGATION_BAR_CORNER_RADIUS_DEFAULT
 import moe.rukamori.archivetune.constants.NAVIGATION_BAR_HEIGHT_DEFAULT
 import moe.rukamori.archivetune.constants.NAVIGATION_BAR_LABEL_SPACING_DEFAULT
-import moe.rukamori.archivetune.constants.NAVIGATION_BAR_OPACITY_DEFAULT
-import moe.rukamori.archivetune.constants.NAVIGATION_BAR_TRANSPARENCY_DEFAULT
-import moe.rukamori.archivetune.constants.NAVIGATION_BAR_WIDTH_DEFAULT
-import moe.rukamori.archivetune.constants.NavigationBarCornerRadiusKey
 import moe.rukamori.archivetune.constants.NavigationBarHeight
 import moe.rukamori.archivetune.constants.NavigationBarHeightKey
 import moe.rukamori.archivetune.constants.NavigationBarLabelSpacingKey
-import moe.rukamori.archivetune.constants.NavigationBarMaxWidth
-import moe.rukamori.archivetune.constants.NavigationBarOpacityKey
 import moe.rukamori.archivetune.constants.NavigationBarStyle
-import moe.rukamori.archivetune.constants.NavigationBarTransparencyKey
-import moe.rukamori.archivetune.constants.NavigationBarWidthKey
 import moe.rukamori.archivetune.ui.screens.Screens
 import moe.rukamori.archivetune.utils.rememberPreference
 import com.kyant.backdrop.backdrops.LayerBackdrop
@@ -164,20 +146,6 @@ private val NavigationItemVerticalPadding = 8.dp
 
 private val SukiSUBarHeight = 64.dp
 private val SukiSUItemPadding = 4.dp // applied to the items Row on ALL sides (matches SukiSU's Row.padding(4.dp))
-
-// Frosted nav-bar backdrop blur radius, in px (RenderEffect works in raw pixels).
-private const val FrostedNavBarBlurRadiusPx = 60f
-
-// How much of the blurred backdrop shows through the opaque bar. The bar is always drawn on a
-// fully opaque surface and the blurred content is composited on top at this alpha, so page
-// brightness can only ever modulate the bar by this fraction — it reads the same over any screen,
-// and if the backdrop layer has nothing under the bar the result is simply a solid bar.
-private const val FrostedNavBarOverlayAlpha = 0.30f
-
-// The tint-frosted variant uses a DARK TRANSLUCENT base (Color.Black at 55% alpha) instead of
-// an opaque surface, so a higher overlay alpha lets more of the blurred app content show through
-// the dark tint — the "tinted glass" look (dark, translucent, with visible frosted blur).
-private const val TintFrostedNavBarOverlayAlpha = 0.45f
 
 // The sliding pill wraps just the icon (like the stock indicator), so the label sits below it,
 // outside the bubble. These are the standard Material3 active-indicator dimensions.
@@ -221,18 +189,10 @@ fun FloatingNavigationToolbar(
     val isAppleMusic = style == NavigationBarStyle.APPLE_MUSIC
     // Navigation bar customization. Read directly here so the toolbar picks up the user's
     // tuning without the call site needing to thread 6 extra params.
-    val (navBarWidthFraction) =
-        rememberPreference(NavigationBarWidthKey, defaultValue = NAVIGATION_BAR_WIDTH_DEFAULT)
     val (navBarHeightMultiplier) =
         rememberPreference(NavigationBarHeightKey, defaultValue = NAVIGATION_BAR_HEIGHT_DEFAULT)
-    val (navBarOpacity) =
-        rememberPreference(NavigationBarOpacityKey, defaultValue = NAVIGATION_BAR_OPACITY_DEFAULT)
-    val (navBarTransparency) =
-        rememberPreference(NavigationBarTransparencyKey, defaultValue = NAVIGATION_BAR_TRANSPARENCY_DEFAULT)
     val (navBarLabelSpacing) =
         rememberPreference(NavigationBarLabelSpacingKey, defaultValue = NAVIGATION_BAR_LABEL_SPACING_DEFAULT)
-    val (navBarCornerRadius) =
-        rememberPreference(NavigationBarCornerRadiusKey, defaultValue = NAVIGATION_BAR_CORNER_RADIUS_DEFAULT)
     val isPreS = Build.VERSION.SDK_INT < Build.VERSION_CODES.S
     // Either frosted variant enables backdrop blur. The tint variant additionally tints the
     // bar surface with the accent (primary) color so the frost reads as a colored glass.
@@ -258,66 +218,20 @@ fun FloatingNavigationToolbar(
     val miniPlayerProximity by remember(miniPlayerProximityProvider) {
         derivedStateOf { miniPlayerProximityProvider().coerceIn(0f, 1f) }
     }
+    val pill =
+        rememberPillStyle(
+            style = style,
+            pureBlack = pureBlack,
+            frostedBlur = frostedBlur,
+            tintFrostedBlur = tintFrostedBlur,
+            liquidGlass = liquidGlass,
+            frostedBackdropAvailable = frostedBackdrop != null,
+            liquidGlassBackdropAvailable = liquidGlassBackdrop != null,
+        )
     val navigationShape =
-        if (canLiquidGlass) {
-            RoundedCornerShape(percent = 50)
-        } else {
-            remember(isFloating, isAppleMusic, navBarCornerRadius, miniPlayerProximity) {
-                when {
-                    // Apple Music's tab bar is a floating, rounded bar inset from the edges — the
-                    // reference separates it from the content on all four sides, which is why it
-                    // keeps the hairline border below.
-                    isAppleMusic -> RoundedCornerShape(navBarCornerRadius.dp)
-                    // A detached pill keeps the user-configurable corner radius (default 28 dp).
-                    isFloating -> RoundedCornerShape(navBarCornerRadius.dp)
-                    // Docked under the mini player: top corners pinch toward the junction
-                    // radius while the bottom corners keep the outer radius, continuous in
-                    // the sheet's proximity to collapsed.
-                    else ->
-                        RoundedCornerShape(
-                            topStart = lerp(FloatingBarStandaloneCornerRadius, FloatingBarJunctionCornerRadius, miniPlayerProximity),
-                            topEnd = lerp(FloatingBarStandaloneCornerRadius, FloatingBarJunctionCornerRadius, miniPlayerProximity),
-                            bottomStart = lerp(FloatingBarStandaloneCornerRadius, FloatingBarOuterCornerRadius, miniPlayerProximity),
-                            bottomEnd = lerp(FloatingBarStandaloneCornerRadius, FloatingBarOuterCornerRadius, miniPlayerProximity),
-                        )
-                }
-            }
-        }
-    val primary = MaterialTheme.colorScheme.primary
-    val tintedSchemeIsDark = pureBlack || MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val tintedBase =
-        if (tintedSchemeIsDark) lerp(Color.Black, primary, 0.30f) else lerp(Color.White, primary, 0.26f)
-    val tintedContent = if (tintedSchemeIsDark) Color.White else lerp(primary, Color.Black, 0.55f)
-    val navigationContainerColor =
-        if (canLiquidGlass) {
-            // Liquid glass surface — transparent so the LiquidGlassShader tint shows through.
-            Color.Transparent
-        } else if (canBlurBackdrop) {
-            // Pure black still needs some surface under the blur, or the frost is invisible.
-            if (tintFrostedBlur) {
-                tintedBase.copy(alpha = 0.85f)
-            } else if (pureBlack) {
-                Color.Black.copy(alpha = 0.45f)
-            } else {
-                MaterialTheme.colorScheme.surfaceContainer
-            }
-        } else if (tintFrostedBlur) {
-            tintedBase
-        } else if (pureBlack) {
-            Color.Black
-        } else if (isAppleMusic) {
-            // Apple Music's tab bar is a translucent material over the content rather than an
-            // opaque slab, which is what keeps the mini player above it reading as one surface.
-            MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.92f)
-        } else {
-            // Apply user-configured opacity (always) and transparency (only when no frosted
-            // variant is active — when frosted blur is on, the frost overlay already provides
-            // the see-through effect and adding transparency here would double-count).
-            val baseColor = MaterialTheme.colorScheme.surfaceContainer
-            val effectiveAlpha =
-                navBarOpacity * (1f - navBarTransparency)
-            baseColor.copy(alpha = effectiveAlpha.coerceIn(0.05f, 1f))
-        }
+        remember(pill, miniPlayerProximity) { pill.shape(PillRole.NAVIGATION_BAR, miniPlayerProximity) }
+    val tintedContent = pill.tintedContent
+    val navigationContainerColor = pill.containerColor
     val motionScheme = MaterialTheme.motionScheme
     val (disableAnimations) = rememberPreference(DisableAnimationsKey, defaultValue = false)
     val (hideNavigationBarLabelsPreference) =
@@ -573,25 +487,8 @@ fun FloatingNavigationToolbar(
         Box(
             modifier =
                 Modifier
-                    .widthIn(max = if (isFloating || isAppleMusic) FloatingNavigationBarMaxWidth else NavigationBarMaxWidth)
-                    .fillMaxWidth(
-                        when {
-                            // Apple Music's bar is inset, but only slightly: its five labels have to
-                            // fit, so the floating style's 0.8 default (which is a fraction for a
-                            // four-item bar) would squash them. A stored fraction still applies
-                            // upwards, so someone who wants it wider gets it.
-                            // An untouched slider keeps that wide look; a width the user picked
-                            // is honoured (the old 0.9 floor made the slider do nothing, #169).
-                            isAppleMusic ->
-                                if (navBarWidthFraction == NAVIGATION_BAR_WIDTH_DEFAULT) {
-                                    0.94f
-                                } else {
-                                    navBarWidthFraction.coerceIn(0.6f, 1f)
-                                }
-                            isFloating -> navBarWidthFraction.coerceIn(0.5f, 1f)
-                            else -> 1f
-                        },
-                    )
+                    .widthIn(max = pill.maxWidth)
+                    .fillMaxWidth(pill.widthFraction)
                     .height(resolvedBarHeight),
             contentAlignment = Alignment.CenterStart,
         ) {
@@ -622,11 +519,9 @@ fun FloatingNavigationToolbar(
                     ),
             shape = navigationShape,
             color = navigationContainerColor,
-            // The Apple Music bar separates itself from the content with a hairline rather than
-            // elevation; with a full-width rectangle the other three sides sit off-screen.
-            border = if (isAppleMusic) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant) else null,
-            tonalElevation = if (canLiquidGlass) 0.dp else NavigationBarDefaults.Elevation,
-            shadowElevation = if (canLiquidGlass) 0.dp else if (isFloating) 8.dp else NavigationBarDefaults.Elevation,
+            border = pill.border,
+            tonalElevation = if (canLiquidGlass) 0.dp else pill.tonalElevation,
+            shadowElevation = if (canLiquidGlass) 0.dp else pill.shadowElevation,
         ) {
             if (canBlurBackdrop && frostedBackdrop != null) {
                 if (isPreS) {
@@ -634,12 +529,12 @@ fun FloatingNavigationToolbar(
                         backdrop = frostedBackdrop,
                         barPositionInRoot = barPositionInRoot,
                         barSize = barSize,
-                        blurRadiusPx = FrostedNavBarBlurRadiusPx,
+                        blurRadiusPx = PillFrostBlurRadiusPx,
                         updateIntervalMs = if (LocalContext.current.isLowEndDevice()) 160L else 80L,
                     )
                     if (blurredBitmap != null) {
                         // Match the S+ path's conditional overlay alpha (see the comment below).
-                        val preSOverlayAlpha = if (tintFrostedBlur) TintFrostedNavBarOverlayAlpha else FrostedNavBarOverlayAlpha
+                        val preSOverlayAlpha = if (tintFrostedBlur) PillTintFrostOverlayAlpha else PillFrostOverlayAlpha
                         Box(
                             modifier =
                                 Modifier
@@ -653,7 +548,7 @@ fun FloatingNavigationToolbar(
                         )
                     }
                 } else {
-                    val frostedOverlayAlpha = if (tintFrostedBlur) TintFrostedNavBarOverlayAlpha else FrostedNavBarOverlayAlpha
+                    val frostedOverlayAlpha = if (tintFrostedBlur) PillTintFrostOverlayAlpha else PillFrostOverlayAlpha
                     Box(
                         modifier =
                             Modifier
@@ -661,8 +556,8 @@ fun FloatingNavigationToolbar(
                                 .graphicsLayer {
                                     renderEffect =
                                         BlurEffect(
-                                            radiusX = FrostedNavBarBlurRadiusPx,
-                                            radiusY = FrostedNavBarBlurRadiusPx,
+                                            radiusX = PillFrostBlurRadiusPx,
+                                            radiusY = PillFrostBlurRadiusPx,
                                             edgeTreatment = TileMode.Clamp,
                                         )
                                     alpha = frostedOverlayAlpha

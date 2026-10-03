@@ -5,13 +5,6 @@
  * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
  */
 
-/*
- * ArchiveTune (2026)
- * © Rukamori — github.com/rukamori
- * GPL-3.0 License | Contributors: see git history
- * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
- */
-
 package moe.rukamori.archivetune.ui.player
 
 import android.content.Context
@@ -565,20 +558,28 @@ fun V10PlayerContent(
                         )
                     }
 
+                    val seekSkip = rememberSeekSkip(playerConnection)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = formatEditorialTime(displayedProgress.coerceAtLeast(0L)),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = accent.copy(alpha = 0.8f)
-                        )
-                        Text(
-                            text = formatEditorialTime(duration.coerceAtLeast(0L)),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = accent.copy(alpha = 0.8f)
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = formatEditorialTime(displayedProgress.coerceAtLeast(0L)),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = accent.copy(alpha = 0.8f)
+                            )
+                            SeekSkipButton(seekSkip = seekSkip, forward = false, tint = accent.copy(alpha = 0.8f))
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            SeekSkipButton(seekSkip = seekSkip, forward = true, tint = accent.copy(alpha = 0.8f))
+                            Text(
+                                text = formatEditorialTime(duration.coerceAtLeast(0L)),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = accent.copy(alpha = 0.8f)
+                            )
+                        }
                     }
                 }
             }

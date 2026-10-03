@@ -83,6 +83,8 @@ import moe.rukamori.archivetune.canvas.CanvasVideo
 import moe.rukamori.archivetune.ui.player.CanvasArtworkPlayer
 import moe.rukamori.archivetune.ui.player.rememberOfflineArtworkImageRequest
 import moe.rukamori.archivetune.utils.makeTimeString
+import moe.rukamori.archivetune.ui.player.SeekSkipButton
+import moe.rukamori.archivetune.ui.player.rememberSeekSkip
 
 private val ImmersiveContentColor = Color.White
 private val ImmersiveSecondaryContentColor = Color.White.copy(alpha = 0.7f)
@@ -621,6 +623,7 @@ private fun ProgressSection(
 ) {
     val displayPosition = model.seekPositionMs ?: model.positionMs
     val valueRange = remember(model.durationMs) { 0L..model.durationMs.coerceAtLeast(1L) }
+    val seekSkip = rememberSeekSkip()
     ThinProgressSlider(
         value = displayPosition,
         valueRange = valueRange,
@@ -637,6 +640,9 @@ private fun ProgressSection(
             color = ImmersiveSecondaryContentColor,
             style = MaterialTheme.typography.bodyMedium,
         )
+        if (seekSkip != null) {
+            SeekSkipButton(seekSkip = seekSkip, forward = false, tint = ImmersiveSecondaryContentColor)
+        }
         Spacer(modifier = Modifier.weight(1f))
         if (showCodecOnPlayer && model.formatDetails.isNotBlank()) {
             Icon(
@@ -652,6 +658,9 @@ private fun ProgressSection(
                 modifier = Modifier.padding(start = 5.dp),
             )
             Spacer(modifier = Modifier.weight(1f))
+        }
+        if (seekSkip != null) {
+            SeekSkipButton(seekSkip = seekSkip, forward = true, tint = ImmersiveSecondaryContentColor)
         }
         Text(
             text = stringResource(R.string.remaining_time, makeTimeString((model.durationMs - displayPosition).coerceAtLeast(0L))),
