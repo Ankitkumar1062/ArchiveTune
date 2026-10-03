@@ -424,6 +424,7 @@ fun HistoryScreen(
                         topPadding = topPadding,
                         headerContent = historySourceDock,
                         sections = spotifyHistorySections,
+                        navController = navController,
                         isLoading = spotifyHistoryLoading,
                         errorMessage = spotifyHistory.errorMessage,
                         dateAgoToString = dateAgoToString,
@@ -1470,6 +1471,7 @@ private fun SpotifyHistoryFeed(
     topPadding: Dp,
     headerContent: @Composable () -> Unit,
     sections: Map<DateAgo, List<SpotifySearchItem.Track>>,
+    navController: NavController,
     isLoading: Boolean,
     errorMessage: String?,
     dateAgoToString: (DateAgo) -> String,
@@ -1532,7 +1534,7 @@ private fun SpotifyHistoryFeed(
                         lastIndex = tracks.lastIndex,
                         modifier = Modifier.animateItem(),
                     ) { _ ->
-                        SpotifyPlayableRow(item = track)
+                        SpotifyPlayableRow(item = track, navController = navController)
                     }
                 }
             }

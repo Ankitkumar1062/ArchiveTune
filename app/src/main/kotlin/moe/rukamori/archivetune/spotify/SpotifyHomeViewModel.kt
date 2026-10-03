@@ -5,12 +5,6 @@
  * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
  */
 
-/*
- * YumaPlayer (2026) | Modified work by MuwMx
- * ArchiveTune (2026) | Original work by © Rukamori
- * GPL-3.0 License | Contributors: see git history
- */
-
 package moe.rukamori.archivetune.spotify
 
 import androidx.lifecycle.ViewModel
@@ -37,7 +31,6 @@ import kotlinx.coroutines.launch
 import moe.rukamori.archivetune.R
 import moe.rukamori.archivetune.innertube.YouTube
 import moe.rukamori.archivetune.innertube.models.AlbumItem
-import moe.rukamori.archivetune.innertube.models.ArtistItem
 import moe.rukamori.archivetune.innertube.models.SongItem
 import moe.rukamori.archivetune.innertube.models.YTItem
 import moe.rukamori.archivetune.spotify.models.SpotifyTrack
@@ -172,25 +165,18 @@ class SpotifyHomeViewModel @Inject constructor(
                 }
             }
             is SpotifyHomeAction.AlbumClick -> resolveSelection("album:${action.id}") {
-                val query = listOfNotNull(action.name, action.artist)
-                    .filter(String::isNotBlank)
-                    .joinToString(" ")
-                when (
-                    val target =
-                        resolveSpotifyRelease(
-                            query = query,
-                            searchAlbum = { searchYouTubeCatalogItem<AlbumItem>(it, YouTube.SearchFilter.FILTER_ALBUM) },
-                            searchSong = { searchYouTubeCatalogItem<SongItem>(it, YouTube.SearchFilter.FILTER_SONG) },
-                        )
-                ) {
+                when (val target = resolveSpotifyAlbumTarget(action.id, action.name, action.artist)) {
                     is SpotifyReleaseTarget.AlbumPage -> SpotifyHomeNavigationEvent.OpenAlbum(target.browseId)
                     is SpotifyReleaseTarget.Song -> SpotifyHomeNavigationEvent.PlaySong(target.song)
+                    is SpotifyReleaseTarget.SpotifyTracks ->
+                        SpotifyHomeNavigationEvent.PlayTracks(
+                            SpotifyTracksQueue(title = action.name, initialTracks = target.tracks),
+                        )
                     null -> null
                 }
             }
             is SpotifyHomeAction.ArtistClick -> resolveSelection("artist:${action.id}") {
-                searchYouTubeCatalogItem<ArtistItem>(action.name, YouTube.SearchFilter.FILTER_ARTIST)
-                    ?.let { SpotifyHomeNavigationEvent.OpenArtist(it.id) }
+                resolveSpotifyArtistId(action.name)?.let { SpotifyHomeNavigationEvent.OpenArtist(it) }
             }
         }
     }
@@ -211,7 +197,7 @@ class SpotifyHomeViewModel @Inject constructor(
         _resolvingItemKey.value = key
         selectionJob = viewModelScope.launch {
             try {
-                val event = withTimeoutOrNull(20_000L) {
+                val event = withTimeoutOrNull(SPOTIFY_CATALOG_RESOLVE_TIMEOUT_MS) {
                     withContext(Dispatchers.IO) { resolve() }
                 }
                 currentCoroutineContext().ensureActive()
@@ -455,22 +441,32 @@ internal sealed interface SpotifyReleaseTarget {
      * "no result found" for a track that plays fine everywhere else (#160).
      */
     data class Song(val song: SongItem) : SpotifyReleaseTarget
+
+    /**
+     * YouTube Music indexes neither the album nor its song under this name, but Spotify's own
+     * track list for the release is known: play those through the Spotify-to-YouTube resolver.
+     */
+    data class SpotifyTracks(val tracks: List<SpotifyTrack>) : SpotifyReleaseTarget
 }
 
 /**
  * Resolves a tapped Spotify release: its album page when YouTube Music has one (found through the
  * album index, or through the song index's album link), otherwise the song itself. The song index
- * is asked at most once.
+ * is asked at most once; [spotifyTracks] is the last resort when it finds nothing either.
  */
 internal suspend fun resolveSpotifyRelease(
     query: String,
     searchAlbum: suspend (String) -> AlbumItem?,
     searchSong: suspend (String) -> SongItem?,
+    spotifyTracks: suspend () -> List<SpotifyTrack> = { emptyList() },
 ): SpotifyReleaseTarget? {
     searchAlbum(query)?.browseId?.takeIf(String::isNotBlank)?.let { return SpotifyReleaseTarget.AlbumPage(it) }
-    val song = searchSong(query) ?: return null
-    song.album?.id?.takeIf(String::isNotBlank)?.let { return SpotifyReleaseTarget.AlbumPage(it) }
-    return SpotifyReleaseTarget.Song(song)
+    val song = searchSong(query)
+    if (song != null) {
+        song.album?.id?.takeIf(String::isNotBlank)?.let { return SpotifyReleaseTarget.AlbumPage(it) }
+        return SpotifyReleaseTarget.Song(song)
+    }
+    return spotifyTracks().takeIf { it.isNotEmpty() }?.let { SpotifyReleaseTarget.SpotifyTracks(it) }
 }
 
 /**
